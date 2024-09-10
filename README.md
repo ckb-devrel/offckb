@@ -198,7 +198,7 @@ You can create a new script project without a frontend. This is useful when you 
 offckb create <your-project-name> --script
 ```
 
-Note: you need to have rust/cargo/cargo-generate/clang 16+ installed in your environment to use this command. offckb doesn't do anything really, it just call [ckb-script-template](https://github.com/cryptape/ckb-script-tempaltes) to do all the magic.
+Note: you need to have rust/cargo/cargo-generate/clang 16+ installed in your environment to use this command. offckb doesn't do anything really, it just call [ckb-script-template](https://github.com/cryptape/ckb-script-templates) to do all the magic.
 
 ### Build and Deploy a script
 
@@ -299,7 +299,7 @@ Or you can replace the script with a binary file in your single cell script debu
 offckb debug <transaction-hash> --single-script <single-cell-script-option> --bin <path/to/binary/file>
 ```
 
-All the debug utils are borrowed from [ckb-debugger](https://github.com/nervosnetwork/ckb-debugger).
+All the debug utils are borrowed from [ckb-debugger](https://github.com/nervosnetwork/ckb-standalone-debugger/tree/develop/ckb-debugger).
 
 ### Generate Moleculec bindings
 
