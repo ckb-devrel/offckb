@@ -76,6 +76,7 @@ program
   .command('deposit [toAddress] [amountInCKB]')
   .description('Deposit CKB tokens to address, only devnet and testnet')
   .option('--network <network>', 'Specify the network to deposit to', 'devnet')
+  .option('-r, --proxy-rpc', 'Use Proxy RPC to connect to blockchain')
   .action(async (toAddress: string, amountInCKB: string, options: DepositOptions) => {
     return deposit(toAddress, amountInCKB, options);
   });
@@ -84,7 +85,8 @@ program
   .command('transfer [toAddress] [amountInCKB]')
   .description('Transfer CKB tokens to address, only devnet and testnet')
   .option('--network <network>', 'Specify the network to transfer to', 'devnet')
-  .option('--privkey <privkey>', 'Specify the private key to deploy scripts')
+  .option('--privkey <privkey>', 'Specify the private key to transfer CKB')
+  .option('-r, --proxy-rpc', 'Use Proxy RPC to connect to blockchain')
   .action(async (toAddress: string, amountInCKB: string, options: TransferOptions) => {
     return transfer(toAddress, amountInCKB, options);
   });
@@ -94,6 +96,7 @@ program
   .description('Transfer All CKB tokens to address, only devnet and testnet')
   .option('--network <network>', 'Specify the network to transfer to', 'devnet')
   .option('--privkey <privkey>', 'Specify the private key to deploy scripts')
+  .option('-r, --proxy-rpc', 'Use Proxy RPC to connect to blockchain')
   .action(async (toAddress: string, options: TransferOptions) => {
     return transferAll(toAddress, options);
   });
@@ -113,6 +116,7 @@ program
   .option('--target <target>', 'Specify the relative bin target folder to deploy to')
   .option('-t, --type-id', 'Specify if use upgradable type id to deploy the script')
   .option('--privkey <privkey>', 'Specify the private key to deploy scripts')
+  .option('-r, --proxy-rpc', 'Use Proxy RPC to connect to blockchain')
   .action((options: DeployOptions) => deploy(options));
 
 program
