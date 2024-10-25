@@ -35,7 +35,7 @@ export default function Home() {
             for off-chain Javascript frontend framework
           </li>
           <li>
-            <a href="https://github.com/ckb-ecofund/ccc" target="_blank" rel="noopener noreferrer">
+            <a href="https://github.com/ckb-devrel/ccc" target="_blank" rel="noopener noreferrer">
               CCC
             </a>{' '}
             for CKB wallet connector

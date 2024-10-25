@@ -365,7 +365,7 @@ detail informations about each account are recorded in the `account/account.json
 
 ## About CCC
 
-`offckb` uses [CCC](https://github.com/ckb-ecofund/ccc) as the development framework to build the CKB dApp template projects.
+`offckb` uses [CCC](https://github.com/ckb-devrel/ccc) as the development framework to build the CKB dApp template projects.
 
 ## FAQ
 
