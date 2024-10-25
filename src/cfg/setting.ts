@@ -107,7 +107,7 @@ export const defaultSettings: Settings = {
     contractsPath: path.resolve(dataPath, 'mainnet/contracts'),
   },
   dappTemplate: {
-    gitRepoUrl: `https://github.com/ckb-ecofund/offckb`,
+    gitRepoUrl: `https://github.com/ckb-devrel/offckb`,
     gitBranch: 'v0.3.x',
     gitFolder: 'templates/v3',
     downloadPath: path.resolve(cachePath, 'download', 'dapp-template'),

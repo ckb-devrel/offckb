@@ -6,7 +6,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ckb-ecofund/offckb.git"
+    "url": "git+https://github.com/ckb-devrel/offckb.git"
   },
   "main": "dist/cli.js",
   "bin": {
