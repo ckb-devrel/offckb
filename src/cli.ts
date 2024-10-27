@@ -20,6 +20,7 @@ import { proxyRpc, ProxyRpcOptions } from './cmd/proxy-rpc';
 import { molFiles, molSingleFile } from './cmd/mol';
 import * as fs from 'fs';
 import { transferAll } from './cmd/transfer-all';
+import { repl } from './cmd/repl';
 
 const version = require('../package.json').version;
 const description = require('../package.json').description;
@@ -169,6 +170,13 @@ program
     }
     return molSingleFile(option.schema, option.output, option.lang);
   });
+
+program
+  .command('repl')
+  .description('A custom Nodejs REPL environment bundle for CKB.')
+  .option('--network <network>', 'Specify the network to deploy to', 'devnet')
+  .option('-r, --proxy-rpc', 'Use Proxy RPC to connect to blockchain')
+  .action(repl);
 
 program.parse(process.argv);
 
