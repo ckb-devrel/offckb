@@ -8,6 +8,7 @@ import * as tar from 'tar';
 import { Request } from '../util/request';
 import { getCKBBinaryInstallPath, getCKBBinaryPath, readSettings } from '../cfg/setting';
 import { encodeBinPathForTerminal } from '../util/encoding';
+import CPUFeatures from 'cpu-features';
 
 export async function installCKBBinary(version: string) {
   const ckbBinPath = getCKBBinaryPath(version);
@@ -58,6 +59,7 @@ export async function downloadCKBBinaryAndUnzip(version: string) {
 
 export async function downloadAndSaveCKBBinary(version: string, tempFilePath: string) {
   const downloadURL = buildDownloadUrl(version);
+  console.log(`downloading ${downloadURL} ..`);
   const response = await Request.send(downloadURL);
   const arrayBuffer = await response.arrayBuffer();
   fs.writeFileSync(tempFilePath, Buffer.from(arrayBuffer));
@@ -148,9 +150,24 @@ function getExtension(): 'tar.gz' | 'zip' {
   return 'zip';
 }
 
+function isPortable(): boolean {
+  const features = CPUFeatures();
+  if (features.arch === 'x86') {
+    const flags = features.flags as CPUFeatures.X86CpuFlags;
+    // if lacks any of the following instruction, use portable binary
+    return !(flags.avx2 && flags.sse4_2 && flags.bmi2 && flags.pclmulqdq);
+  }
+  return false;
+}
+
 export function buildDownloadUrl(version: string, opt: { os?: string; arch?: string; ext?: string } = {}): string {
   const os = opt.os || getOS();
   const arch = opt.arch || getArch();
   const extension = opt.ext || getExtension();
-  return `https://github.com/nervosnetwork/ckb/releases/download/v${version}/ckb_v${version}_${arch}-${os}.${extension}`;
+
+  if (isPortable()) {
+    return `https://github.com/nervosnetwork/ckb/releases/download/v${version}/ckb_v${version}_${arch}-${os}-portable.${extension}`;
+  } else {
+    return `https://github.com/nervosnetwork/ckb/releases/download/v${version}/ckb_v${version}_${arch}-${os}.${extension}`;
+  }
 }
