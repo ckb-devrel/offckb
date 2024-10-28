@@ -1,6 +1,6 @@
 {
   "name": "@offckb/cli",
-  "version": "0.3.0-rc6",
+  "version": "0.3.0-rc7",
   "description": "ckb development network for your first try",
   "author": "CKB EcoFund",
   "license": "MIT",

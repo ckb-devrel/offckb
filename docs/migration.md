@@ -14,3 +14,4 @@
 3. `debug`
 4. `mol`
 5. `transfer-all`
+6. `repl`
