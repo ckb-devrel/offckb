@@ -29,12 +29,10 @@ export async function installCKBBinary(version: string) {
 }
 
 export async function downloadCKBBinaryAndUnzip(version: string) {
-  const arch = getArch();
-  const osname = getOS();
-  const ext = getExtension();
-  const ckbVersionOSName = `ckb_v${version}_${arch}-${osname}`;
+  const ckbPackageName = buildCKBGithubReleasePackageName(version);
   try {
-    const tempFilePath = path.join(os.tmpdir(), `${ckbVersionOSName}.${ext}`);
+    const ext = getExtension();
+    const tempFilePath = path.join(os.tmpdir(), `${ckbPackageName}.${ext}`);
     await downloadAndSaveCKBBinary(version, tempFilePath);
 
     // Unzip the file
@@ -42,7 +40,7 @@ export async function downloadCKBBinaryAndUnzip(version: string) {
     await unZipFile(tempFilePath, extractDir, ext === 'tar.gz');
 
     // Install the extracted files
-    const sourcePath = path.join(extractDir, ckbVersionOSName);
+    const sourcePath = path.join(extractDir, ckbPackageName);
     const targetPath = getCKBBinaryInstallPath(version);
     if (fs.existsSync(targetPath)) {
       fs.rmdirSync(targetPath, { recursive: true });
@@ -160,14 +158,33 @@ function isPortable(): boolean {
   return false;
 }
 
-export function buildDownloadUrl(version: string, opt: { os?: string; arch?: string; ext?: string } = {}): string {
+function buildCKBGithubReleasePackageName(version: string, opt: { os?: string; arch?: string } = {}) {
+  const os = opt.os || getOS();
+  const arch = opt.arch || getArch();
+
+  if (isPortable()) {
+    return `ckb_v${version}_${arch}-${os}-portable`;
+  } else {
+    return `ckb_v${version}_${arch}-${os}`;
+  }
+}
+
+function buildCKBGithubReleasePackageNameWithExtension(
+  version: string,
+  opt: { os?: string; arch?: string; ext?: string } = {},
+): string {
   const os = opt.os || getOS();
   const arch = opt.arch || getArch();
   const extension = opt.ext || getExtension();
 
   if (isPortable()) {
-    return `https://github.com/nervosnetwork/ckb/releases/download/v${version}/ckb_v${version}_${arch}-${os}-portable.${extension}`;
+    return `ckb_v${version}_${arch}-${os}-portable.${extension}`;
   } else {
-    return `https://github.com/nervosnetwork/ckb/releases/download/v${version}/ckb_v${version}_${arch}-${os}.${extension}`;
+    return `ckb_v${version}_${arch}-${os}.${extension}`;
   }
+}
+
+export function buildDownloadUrl(version: string, opt: { os?: string; arch?: string; ext?: string } = {}): string {
+  const fullPackageName = buildCKBGithubReleasePackageNameWithExtension(version, opt);
+  return `https://github.com/nervosnetwork/ckb/releases/download/v${version}/${fullPackageName}`;
 }
