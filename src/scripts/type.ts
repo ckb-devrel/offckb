@@ -1,4 +1,4 @@
-import { DepType, HashType, ScriptLike } from '@ckb-ccc/core';
+import { DepType, HashType } from '@ckb-ccc/core';
 
 export enum SystemScriptName {
   secp256k1_blake160_sighash_all = 'secp256k1_blake160_sighash_all',
@@ -27,7 +27,11 @@ export interface ScriptInfo {
       };
       depType: DepType;
     };
-    type?: ScriptLike;
+    type?: {
+      codeHash: `0x${string}`;
+      hashType: HashType;
+      args: `0x${string}`;
+    };
   }[];
 }
 
