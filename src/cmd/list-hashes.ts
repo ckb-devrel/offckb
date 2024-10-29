@@ -29,12 +29,12 @@ export interface ListHashes {
   offckb: SpecHashes;
 }
 
-export async function listHashes(version?: string) {
-  const output = getListHashes(version);
+export async function printDevnetListHashes(version?: string) {
+  const output = getDevnetListHashes(version);
   console.log(output);
 }
 
-export function getListHashes(version?: string): string | null {
+export function getDevnetListHashes(version?: string): string | null {
   const settings = readSettings();
   const ckbVersion = version || settings.bins.defaultCKBVersion;
   const ckbBinPath = encodeBinPathForTerminal(getCKBBinaryPath(ckbVersion));

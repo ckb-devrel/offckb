@@ -1,62 +1,21 @@
-import { SystemScriptsRecord } from './type';
+import { ScriptInfo, SystemScriptsRecord } from './type';
+import { TESTNET_SCRIPTS } from '@ckb-ccc/core/advanced';
+import { MAINNET_SCRIPTS } from '@ckb-ccc/core/advanced';
 
 // spore: https://github.com/sporeprotocol/spore-contract/blob/master/docs/VERSIONS.md
 
 export const TESTNET_SYSTEM_SCRIPTS: SystemScriptsRecord = {
   secp256k1_blake160_sighash_all: {
     name: 'secp256k1_blake160_sighash_all',
-    script: {
-      codeHash: '0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8',
-      hashType: 'type',
-      cellDeps: [
-        {
-          cellDep: {
-            outPoint: {
-              txHash: '0xf8de3bb47d055cdf460d93a2a6e1b05f7432f9777c8c474abf4eec1d4aee5d37',
-              index: 0,
-            },
-            depType: 'depGroup',
-          },
-        },
-      ],
-    },
+    script: TESTNET_SCRIPTS.Secp256k1Blake160 as unknown as ScriptInfo,
   },
   dao: {
     name: 'dao',
-    script: {
-      codeHash: '0x82d76d1b75fe2fd9a27dfbaa65a039221a380d76c926f378d3f81cf3e7e13f2e',
-      hashType: 'type',
-      cellDeps: [
-        {
-          cellDep: {
-            outPoint: {
-              txHash: '0x8f8c79eb6671709633fe6a46de93c0fedc9c1b8a6527a18d3983879542635c9f',
-              index: 2,
-            },
-            depType: 'code',
-          },
-        },
-      ],
-    },
+    script: TESTNET_SCRIPTS.NervosDao as unknown as ScriptInfo,
   },
   secp256k1_blake160_multisig_all: {
     name: 'secp256k1_blake160_multisig_all',
-    file: 'Bundled(specs/cells/secp256k1_blake160_multisig_all)',
-    script: {
-      codeHash: '0x5c5069eb0857efc65e1bca0c07df34c31663b3622fd3876c876320fc9634e2a8',
-      hashType: 'type',
-      cellDeps: [
-        {
-          cellDep: {
-            outPoint: {
-              txHash: '0xf8de3bb47d055cdf460d93a2a6e1b05f7432f9777c8c474abf4eec1d4aee5d37',
-              index: 1,
-            },
-            depType: 'depGroup',
-          },
-        },
-      ],
-    },
+    script: TESTNET_SCRIPTS.Secp256k1Multisig as unknown as ScriptInfo,
   },
   sudt: {
     name: 'sudt',
@@ -78,57 +37,15 @@ export const TESTNET_SYSTEM_SCRIPTS: SystemScriptsRecord = {
   },
   xudt: {
     name: 'xudt',
-    script: {
-      codeHash: '0x25c29dc317811a6f6f3985a7a9ebc4838bd388d19d0feeecf0bcd60f6c0975bb',
-      hashType: 'type',
-      cellDeps: [
-        {
-          cellDep: {
-            outPoint: {
-              txHash: '0xbf6fb538763efec2a70a6a3dcb7242787087e1030c4e7d86585bc63a9d337f5f',
-              index: 0,
-            },
-            depType: 'code',
-          },
-        },
-      ],
-    },
+    script: TESTNET_SCRIPTS.XUdt as unknown as ScriptInfo,
   },
   omnilock: {
     name: 'omnilock',
-    script: {
-      codeHash: '0xf329effd1c475a2978453c8600e1eaf0bc2087ee093c3ee64cc96ec6847752cb',
-      hashType: 'type',
-      cellDeps: [
-        {
-          cellDep: {
-            outPoint: {
-              txHash: '0xec18bf0d857c981c3d1f4e17999b9b90c484b303378e94de1a57b0872f5d4602',
-              index: 0,
-            },
-            depType: 'code',
-          },
-        },
-      ],
-    },
+    script: TESTNET_SCRIPTS.OmniLock as unknown as ScriptInfo,
   },
   anyone_can_pay: {
     name: 'anyone_can_pay',
-    script: {
-      codeHash: '0x3419a1c09eb2567f6552ee7a8ecffd64155cffe0f1796e6e61ec088d740c1356',
-      hashType: 'type',
-      cellDeps: [
-        {
-          cellDep: {
-            outPoint: {
-              txHash: '0xec26b0f85ed839ece5f11c4c4e837ec359f5adc4420410f6453b1f6b60fb96a6',
-              index: 0,
-            },
-            depType: 'depGroup',
-          },
-        },
-      ],
-    },
+    script: TESTNET_SCRIPTS.AnyoneCanPay as unknown as ScriptInfo,
   },
   always_success: undefined,
   spore: {
@@ -226,57 +143,15 @@ export const TESTNET_SYSTEM_SCRIPTS: SystemScriptsRecord = {
 export const MAINNET_SYSTEM_SCRIPTS: SystemScriptsRecord = {
   secp256k1_blake160_sighash_all: {
     name: 'secp256k1_blake160_sighash_all',
-    script: {
-      codeHash: '0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8',
-      hashType: 'type',
-      cellDeps: [
-        {
-          cellDep: {
-            outPoint: {
-              txHash: '0x71a7ba8fc96349fea0ed3a5c47992e3b4084b031a42264a018e0072e8172e46c',
-              index: 0,
-            },
-            depType: 'depGroup',
-          },
-        },
-      ],
-    },
+    script: MAINNET_SCRIPTS.Secp256k1Blake160 as unknown as ScriptInfo,
   },
   dao: {
     name: 'dao',
-    script: {
-      codeHash: '0x82d76d1b75fe2fd9a27dfbaa65a039221a380d76c926f378d3f81cf3e7e13f2e',
-      hashType: 'type',
-      cellDeps: [
-        {
-          cellDep: {
-            outPoint: {
-              txHash: '0xe2fb199810d49a4d8beec56718ba2593b665db9d52299a0f9e6e75416d73ff5c',
-              index: 2,
-            },
-            depType: 'code',
-          },
-        },
-      ],
-    },
+    script: MAINNET_SCRIPTS.NervosDao as unknown as ScriptInfo,
   },
   secp256k1_blake160_multisig_all: {
     name: 'secp256k1_blake160_multisig_all',
-    script: {
-      codeHash: '0x5c5069eb0857efc65e1bca0c07df34c31663b3622fd3876c876320fc9634e2a8',
-      hashType: 'type',
-      cellDeps: [
-        {
-          cellDep: {
-            outPoint: {
-              txHash: '0x71a7ba8fc96349fea0ed3a5c47992e3b4084b031a42264a018e0072e8172e46c',
-              index: 1,
-            },
-            depType: 'depGroup',
-          },
-        },
-      ],
-    },
+    script: MAINNET_SCRIPTS.Secp256k1Multisig as unknown as ScriptInfo,
   },
   sudt: {
     name: 'sudt',
@@ -298,57 +173,15 @@ export const MAINNET_SYSTEM_SCRIPTS: SystemScriptsRecord = {
   },
   xudt: {
     name: 'xudt',
-    script: {
-      codeHash: '0x50bd8d6680b8b9cf98b73f3c08faf8b2a21914311954118ad6609be6e78a1b95',
-      hashType: 'data1',
-      cellDeps: [
-        {
-          cellDep: {
-            outPoint: {
-              txHash: '0xc07844ce21b38e4b071dd0e1ee3b0e27afd8d7532491327f39b786343f558ab7',
-              index: 0,
-            },
-            depType: 'code',
-          },
-        },
-      ],
-    },
+    script: MAINNET_SCRIPTS.XUdt as unknown as ScriptInfo,
   },
   omnilock: {
     name: 'omnilock',
-    script: {
-      codeHash: '0x9b819793a64463aed77c615d6cb226eea5487ccfc0783043a587254cda2b6f26',
-      hashType: 'type',
-      cellDeps: [
-        {
-          cellDep: {
-            outPoint: {
-              txHash: '0xc76edf469816aa22f416503c38d0b533d2a018e253e379f134c3985b3472c842',
-              index: 0,
-            },
-            depType: 'code',
-          },
-        },
-      ],
-    },
+    script: MAINNET_SCRIPTS.OmniLock as unknown as ScriptInfo,
   },
   anyone_can_pay: {
     name: 'anyone_can_pay',
-    script: {
-      codeHash: '0xd369597ff47f29fbc0d47d2e3775370d1250b85140c670e4718af712983a2354',
-      hashType: 'type',
-      cellDeps: [
-        {
-          cellDep: {
-            outPoint: {
-              txHash: '0x4153a2014952d7cac45f285ce9a7c5c0c0e1b21f2d378b82ac1433cb11c25c4d',
-              index: 0,
-            },
-            depType: 'depGroup',
-          },
-        },
-      ],
-    },
+    script: MAINNET_SCRIPTS.AnyoneCanPay as unknown as ScriptInfo,
   },
   always_success: undefined,
   spore: {

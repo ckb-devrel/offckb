@@ -1,13 +1,13 @@
 import * as fs from 'fs';
 import publicScripts from './public';
 import { NetworkMyScripts, NetworkSystemScripts } from './type';
-import { getSystemScriptsFromListHashes } from '../cmd/system-scripts';
+import { getDevnetSystemScriptsFromListHashes } from '../cmd/system-scripts';
 import path from 'path';
 import { Network } from '../type/base';
 import { readUserDeployedScriptsInfo } from './util';
 
 export function genSystemScripts(): NetworkSystemScripts | null {
-  const devnetScripts = getSystemScriptsFromListHashes();
+  const devnetScripts = getDevnetSystemScriptsFromListHashes();
   if (devnetScripts != null) {
     const networkScripts: NetworkSystemScripts = {
       devnet: devnetScripts,

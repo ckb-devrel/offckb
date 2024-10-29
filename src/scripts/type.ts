@@ -27,6 +27,11 @@ export interface ScriptInfo {
       };
       depType: DepType;
     };
+    type?: {
+      codeHash: `0x${string}`;
+      hashType: HashType;
+      args: `0x${string}`;
+    };
   }[];
 }
 
