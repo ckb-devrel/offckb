@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
-import { listHashes } from './cmd/list-hashes';
+import { printDevnetListHashes } from './cmd/list-hashes';
 import { node } from './cmd/node';
 import { accounts } from './cmd/accounts';
 import { clean } from './cmd/clean';
@@ -69,7 +69,7 @@ program.command('accounts').description('Print account list info').action(accoun
 program
   .command('list-hashes [CKB-Version]')
   .description('Use the CKB to list blockchain scripts hashes')
-  .action(listHashes);
+  .action(printDevnetListHashes);
 program.command('inject-config').description('Add offckb.config.ts to your frontend workspace').action(injectConfig);
 program.command('sync-scripts').description('Sync scripts json files in your frontend workspace').action(syncScripts);
 
@@ -149,11 +149,13 @@ program
 
 program
   .command('system-scripts')
-  .option('--export-style <exportStyle>', 'Specify the export format, possible values are lumos and ccc.')
-  .description('Output system scripts of the local devnet')
+  .option('--export-style <exportStyle>', 'Specify the export format, possible values are system, lumos and ccc.')
+  .option('--network <network>', 'Specify the CKB blockchain network', 'devnet')
+  .description('Output system scripts of the CKB blockchain')
   .action(async (option) => {
+    const network = option.network;
     const exportStyle = option.exportStyle;
-    return printSystemScripts(exportStyle);
+    return printSystemScripts({ style: exportStyle, network });
   });
 
 program

@@ -1,9 +1,9 @@
 import { ccc, KnownScript } from '@ckb-ccc/core';
 //todo: extract getSystemScriptsFromListHashes/toCCCKnownScripts from cmd folder
-import { getSystemScriptsFromListHashes, toCCCKnownScripts } from '../cmd/system-scripts';
+import { getDevnetSystemScriptsFromListHashes, toCCCKnownScripts } from '../cmd/system-scripts';
 
 export function buildCCCDevnetKnownScripts() {
-  const devnetSystemScripts = getSystemScriptsFromListHashes();
+  const devnetSystemScripts = getDevnetSystemScriptsFromListHashes();
   if (devnetSystemScripts == null) {
     throw new Error('can not getSystemScriptsFromListHashes in devnet');
   }
