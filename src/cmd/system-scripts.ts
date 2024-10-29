@@ -52,7 +52,7 @@ export function printInSystemStyle(systemScripts: SystemScriptsRecord, network: 
 }
 
 export function printInLumosConfigStyle(scripts: SystemScriptsRecord, network: Network) {
-  const config = toLumosConfig(scripts);
+  const config = toLumosConfig(scripts, network === Network.mainnet ? 'ckb' : 'ckt');
   console.log(`*** CKB ${network.toUpperCase()} System Scripts As LumosConfig ***\n`);
   console.log(JSON.stringify(config, null, 2));
 }
