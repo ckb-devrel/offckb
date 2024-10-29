@@ -26,17 +26,13 @@ export default function Home() {
             <a target="_blank" href="https://remix.run/tutorials/blog" rel="noreferrer">
               remix-vite
             </a>{' '}
-            and{'  '}
-            <a target="_blank" href="https://github.com/ckb-js/lumos" rel="noreferrer">
-              Lumos
-            </a>{' '}
-            for off-chain Javascript frontend framework
+            for Javascript frontend framework
           </li>
           <li>
             <a href="https://github.com/ckb-devrel/ccc" target="_blank" rel="noopener noreferrer">
               CCC
             </a>{' '}
-            for CKB wallet connector
+            for off-chain CKB SDK
           </li>
         </div>
 
