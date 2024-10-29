@@ -19,7 +19,7 @@ export enum SystemScriptName {
 
 export interface ScriptInfo {
   codeHash: `0x${string}`;
-  hashType: 'type' | 'data';
+  hashType: 'type' | 'data' | 'data1';
   cellDeps: {
     cellDep: {
       outPoint: {
@@ -27,6 +27,11 @@ export interface ScriptInfo {
         index: number;
       };
       depType: 'code' | 'dep_group';
+    };
+    type?: {
+      codeHash: `0x${string}`;
+      hashType: 'type' | 'data' | 'data1';
+      args: `0x${string}`;
     };
   }[];
 }
