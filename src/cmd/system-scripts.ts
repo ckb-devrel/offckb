@@ -1,30 +1,44 @@
 import { readSettings } from '../cfg/setting';
-import { getListHashes, ListHashes, SpecHashes, SystemCell } from './list-hashes';
+import { getDevnetListHashes, ListHashes, SpecHashes, SystemCell } from './list-hashes';
 import toml from '@iarna/toml';
 import { CellDepInfoLike, KnownScript, Script } from '@ckb-ccc/core';
 import { ScriptInfo, SystemScript, SystemScriptName, SystemScriptsRecord } from '../scripts/type';
+import { Network, NetworkOption } from '../type/base';
+import { MAINNET_SYSTEM_SCRIPTS, TESTNET_SYSTEM_SCRIPTS } from '../scripts/public';
 
-export type PrintProps = 'lumos' | 'ccc';
+export enum PrintStyle {
+  system = 'system',
+  lumos = 'lumos',
+  ccc = 'ccc',
+}
+export interface PrintProps extends NetworkOption {
+  style?: PrintStyle;
+}
 
-export async function printSystemScripts(props?: PrintProps) {
-  const systemScripts = getSystemScriptsFromListHashes();
-  if (systemScripts) {
-    if (!props) {
-      return printInSystemStyle(systemScripts);
-    }
+export async function printSystemScripts({ style = PrintStyle.system, network = Network.devnet }: PrintProps) {
+  const systemScripts =
+    network === Network.mainnet
+      ? MAINNET_SYSTEM_SCRIPTS
+      : network === Network.testnet
+        ? TESTNET_SYSTEM_SCRIPTS
+        : getDevnetSystemScriptsFromListHashes();
+  if (!systemScripts) return console.log(`SystemScripts is null, ${network}`);
 
-    if (props === 'lumos') {
-      return printInLumosConfigStyle(systemScripts);
-    }
+  if (style === PrintStyle.system) {
+    return printInSystemStyle(systemScripts, network);
+  }
 
-    if (props === 'ccc') {
-      return printInCCCStyle(systemScripts);
-    }
+  if (style === PrintStyle.lumos) {
+    return printInLumosConfigStyle(systemScripts, network);
+  }
+
+  if (style === PrintStyle.ccc) {
+    return printInCCCStyle(systemScripts, network);
   }
 }
 
-export function printInSystemStyle(systemScripts: SystemScriptsRecord) {
-  console.log('*** OffCKB Devnet System Scripts ***\n');
+export function printInSystemStyle(systemScripts: SystemScriptsRecord, network: Network) {
+  console.log(`*** CKB ${network.toUpperCase()} System Scripts ***\n`);
   for (const [name, script] of Object.entries(systemScripts)) {
     console.log(`- name: ${name}`);
     if (script == null) {
@@ -37,21 +51,21 @@ export function printInSystemStyle(systemScripts: SystemScriptsRecord) {
   }
 }
 
-export function printInLumosConfigStyle(scripts: SystemScriptsRecord) {
+export function printInLumosConfigStyle(scripts: SystemScriptsRecord, network: Network) {
   const config = toLumosConfig(scripts);
-  console.log('*** OffCKB Devnet System Scripts As LumosConfig ***\n');
+  console.log(`*** CKB ${network.toUpperCase()} System Scripts As LumosConfig ***\n`);
   console.log(JSON.stringify(config, null, 2));
 }
 
-export function printInCCCStyle(scripts: SystemScriptsRecord) {
+export function printInCCCStyle(scripts: SystemScriptsRecord, network: Network) {
   const knownsScripts = toCCCKnownScripts(scripts);
-  console.log('*** OffCKB Devnet System Scripts As CCC KnownScripts ***\n');
+  console.log(`*** CKB ${network.toUpperCase()} System Scripts As CCC KnownScripts ***\n`);
   console.log(JSON.stringify(knownsScripts, null, 2));
 }
 
-export function getSystemScriptsFromListHashes(): SystemScriptsRecord | null {
+export function getDevnetSystemScriptsFromListHashes(): SystemScriptsRecord | null {
   const settings = readSettings();
-  const listHashesString = getListHashes(settings.bins.defaultCKBVersion);
+  const listHashesString = getDevnetListHashes(settings.bins.defaultCKBVersion);
   if (!listHashesString) {
     console.log(`list-hashes not found!`);
     return null;
