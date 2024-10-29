@@ -2,7 +2,7 @@ import { readSettings } from '../cfg/setting';
 import { getListHashes, ListHashes, SpecHashes, SystemCell } from './list-hashes';
 import toml from '@iarna/toml';
 import { CellDepInfoLike, KnownScript, Script } from '@ckb-ccc/core';
-import { SystemScript, SystemScriptName, SystemScriptsRecord } from '../scripts/type';
+import { ScriptInfo, SystemScript, SystemScriptName, SystemScriptsRecord } from '../scripts/type';
 
 export type PrintProps = 'lumos' | 'ccc';
 
@@ -52,92 +52,119 @@ export function printInCCCStyle(scripts: SystemScriptsRecord) {
 export function getSystemScriptsFromListHashes(): SystemScriptsRecord | null {
   const settings = readSettings();
   const listHashesString = getListHashes(settings.bins.defaultCKBVersion);
-  if (listHashesString) {
-    const listHashes = toml.parse(listHashesString) as unknown as ListHashes;
-    const chainSpecHashes: SpecHashes | null = Object.values(listHashes)[0];
-    if (chainSpecHashes == null) {
-      throw new Error(`invalid chain spec hashes file ${listHashesString}`);
-    }
-    const systemScriptArray = chainSpecHashes.system_cells
-      .map((cell) => {
-        // Extract the file name
-        const name = cell.path.split('/').pop()?.replace(')', '') || 'unknown script';
-        const depGroupIndex = chainSpecHashes.dep_groups.findIndex((depGroup) =>
-          depGroup.included_cells.includes(`Bundled(specs/cells/${name})`),
-        );
-        const depType = depGroupIndex === -1 ? 'code' : 'depGroup';
-        const depGroup =
-          depGroupIndex === -1
-            ? undefined
-            : {
-                txHash: chainSpecHashes.dep_groups[depGroupIndex].tx_hash,
-                index: chainSpecHashes.dep_groups[depGroupIndex].index,
-              };
-        const scriptInfo = systemCellToScriptInfo(cell, depType, depGroup);
-        return {
-          name,
-          file: cell.path,
-          script: scriptInfo,
-        };
-      })
-      .filter((s) => s.name != 'secp256k1_data');
-    const systemScripts: SystemScriptsRecord = systemScriptArray.reduce<SystemScriptsRecord>((acc, item) => {
-      const key = item.name as unknown as SystemScriptName;
-      acc[key] = item as unknown as SystemScript;
-      return acc;
-    }, {} as SystemScriptsRecord);
-    return systemScripts;
-  } else {
+  if (!listHashesString) {
     console.log(`list-hashes not found!`);
     return null;
   }
+
+  const listHashes = toml.parse(listHashesString) as unknown as ListHashes;
+  const chainSpecHashes: SpecHashes | null = Object.values(listHashes)[0];
+  if (chainSpecHashes == null) {
+    throw new Error(`invalid chain spec hashes file ${listHashesString}`);
+  }
+  const systemScriptArray = chainSpecHashes.system_cells
+    .map((cell) => {
+      // Extract the file name
+      const name = cell.path.split('/').pop()?.replace(')', '') || 'unknown script';
+      const depGroupIndex = chainSpecHashes.dep_groups.findIndex((depGroup) =>
+        depGroup.included_cells.includes(`Bundled(specs/cells/${name})`),
+      );
+      const depType = depGroupIndex === -1 ? 'code' : 'depGroup';
+      const depGroup =
+        depGroupIndex === -1
+          ? undefined
+          : {
+              txHash: chainSpecHashes.dep_groups[depGroupIndex].tx_hash,
+              index: chainSpecHashes.dep_groups[depGroupIndex].index,
+            };
+      const scriptInfo = systemCellToScriptInfo({ cell, depType, depGroup });
+      return {
+        name,
+        file: cell.path,
+        script: scriptInfo,
+      };
+    })
+    .filter((s) => s.name != 'secp256k1_data');
+  const systemScripts: SystemScriptsRecord = systemScriptArray.reduce<SystemScriptsRecord>((acc, item) => {
+    const key = item.name as unknown as SystemScriptName;
+    acc[key] = item as unknown as SystemScript;
+    return acc;
+  }, {} as SystemScriptsRecord);
+
+  // some special case fixes
+  // eg: omnilock also requires the deps of secp256k1-sigHashAll
+  systemScripts.omnilock?.script.cellDeps.push(systemScripts.secp256k1_blake160_sighash_all!.script.cellDeps[0]);
+
+  return systemScripts;
 }
 
-export function systemCellToScriptInfo(
-  cell: SystemCell,
-  depType: 'code' | 'depGroup',
+export function systemCellToScriptInfo({
+  cell,
+  depType,
+  depGroup,
+  extraCellDeps,
+}: {
+  cell: SystemCell;
+  depType: 'code' | 'depGroup';
   depGroup?: {
     txHash: string;
     index: number;
-  },
-) {
-  if (depType === 'depGroup' && !depGroup) {
-    throw new Error('require depGroup info since the dep type is depGroup');
-  }
-
+  };
+  extraCellDeps?: ScriptInfo['cellDeps'];
+}): ScriptInfo {
+  // todo: we left the type in cellDepsInfo since it requires async fetching and
+  // chain running to get the full type script of the type-id deps.
+  // Also, in devnet there is no real need to auto upgrade the system scripts with type-id
   if (depType === 'code') {
-    return {
-      codeHash: cell.type_hash || cell.data_hash,
-      hashType: cell.type_hash ? 'type' : 'data1',
-      cellDeps: [
-        {
-          cellDep: {
-            outPoint: {
-              txHash: cell.tx_hash,
-              index: cell.index,
-            },
-            depType,
-          },
-        },
-      ],
-    };
-  }
-
-  return {
-    codeHash: cell.type_hash || cell.data_hash,
-    hashType: cell.type_hash ? 'type' : 'data1',
-    cellDeps: [
+    let cellDeps: ScriptInfo['cellDeps'] = [
       {
         cellDep: {
           outPoint: {
-            txHash: depGroup!.txHash,
+            txHash: cell.tx_hash as `0x${string}`,
+            index: cell.index,
+          },
+          depType,
+        },
+      },
+    ];
+    if (extraCellDeps && extraCellDeps.length > 0) {
+      cellDeps = [...extraCellDeps, ...cellDeps];
+    }
+    return {
+      codeHash: (cell.type_hash || cell.data_hash) as `0x${string}`,
+      hashType: cell.type_hash ? 'type' : 'data1',
+      cellDeps,
+    };
+  }
+
+  if (depType === 'depGroup') {
+    if (!depGroup) {
+      throw new Error('require depGroup info since the dep type is depGroup');
+    }
+
+    let cellDeps: ScriptInfo['cellDeps'] = [
+      {
+        cellDep: {
+          outPoint: {
+            txHash: depGroup!.txHash as `0x${string}`,
             index: depGroup!.index,
           },
           depType,
         },
       },
-    ],
-  };
+    ];
+    if (extraCellDeps && extraCellDeps.length > 0) {
+      cellDeps = [...extraCellDeps, ...cellDeps];
+    }
+
+    return {
+      codeHash: (cell.type_hash || cell.data_hash) as `0x${string}`,
+      hashType: cell.type_hash ? 'type' : 'data1',
+      cellDeps,
+    };
+  }
+
+  throw new Error(`unknown DepType ${depType}`);
 }
 
 export function toLumosConfig(scripts: SystemScriptsRecord, addressPrefix: 'ckb' | 'ckt' = 'ckt') {
