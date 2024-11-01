@@ -1,18 +1,23 @@
 import { copyFileSync } from 'fs';
-import { validateTypescriptWorkspace } from '../util/validator';
-import path from 'path';
+import path, { isAbsolute } from 'path';
 import { genMyScriptsJsonFile, genSystemScriptsJsonFile } from '../scripts/gen';
 import { OffCKBConfigFile } from '../template/offckb-config';
 import { packageRootPath } from '../cfg/setting';
 const version = require('../../package.json').version;
 
-export function injectConfig() {
-  validateTypescriptWorkspace();
+export interface InjectConfigProp {
+  target?: string;
+}
 
+export function injectConfig({ target }: InjectConfigProp) {
   // inject the offckb.config.ts file into users workspace
   // copy config template
+  const userOffCKBConfigPath = target
+    ? isAbsolute(target)
+      ? target
+      : path.resolve(process.cwd(), target)
+    : path.resolve(process.cwd(), 'offckb.config.ts');
   const predefinedOffCKBConfigTsPath = path.resolve(packageRootPath, 'templates/v3/offckb.config.example.ts');
-  const userOffCKBConfigPath = path.resolve(process.cwd(), 'offckb.config.ts');
   copyFileSync(predefinedOffCKBConfigTsPath, userOffCKBConfigPath);
   // update the version in the offckb.config.ts
   OffCKBConfigFile.updateVersion(version, userOffCKBConfigPath);
