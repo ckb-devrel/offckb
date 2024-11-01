@@ -212,10 +212,16 @@ To build the script, in the root of the project, run:
 make build
 ```
 
-To deploy the script, cd into the frontend folder and run:
+To deploy the script, cd into the frontend folder where the default `offckb.config.ts` file is located and run:
 
 ```sh
 cd frontend && offckb deploy --network <devnet/testnet>
+```
+
+Or specific the `offckb.config.ts` file path for deploy command to locate:
+
+```sh
+offckb deploy --network <devnet/testnet> --config <file-path-to-your-offckb.config.ts-file>
 ```
 
 Pass `--type-id` option if you want Scripts to be upgradable

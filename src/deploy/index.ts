@@ -14,15 +14,14 @@ export type DeployBinaryReturnType = ReturnType<typeof deployBinary>;
 export type UnwrapPromise<T> = T extends Promise<infer U> ? U : T;
 export type DeployedInterfaceType = UnwrapPromise<DeployBinaryReturnType>;
 
-export function getToDeployBinsPath() {
-  const userOffCKBConfigPath = path.resolve(process.cwd(), 'offckb.config.ts');
+export function getToDeployBinsPath(userOffCKBConfigPath: string) {
   const fileContent = fs.readFileSync(userOffCKBConfigPath, 'utf-8');
   const match = fileContent.match(/contractBinFolder:\s*['"]([^'"]+)['"]/);
   if (match && match[1]) {
     const contractBinFolderValue = match[1];
     const binFolderPath = isAbsolutePath(contractBinFolderValue)
       ? contractBinFolderValue
-      : path.resolve(process.cwd(), contractBinFolderValue);
+      : path.resolve(userOffCKBConfigPath, contractBinFolderValue);
     const bins = listBinaryFilesInFolder(binFolderPath);
     return bins.map((bin) => path.resolve(binFolderPath, bin));
   } else {
@@ -34,7 +33,7 @@ export function getToDeployBinsPath() {
 export async function recordDeployResult(
   results: DeployedInterfaceType[],
   network: Network,
-  isUpdateMyScriptsJsonFile = true,
+  userOffCKBConfigPath?: string, // if provided, will update the script info json
 ) {
   if (results.length === 0) {
     return;
@@ -45,8 +44,11 @@ export async function recordDeployResult(
   }
 
   // update my-scripts.json
-  if (isUpdateMyScriptsJsonFile) {
-    const userOffCKBConfigPath = path.resolve(process.cwd(), 'offckb.config.ts');
+  if (userOffCKBConfigPath) {
+    if (!fs.existsSync(userOffCKBConfigPath)) {
+      throw new Error(`config file not exits: ${userOffCKBConfigPath}`);
+    }
+
     const folder = OffCKBConfigFile.readContractInfoFolder(userOffCKBConfigPath);
     if (folder) {
       const myScriptsFilePath = path.resolve(folder, 'my-scripts.json');

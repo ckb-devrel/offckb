@@ -70,8 +70,19 @@ program
   .command('list-hashes [CKB-Version]')
   .description('Use the CKB to list blockchain scripts hashes')
   .action(printDevnetListHashes);
-program.command('inject-config').description('Add offckb.config.ts to your frontend workspace').action(injectConfig);
-program.command('sync-scripts').description('Sync scripts json files in your frontend workspace').action(syncScripts);
+program
+  .command('inject-config')
+  .description('Add offckb.config.ts to your frontend workspace')
+  .option('--target <target>', 'Specify the custom file path of the new injected config')
+  .action(injectConfig);
+program
+  .command('sync-scripts')
+  .description('Sync scripts json files in your frontend workspace')
+  .option('--config <config>', 'Specify the offckb.config.ts file path', undefined)
+  .action((opt) => {
+    const configPath = opt.config;
+    return syncScripts({ configPath });
+  });
 
 program
   .command('deposit [toAddress] [amountInCKB]')
@@ -115,6 +126,7 @@ program
   .description('Deploy contracts to different networks, only supports devnet and testnet')
   .option('--network <network>', 'Specify the network to deploy to', 'devnet')
   .option('--target <target>', 'Specify the relative bin target folder to deploy to')
+  .option('--config <config>', 'Specify the offckb.config.ts file path for deployment', undefined)
   .option('-t, --type-id', 'Specify if use upgradable type id to deploy the script')
   .option('--privkey <privkey>', 'Specify the private key to deploy scripts')
   .option('-r, --proxy-rpc', 'Use Proxy RPC to connect to blockchain')
