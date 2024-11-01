@@ -33,8 +33,7 @@ export function getToDeployBinsPath(userOffCKBConfigPath: string) {
 export async function recordDeployResult(
   results: DeployedInterfaceType[],
   network: Network,
-  isUpdateMyScriptsJsonFile = true,
-  configPath?: string,
+  userOffCKBConfigPath?: string, // if provided, will update the script info json
 ) {
   if (results.length === 0) {
     return;
@@ -45,12 +44,11 @@ export async function recordDeployResult(
   }
 
   // update my-scripts.json
-  if (isUpdateMyScriptsJsonFile) {
-    const userOffCKBConfigPath = configPath
-      ? isAbsolutePath(configPath)
-        ? configPath
-        : path.resolve(process.cwd(), configPath)
-      : path.resolve(process.cwd(), 'offckb.config.ts');
+  if (userOffCKBConfigPath) {
+    if (!fs.existsSync(userOffCKBConfigPath)) {
+      throw new Error(`config file not exits: ${userOffCKBConfigPath}`);
+    }
+
     const folder = OffCKBConfigFile.readContractInfoFolder(userOffCKBConfigPath);
     if (folder) {
       const myScriptsFilePath = path.resolve(folder, 'my-scripts.json');

@@ -5,6 +5,7 @@ import { listBinaryFilesInFolder, isAbsolutePath } from '../util/fs';
 import { validateNetworkOpt } from '../util/validator';
 import { deployBinaries, getToDeployBinsPath, recordDeployResult } from '../deploy';
 import { CKB } from '../sdk/ckb';
+import fs from 'fs';
 
 export interface DeployOptions extends NetworkOption {
   target?: string;
@@ -35,7 +36,7 @@ export async function deploy(
     const results = await deployBinaries(binPaths, privateKey, enableTypeId, ckb);
 
     // record the deployed contract infos
-    recordDeployResult(results, network, false); // we don't update my-scripts.json since we don't know where the file is
+    recordDeployResult(results, network); // we don't update my-scripts.json since we don't know where the file is
     return;
   }
 
@@ -45,9 +46,14 @@ export async function deploy(
       ? configPath
       : path.resolve(process.cwd(), configPath)
     : path.resolve(process.cwd(), 'offckb.config.ts');
+  if (!fs.existsSync(userOffCKBConfigPath)) {
+    throw new Error(
+      `config file not exits: ${userOffCKBConfigPath}, tips: use --config to specific the offckb.config.ts file`,
+    );
+  }
   const bins = getToDeployBinsPath(userOffCKBConfigPath);
   const results = await deployBinaries(bins, privateKey, enableTypeId, ckb);
 
   // record the deployed contract infos
-  recordDeployResult(results, network, true, userOffCKBConfigPath);
+  recordDeployResult(results, network, userOffCKBConfigPath);
 }
