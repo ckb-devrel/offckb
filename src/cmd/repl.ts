@@ -30,8 +30,8 @@ export function repl({ network = Network.devnet, proxyRpc = false }: ReplProp) {
   context.ccc = ccc;
   context.cccA = cccA;
   context.networks = networks;
-  context.Client = initGlobalClientBuilder();
-  context.client = initGlobalClientBuilder().new(network);
+  context.Client = initGlobalClientBuilder(proxyRpc);
+  context.client = initGlobalClientBuilder(proxyRpc).new(network);
   context.accounts = accounts;
   context.myScripts = buildMyScripts().new(network);
   context.systemScripts = buildSystemScripts().new(network);
@@ -39,9 +39,19 @@ export function repl({ network = Network.devnet, proxyRpc = false }: ReplProp) {
   context.help = printHelpText;
 }
 
-export function initGlobalClientBuilder() {
+export function initGlobalClientBuilder(proxyRpc: boolean) {
   return {
     new: (network: Network) => {
+      if (proxyRpc) {
+        return network === 'mainnet'
+          ? new ccc.ClientPublicMainnet({ url: networks.mainnet.proxy_rpc_url })
+          : network === 'testnet'
+            ? new ccc.ClientPublicTestnet({ url: networks.testnet.proxy_rpc_url })
+            : new ccc.ClientPublicTestnet({
+                url: networks.devnet.proxy_rpc_url,
+                scripts: buildCCCDevnetKnownScripts(),
+              });
+      }
       return network === 'mainnet'
         ? new ccc.ClientPublicMainnet()
         : network === 'testnet'
