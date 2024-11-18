@@ -100,6 +100,22 @@ export async function readFileToUint8Array(filePath: string): Promise<Uint8Array
   });
 }
 
+export function getBinaryFilesFromPath(fileOrFolderPath: string): string[] {
+  if (!fs.existsSync(fileOrFolderPath)) {
+    throw new Error(`File or Folder not exits ${fileOrFolderPath}`);
+  }
+  // Check if the provided path is a directory
+  if (fs.lstatSync(fileOrFolderPath).isDirectory()) {
+    return listBinaryFilesInFolder(fileOrFolderPath);
+  }
+
+  if (fs.lstatSync(fileOrFolderPath).isFile() && isBinaryFile(fileOrFolderPath)) {
+    return [fileOrFolderPath];
+  }
+
+  throw new Error(`${fileOrFolderPath} is not a valid path to deploy scripts.`);
+}
+
 export function listBinaryFilesInFolder(folderPath: string): string[] {
   // Check if the provided path is a directory
   if (!fs.existsSync(folderPath) || !fs.lstatSync(folderPath).isDirectory()) {
@@ -107,15 +123,10 @@ export function listBinaryFilesInFolder(folderPath: string): string[] {
   }
 
   // Read the contents of the directory
-  const files = fs.readdirSync(folderPath);
+  const files = fs.readdirSync(folderPath).map((f) => path.join(folderPath, f));
 
   // Filter out only the binary files (assuming they have extensions like .exe, .bin, .dll, etc.)
-  const binaryFiles = files.filter((file) => {
-    const filePath = path.join(folderPath, file);
-    // Check if the file is a regular file and not a directory
-    return fs.statSync(filePath).isFile() && isBinaryFile(filePath);
-  });
-
+  const binaryFiles = files.filter((file) => fs.statSync(file).isFile() && isBinaryFile(file));
   return binaryFiles;
 }
 
