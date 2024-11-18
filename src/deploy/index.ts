@@ -2,7 +2,7 @@ import { DeploymentOptions, generateDeploymentToml } from '../deploy/toml';
 import { DeploymentRecipe, generateDeploymentMigrationFile, Migration } from '../deploy/migration';
 import { genMyScriptsJsonFile } from '../scripts/gen';
 import { OffCKBConfigFile } from '../template/offckb-config';
-import { listBinaryFilesInFolder, readFileToUint8Array, isAbsolutePath } from '../util/fs';
+import { readFileToUint8Array, isAbsolutePath, getBinaryFilesFromPath } from '../util/fs';
 import path from 'path';
 import fs from 'fs';
 import { Network } from '../type/base';
@@ -19,11 +19,12 @@ export function getToDeployBinsPath(userOffCKBConfigPath: string) {
   const match = fileContent.match(/contractBinFolder:\s*['"]([^'"]+)['"]/);
   if (match && match[1]) {
     const contractBinFolderValue = match[1];
-    const binFolderPath = isAbsolutePath(contractBinFolderValue)
+    const binFileOrFolderPath = isAbsolutePath(contractBinFolderValue)
       ? contractBinFolderValue
       : path.resolve(userOffCKBConfigPath, contractBinFolderValue);
-    const bins = listBinaryFilesInFolder(binFolderPath);
-    return bins.map((bin) => path.resolve(binFolderPath, bin));
+
+    const bins = getBinaryFilesFromPath(binFileOrFolderPath);
+    return bins;
   } else {
     console.log('contractBinFolder value not found in offckb.config.ts');
     return [];

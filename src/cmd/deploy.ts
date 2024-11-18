@@ -1,7 +1,7 @@
 import { NetworkOption, Network } from '../type/base';
 import path from 'path';
 import { deployerAccount } from '../cfg/account';
-import { listBinaryFilesInFolder, isAbsolutePath } from '../util/fs';
+import { isAbsolutePath, getBinaryFilesFromPath } from '../util/fs';
 import { validateNetworkOpt } from '../util/validator';
 import { deployBinaries, getToDeployBinsPath, recordDeployResult } from '../deploy';
 import { CKB } from '../sdk/ckb';
@@ -30,9 +30,8 @@ export async function deploy(
   const configPath = opt.config;
   const targetFolder = opt.target;
   if (targetFolder) {
-    const binFolder = isAbsolutePath(targetFolder) ? targetFolder : path.resolve(process.cwd(), targetFolder);
-    const bins = listBinaryFilesInFolder(binFolder);
-    const binPaths = bins.map((bin) => path.resolve(binFolder, bin));
+    const binFilesOrFolder = isAbsolutePath(targetFolder) ? targetFolder : path.resolve(process.cwd(), targetFolder);
+    const binPaths = getBinaryFilesFromPath(binFilesOrFolder);
     const results = await deployBinaries(binPaths, privateKey, enableTypeId, ckb);
 
     // record the deployed contract infos
