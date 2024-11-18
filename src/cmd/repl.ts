@@ -6,6 +6,8 @@ import { Network, NetworkOption } from '../type/base';
 import { buildCCCDevnetKnownScripts } from '../scripts/private';
 import accounts from '../../account/account.json';
 import { validateNetworkOpt } from '../util/validator';
+import { genSystemScripts } from '../scripts/gen';
+import { readUserDeployedScriptsInfo } from '../scripts/util';
 
 export interface ReplProp extends NetworkOption {
   proxyRpc?: boolean;
@@ -31,6 +33,9 @@ export function repl({ network = Network.devnet, proxyRpc = false }: ReplProp) {
   context.Client = initGlobalClientBuilder();
   context.client = initGlobalClientBuilder().new(network);
   context.accounts = accounts;
+  context.myScripts = buildMyScripts().new(network);
+  context.systemScripts = buildSystemScripts().new(network);
+
   context.help = printHelpText;
 }
 
@@ -72,6 +77,29 @@ Global Variables to use:
      const myClient = Client.fromUrl('<your rpc url>', 'devnet' | 'testnet' | 'mainnet');
   - accounts, test accounts array from OffCKB
   - networks, network information configs
+  - myScripts, user-deployed scripts information via offckb deploy
+  - systemScripts, built-in scripts information in the blockchain
   - help, print this help message
 `);
+}
+
+export function buildSystemScripts() {
+  return {
+    new: (network: Network) => {
+      const systemScripts = genSystemScripts();
+      return network === Network.devnet
+        ? systemScripts?.devnet
+        : network === Network.testnet
+          ? systemScripts?.testnet
+          : systemScripts?.mainnet;
+    },
+  };
+}
+
+export function buildMyScripts() {
+  return {
+    new: (network: Network) => {
+      return readUserDeployedScriptsInfo(network);
+    },
+  };
 }
