@@ -125,7 +125,7 @@ program
   .command('deploy')
   .description('Deploy contracts to different networks, only supports devnet and testnet')
   .option('--network <network>', 'Specify the network to deploy to', 'devnet')
-  .option('--target <target>', 'Specify the relative bin target folder to deploy to')
+  .option('--target <target>', 'Specify the script binaries file/folder path to deploy')
   .option('--config <config>', 'Specify the offckb.config.ts file path for deployment', undefined)
   .option('-t, --type-id', 'Specify if use upgradable type id to deploy the script')
   .option('--privkey <privkey>', 'Specify the private key to deploy scripts')
