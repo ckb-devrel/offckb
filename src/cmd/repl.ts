@@ -6,6 +6,8 @@ import { Network, NetworkOption } from '../type/base';
 import { buildCCCDevnetKnownScripts } from '../scripts/private';
 import accounts from '../../account/account.json';
 import { validateNetworkOpt } from '../util/validator';
+import { genSystemScripts } from '../scripts/gen';
+import { readUserDeployedScriptsInfo } from '../scripts/util';
 
 export interface ReplProp extends NetworkOption {
   proxyRpc?: boolean;
@@ -28,15 +30,28 @@ export function repl({ network = Network.devnet, proxyRpc = false }: ReplProp) {
   context.ccc = ccc;
   context.cccA = cccA;
   context.networks = networks;
-  context.Client = initGlobalClientBuilder();
-  context.client = initGlobalClientBuilder().new(network);
+  context.Client = initGlobalClientBuilder(proxyRpc);
+  context.client = initGlobalClientBuilder(proxyRpc).new(network);
   context.accounts = accounts;
+  context.myScripts = buildMyScripts().new(network);
+  context.systemScripts = buildSystemScripts().new(network);
+
   context.help = printHelpText;
 }
 
-export function initGlobalClientBuilder() {
+export function initGlobalClientBuilder(proxyRpc: boolean) {
   return {
     new: (network: Network) => {
+      if (proxyRpc) {
+        return network === 'mainnet'
+          ? new ccc.ClientPublicMainnet({ url: networks.mainnet.proxy_rpc_url })
+          : network === 'testnet'
+            ? new ccc.ClientPublicTestnet({ url: networks.testnet.proxy_rpc_url })
+            : new ccc.ClientPublicTestnet({
+                url: networks.devnet.proxy_rpc_url,
+                scripts: buildCCCDevnetKnownScripts(),
+              });
+      }
       return network === 'mainnet'
         ? new ccc.ClientPublicMainnet()
         : network === 'testnet'
@@ -72,6 +87,29 @@ Global Variables to use:
      const myClient = Client.fromUrl('<your rpc url>', 'devnet' | 'testnet' | 'mainnet');
   - accounts, test accounts array from OffCKB
   - networks, network information configs
+  - myScripts, user-deployed scripts information via offckb deploy
+  - systemScripts, built-in scripts information in the blockchain
   - help, print this help message
 `);
+}
+
+export function buildSystemScripts() {
+  return {
+    new: (network: Network) => {
+      const systemScripts = genSystemScripts();
+      return network === Network.devnet
+        ? systemScripts?.devnet
+        : network === Network.testnet
+          ? systemScripts?.testnet
+          : systemScripts?.mainnet;
+    },
+  };
+}
+
+export function buildMyScripts() {
+  return {
+    new: (network: Network) => {
+      return readUserDeployedScriptsInfo(network);
+    },
+  };
 }
