@@ -37,7 +37,27 @@ export function createRPCProxy(network: Network, targetRpcUrl: string, port: num
             }
             const txFile = path.resolve(settings.devnet.transactionsPath, `${txHash}.json`);
             fs.writeFileSync(txFile, JSON.stringify(tx, null, 2));
+            console.debug(`RPC Req:  store tx ${txHash}`);
           }
+        }
+      } catch (err) {
+        console.error('Error parsing JSON-RPC content:', err);
+      }
+    });
+  });
+
+  proxy.on('proxyRes', function (proxyRes, _req, _res) {
+    const body: Buffer[] = [];
+    proxyRes.on('data', function (chunk) {
+      body.push(chunk);
+    });
+    proxyRes.on('end', function () {
+      const res = Buffer.concat(body).toString();
+      try {
+        const jsonRpcResponse = JSON.parse(res);
+        const error = jsonRpcResponse.error;
+        if (error) {
+          console.debug('RPC Response: ', jsonRpcResponse);
         }
       } catch (err) {
         console.error('Error parsing JSON-RPC content:', err);
