@@ -832,10 +832,10 @@ cipher-base@^1.0.0, cipher-base@^1.0.1, cipher-base@^1.0.3:
     inherits "^2.0.1"
     safe-buffer "^5.0.1"
 
-ckb-transaction-dumper@^0.4.0:
-  version "0.4.0"
-  resolved "https://registry.yarnpkg.com/ckb-transaction-dumper/-/ckb-transaction-dumper-0.4.0.tgz#21c248b58883779219f43d3e5002caa319c97129"
-  integrity sha512-/Ue1s41BRgrHAYw1LEVcVetyEOLzSGx2Qrn2zPh8TuI5PZ3FO/TtDMEnDJQNu/wEE+vCYEsr0rDAFNY2NiFgLw==
+ckb-transaction-dumper@^0.4.2:
+  version "0.4.2"
+  resolved "https://registry.yarnpkg.com/ckb-transaction-dumper/-/ckb-transaction-dumper-0.4.2.tgz#bceadef621a8ea793b4f698d606cbf4f5c874ec8"
+  integrity sha512-0frB1FYY3dlKLlef6ps8dfuwTXitdm4myYTc/+hAP3RCo/OrC1/MYXEedUCLXgqcXBnlOQ8VbK5PseNZovWPHQ==
 
 cli-cursor@^4.0.0:
   version "4.0.0"
