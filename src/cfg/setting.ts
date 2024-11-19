@@ -154,6 +154,10 @@ export function getCKBBinaryPath(version: string) {
   return `${getCKBBinaryInstallPath(version)}/ckb`;
 }
 
+export function getCKBCliBinaryPath(version: string) {
+  return `${getCKBBinaryInstallPath(version)}/ckb-cli`;
+}
+
 function deepMerge(target: any, source: any): any {
   for (const key in source) {
     if (source[key] && typeof source[key] === 'object') {

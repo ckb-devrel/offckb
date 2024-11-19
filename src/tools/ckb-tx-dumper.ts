@@ -11,6 +11,8 @@ export interface DumpOption {
 export function dumpTransaction({ rpc, txJsonFilePath, outputFilePath }: DumpOption) {
   const ckbTransactionDumperPath = path.resolve(packageRootPath, 'node_modules/.bin/ckb-transaction-dumper');
 
+  // todo: replace
+  // const ckbCliPath = getCKBCliBinaryPath("")
   const command = `${ckbTransactionDumperPath} --rpc ${rpc} --tx "${txJsonFilePath}" --output "${outputFilePath}"`;
 
   try {
