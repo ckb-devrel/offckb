@@ -106,7 +106,7 @@ export function getVersionFromBinary(binPath: string): string | null {
       encoding: 'utf-8',
     });
 
-    const versionMatch = versionOutput.match(/(\d+\.\d+\.\d+)/);
+    const versionMatch = versionOutput.match(/(\d+\.\d+\.\d+(-rc\d+)?)/);
     if (versionMatch) {
       return versionMatch[0];
     }
