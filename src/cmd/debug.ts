@@ -5,6 +5,7 @@ import { dumpTransaction } from '../tools/ckb-tx-dumper';
 import path from 'path';
 import { cccA } from '@ckb-ccc/core/advanced';
 import { Network } from '../type/base';
+import { encodeBinPathForTerminal } from '../util/encoding';
 
 export function debugTransaction(txHash: string, network: Network) {
   const txFile = buildTxFileOptionBy(txHash, network);
@@ -91,7 +92,7 @@ export function buildTxFileOptionBy(txHash: string, network: Network) {
     }
     dumpTransaction({ rpc, txJsonFilePath, outputFilePath });
   }
-  const opt = `--tx-file ${outputFilePath}`;
+  const opt = `--tx-file ${encodeBinPathForTerminal(outputFilePath)}`;
   return opt;
 }
 
