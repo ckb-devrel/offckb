@@ -26,8 +26,8 @@
     "build": "tsc",
     "start": "ts-node-dev --transpile-only src/cli.ts",
     "clean": "rm -rf ./target",
-    "lint": "eslint \"src/**/*.ts\" \"templates/*.ts\" --ignore-pattern 'node_modules/'",
-    "lint:fix": "eslint \"src/**/*.ts\" \"templates/*.ts\" --ignore-pattern 'node_modules/' --fix",
+    "lint": "eslint \"src/**/*.ts\" \"templates/**/*.ts\" --ignore-pattern 'node_modules/'",
+    "lint:fix": "eslint \"src/**/*.ts\" \"templates/**/*.ts\" --ignore-pattern 'node_modules/' --fix",
     "fmt": "prettier --write '{src,templates,account}/**/*.{js,jsx,ts,tsx,md,json}'"
   },
   "husky": {
