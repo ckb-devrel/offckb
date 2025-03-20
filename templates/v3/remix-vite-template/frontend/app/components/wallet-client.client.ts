@@ -15,7 +15,7 @@ export function buildCccClient(network: Network) {
       ? new ccc.ClientPublicMainnet()
       : network === 'testnet'
         ? new ccc.ClientPublicTestnet()
-        : new ccc.ClientPublicTestnet(offCKBConfig.rpcUrl, undefined, DEVNET_SCRIPTS);
+        : new ccc.ClientPublicTestnet({url: offCKBConfig.rpcUrl, scripts: DEVNET_SCRIPTS });
 
   return client;
 }
