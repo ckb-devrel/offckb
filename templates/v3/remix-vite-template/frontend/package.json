@@ -11,8 +11,8 @@
     "typecheck": "tsc"
   },
   "dependencies": {
-    "@ckb-ccc/connector-react": "^v0.0.11-alpha.3",
-    "@ckb-ccc/lumos-patches": "^0.0.10-alpha.7",
+    "@ckb-ccc/connector-react": "^v1.0.14",
+    "@ckb-ccc/lumos-patches": "^1.0.14",
     "@remix-run/node": "^2.8.1",
     "@remix-run/react": "^2.8.1",
     "@remix-run/serve": "^2.8.1",
