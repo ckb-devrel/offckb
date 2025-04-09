@@ -22,7 +22,7 @@ jobs:
           node-version: "20"
 
       - name: Install dependencies
-        run: pnpm install -g pnpm && pnpm i
+        run: npm install -g pnpm && pnpm i
 
       - name: Linting
         run: pnpm lint
