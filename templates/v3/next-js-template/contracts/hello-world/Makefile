@@ -1,15 +1,15 @@
 # We cannot use $(shell pwd), which will return unix path format on Windows,
 # making it hard to use.
-cur_dir = $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
+cur_dir = $(dir $(abspath $(firstword $(MAKEFILE_LIST))))
 
 TOP := $(cur_dir)
 # RUSTFLAGS that are likely to be tweaked by developers. For example,
 # while we enable debug logs by default here, some might want to strip them
 # for minimal code size / consumed cycles.
-CUSTOM_RUSTFLAGS := --cfg debug_assertions
+CUSTOM_RUSTFLAGS := -C debug-assertions
 # RUSTFLAGS that are less likely to be tweaked by developers. Most likely
 # one would want to keep the default values here.
-FULL_RUSTFLAGS := -C target-feature=+zba,+zbb,+zbc,+zbs $(CUSTOM_RUSTFLAGS)
+FULL_RUSTFLAGS := -C target-feature=+zba,+zbb,+zbc,+zbs,-a $(CUSTOM_RUSTFLAGS)
 # Additional cargo args to append here. For example, one can use
 # make test CARGO_ARGS="-- --nocapture" so as to inspect data emitted to
 # stdout in unit tests
@@ -19,6 +19,7 @@ MODE := release
 # we use a bash script with somes heuristics to find clang in current system.
 CLANG := $(shell $(TOP)/scripts/find_clang)
 AR := $(subst clang,llvm-ar,$(CLANG))
+OBJCOPY := $(subst clang,llvm-objcopy,$(CLANG))
 # When this is set to some value, the generated binaries will be copied over
 BUILD_DIR :=
 # Generated binaries to copy. By convention, a Rust crate's directory name will
@@ -41,6 +42,8 @@ build:
 		for binary in $(BINARIES); do \
 			echo "Copying binary $$binary to build directory"; \
 			cp $(TOP)/target/riscv64imac-unknown-none-elf/$(MODE)/$$binary $(TOP)/$(BUILD_DIR); \
+			cp $(TOP)/$(BUILD_DIR)/$$binary $(TOP)/$(BUILD_DIR)/$$binary.debug; \
+			$(OBJCOPY) --strip-debug --strip-all $(TOP)/$(BUILD_DIR)/$$binary; \
 		done \
 	fi
 
