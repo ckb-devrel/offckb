@@ -4,4 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-ckb-std = "0.15.1"
+ckb-std = "0.17.0"
+
+[features]
+library = []
+native-simulator = ["library", "ckb-std/native-simulator"]
