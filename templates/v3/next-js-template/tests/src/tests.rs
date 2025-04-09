@@ -10,9 +10,9 @@ use ckb_testtool::context::Context;
 // Include your tests here
 // See https://github.com/xxuejie/ckb-native-build-sample/blob/main/tests/src/tests.rs for more examples
 
-// generated unit test for contract hello
+// generated unit test for contract hello-world
 #[test]
-fn test_hello() {
+fn test_hello_world() {
     // deploy contract
     let mut context = Context::default();
     let contract_bin: Bytes = Loader::default().load_binary("hello-world");

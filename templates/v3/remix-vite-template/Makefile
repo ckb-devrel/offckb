@@ -1,12 +1,12 @@
 # We cannot use $(shell pwd), which will return unix path format on Windows,
 # making it hard to use.
-cur_dir = $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
+cur_dir = $(dir $(abspath $(firstword $(MAKEFILE_LIST))))
 
 TOP := $(cur_dir)
 # RUSTFLAGS that are likely to be tweaked by developers. For example,
 # while we enable debug logs by default here, some might want to strip them
 # for minimal code size / consumed cycles.
-CUSTOM_RUSTFLAGS := --cfg debug_assertions
+CUSTOM_RUSTFLAGS := -C debug-assertions
 # Additional cargo args to append here. For example, one can use
 # make test CARGO_ARGS="-- --nocapture" so as to inspect data emitted to
 # stdout in unit tests
@@ -22,6 +22,10 @@ CONTRACT :=
 # revert this behavior, you can change this to anything other than true
 CLEAN_BUILD_DIR_FIRST := true
 BUILD_DIR := build/$(MODE)
+
+ifeq (release,$(MODE))
+	MODE_ARGS := --release
+endif
 
 # Pass setups to child make processes
 export CUSTOM_RUSTFLAGS
@@ -44,9 +48,16 @@ build:
 		for contract in $(wildcard contracts/*); do \
 			$(MAKE) -e -C $$contract build; \
 		done; \
+		for crate in $(wildcard crates/*); do \
+			cargo build -p $$(basename $$crate) $(MODE_ARGS) $(CARGO_ARGS); \
+		done; \
+		for sim in $(wildcard native-simulators/*); do \
+			cargo build -p $$(basename $$sim) $(CARGO_ARGS); \
+		done; \
 	else \
 		$(MAKE) -e -C contracts/$(CONTRACT) build; \
-	fi
+		cargo build -p $(CONTRACT)-sim; \
+	fi;
 
 # Run a single make task for a specific contract. For example:
 #
@@ -91,6 +102,7 @@ DESTINATION := contracts
 generate:
 	@set -eu; \
 	if [ "x$(CRATE)" = "x" ]; then \
+		mkdir -p $(DESTINATION); \
 		cargo generate $(TEMPLATE_TYPE) $(TEMPLATE_REPO) $(TEMPLATE) \
 			--destination $(DESTINATION); \
 		GENERATED_DIR=$$(ls -dt $(DESTINATION)/* | head -n 1); \
@@ -101,6 +113,7 @@ generate:
 		sed "s,@@INSERTION_POINT@@,@@INSERTION_POINT@@\n  \"$$GENERATED_DIR\"\,," Cargo.toml > Cargo.toml.new; \
 		mv Cargo.toml.new Cargo.toml; \
 	else \
+		mkdir -p $(DESTINATION); \
 		cargo generate $(TEMPLATE_TYPE) $(TEMPLATE_REPO) $(TEMPLATE) \
 			--destination $(DESTINATION) \
 			--name $(CRATE); \
@@ -110,7 +123,24 @@ generate:
 		fi; \
 		sed '/@@INSERTION_POINT@@/s/$$/\n  "$(DESTINATION)\/$(CRATE)",/' Cargo.toml > Cargo.toml.new; \
 		mv Cargo.toml.new Cargo.toml; \
-	fi
+	fi;
+
+generate-native-simulator:
+	@set -eu; \
+	if [ -z "$(CRATE)" ]; then \
+		echo "Error: Must have CRATE=<Contract Name>"; \
+		exit 1; \
+	fi; \
+	mkdir -p native-simulators; \
+	cargo generate $(TEMPLATE_TYPE) $(TEMPLATE_REPO) native-simulator \
+		-n $(CRATE)-sim \
+		--destination native-simulators; \
+	sed '/@@INSERTION_POINT@@/s/$$/\n  "native-simulators\/$(CRATE)-sim",/' Cargo.toml > Cargo.toml.new; \
+	mv Cargo.toml.new Cargo.toml; \
+	if [ ! -f "contracts/$(CRATE)/Cargo.toml" ]; then \
+		echo "Warning: This is a non-existent contract and needs to be processed manually"; \
+		echo "		Otherwise compilation may fail."; \
+	fi;
 
 prepare:
 	rustup target add riscv64imac-unknown-none-elf
