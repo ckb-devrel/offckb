@@ -19,9 +19,10 @@ export function getToDeployBinsPath(userOffCKBConfigPath: string) {
   const match = fileContent.match(/contractBinFolder:\s*['"]([^'"]+)['"]/);
   if (match && match[1]) {
     const contractBinFolderValue = match[1];
+    const folderPath = path.dirname(userOffCKBConfigPath);
     const binFileOrFolderPath = isAbsolutePath(contractBinFolderValue)
       ? contractBinFolderValue
-      : path.resolve(userOffCKBConfigPath, contractBinFolderValue);
+      : path.resolve(folderPath, contractBinFolderValue);
 
     const bins = getBinaryFilesFromPath(binFileOrFolderPath);
     return bins;
