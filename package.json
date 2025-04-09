@@ -16,7 +16,7 @@
     "dist",
     "account",
     "ckb",
-    "package-lock.json",
+    "npm-shrinkwrap.json",
     "templates/v3/offckb.config.example.ts"
   ],
   "private": false,
