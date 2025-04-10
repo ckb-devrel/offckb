@@ -1,12 +1,12 @@
 {
   "name": "@offckb/cli",
-  "version": "0.3.0-canary.0",
+  "version": "0.3.4",
   "lockfileVersion": 3,
   "requires": true,
   "packages": {
     "": {
       "name": "@offckb/cli",
-      "version": "0.3.0-canary.0",
+      "version": "0.3.4",
       "license": "MIT",
       "dependencies": {
         "@ckb-ccc/core": "1.5.3",
