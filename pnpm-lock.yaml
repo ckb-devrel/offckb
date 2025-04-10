@@ -9,7 +9,7 @@ importers:
   .:
     dependencies:
       '@ckb-ccc/core':
-        specifier: ^1.5.3
+        specifier: 1.5.3
         version: 1.5.3(typescript@5.8.2)
       '@iarna/toml':
         specifier: ^2.2.5
@@ -24,8 +24,8 @@ importers:
         specifier: ^0.5.10
         version: 0.5.16
       chalk:
-        specifier: ^5.4.1
-        version: 5.4.1
+        specifier: 4.1.2
+        version: 4.1.2
       child_process:
         specifier: ^1.0.2
         version: 1.0.2
