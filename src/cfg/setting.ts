@@ -108,7 +108,7 @@ export const defaultSettings: Settings = {
   },
   dappTemplate: {
     gitRepoUrl: `https://github.com/ckb-devrel/offckb`,
-    gitBranch: 'v0.3.x',
+    gitBranch: 'master',
     gitFolder: 'templates/v3',
     downloadPath: path.resolve(cachePath, 'download', 'dapp-template'),
   },

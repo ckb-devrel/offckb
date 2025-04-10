@@ -6,7 +6,7 @@
 [![npm](https://img.shields.io/npm/l/@offckb/cli.svg?maxAge=1000)](https://github.com/jeffijoe/@offckb/cli/blob/master/LICENSE.md)
 [![node](https://img.shields.io/node/v/@offckb/cli.svg?maxAge=1000)](https://www.npmjs.com/package/@offckb/cli)
 
-**CKB local development network for your first try.**
+CKB local development network for your first try.
 
 - One-line command to start a devnet
 - No docker required
@@ -14,7 +14,9 @@
 - Built-in scripts like [Omnilock](https://github.com/cryptape/omnilock) and [Spore-contract](https://github.com/sporeprotocol/spore-contract)
 - Multiple minimal dApp templates to learn and get your hands dirty
 
-Start building on CKB blockchain, right now, right away!
+**Migrate from v0.2.x to v0.3.x:**
+
+There are BREAKING CHANGES between v0.2.x and v0.3.x, make sure to read the [migration guide](/docs/migration.md) before upgrading.
 
 ## Table of Contents
 
