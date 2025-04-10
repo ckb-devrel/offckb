@@ -1,7 +1,7 @@
 import { NetworkOption, Network } from '../type/base';
 import path from 'path';
 import { deployerAccount } from '../cfg/account';
-import { isAbsolutePath, getBinaryFilesFromPath } from '../util/fs';
+import { isAbsolutePath, getBinaryFilesFromPath, getBinaryFileSizeInBytes } from '../util/fs';
 import { validateNetworkOpt } from '../util/validator';
 import { deployBinaries, getToDeployBinsPath, recordDeployResult } from '../deploy';
 import { CKB } from '../sdk/ckb';
@@ -31,7 +31,20 @@ export async function deploy(
   const targetFolder = opt.target;
   if (targetFolder) {
     const binFilesOrFolder = isAbsolutePath(targetFolder) ? targetFolder : path.resolve(process.cwd(), targetFolder);
-    const binPaths = getBinaryFilesFromPath(binFilesOrFolder);
+    let binPaths = getBinaryFilesFromPath(binFilesOrFolder);
+
+    // ignore the binary file which is too large(> 500kb) to upload on chain
+    binPaths = binPaths.filter((binPath) => {
+      const size = getBinaryFileSizeInBytes(binPath);
+      if (size > 500 * 1024) {
+        console.warn(
+          `[warning]: ignore deploying the binary file ${binPath} since its size is too large: ${size} bytes`,
+        );
+        return false;
+      }
+      return true;
+    });
+
     const results = await deployBinaries(binPaths, privateKey, enableTypeId, ckb);
 
     // record the deployed contract infos
@@ -50,7 +63,18 @@ export async function deploy(
       `config file not exits: ${userOffCKBConfigPath}, tips: use --config to specific the offckb.config.ts file`,
     );
   }
-  const bins = getToDeployBinsPath(userOffCKBConfigPath);
+  let bins = getToDeployBinsPath(userOffCKBConfigPath);
+
+  // ignore the binary file which is too large(> 500kb) to upload on chain
+  bins = bins.filter((binPath) => {
+    const size = getBinaryFileSizeInBytes(binPath);
+    if (size > 500 * 1024) {
+      console.warn(`[warning]: ignore deploying the binary file ${binPath} since its size is too large: ${size} bytes`);
+      return false;
+    }
+    return true;
+  });
+
   const results = await deployBinaries(bins, privateKey, enableTypeId, ckb);
 
   // record the deployed contract infos

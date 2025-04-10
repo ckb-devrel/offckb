@@ -1,6 +1,6 @@
 {
   "name": "@offckb/cli",
-  "version": "0.3.3",
+  "version": "0.3.0-canary.0",
   "description": "ckb development network for your first try",
   "author": "CKB EcoFund",
   "license": "MIT",
@@ -16,6 +16,7 @@
     "dist",
     "account",
     "ckb",
+    "npm-shrinkwrap.json",
     "templates/v3/offckb.config.example.ts"
   ],
   "private": false,
@@ -26,8 +27,8 @@
     "build": "tsc",
     "start": "ts-node-dev --transpile-only src/cli.ts",
     "clean": "rm -rf ./target",
-    "lint": "eslint \"src/**/*.ts\" \"templates/*.ts\" --ignore-pattern 'node_modules/'",
-    "lint:fix": "eslint \"src/**/*.ts\" \"templates/*.ts\" --ignore-pattern 'node_modules/' --fix",
+    "lint": "eslint \"src/**/*.ts\" --ignore-pattern 'node_modules/'",
+    "lint:fix": "eslint \"src/**/*.ts\" --ignore-pattern 'node_modules/' --fix",
     "fmt": "prettier --write '{src,templates,account}/**/*.{js,jsx,ts,tsx,md,json}'"
   },
   "husky": {
@@ -61,11 +62,12 @@
     "typescript": "^5.3.3"
   },
   "dependencies": {
-    "@ckb-ccc/core": "^0.0.16-alpha.3",
+    "@ckb-ccc/core": "1.5.3",
     "@iarna/toml": "^2.2.5",
     "@inquirer/prompts": "^4.1.0",
     "@types/http-proxy": "^1.17.15",
     "adm-zip": "^0.5.10",
+    "chalk": "4.1.2",
     "child_process": "^1.0.2",
     "ckb-transaction-dumper": "^0.4.2",
     "commander": "^12.0.0",

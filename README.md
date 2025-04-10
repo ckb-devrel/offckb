@@ -54,6 +54,12 @@ There are BREAKING CHANGES between v0.2.x and v0.3.x, make sure to read the [mig
 npm install -g @offckb/cli
 ```
 
+or use `pnpm` to install:
+
+```sh
+pnpm install -g @offckb/cli
+```
+
 _We recommend using [LTS](https://nodejs.org/en/download/package-manager) version of Node to run `offckb`_
 
 ## Usage

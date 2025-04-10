@@ -142,6 +142,11 @@ export function isBinaryFile(filePath: string): boolean {
   return false;
 }
 
+export function getBinaryFileSizeInBytes(filePath: string): number {
+  const stats = fs.statSync(filePath);
+  return stats.size;
+}
+
 export function isAbsolutePath(filePath: string): boolean {
   return path.isAbsolute(filePath);
 }
