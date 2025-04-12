@@ -9,9 +9,17 @@ import { BareTemplateOption, loadBareTemplateOpts } from '../template/option';
 import { OffCKBConfigFile } from '../template/offckb-config';
 const version = require('../../package.json').version;
 
-export interface CreateOption {
-  script: boolean;
-}
+export type ScriptOnly = {
+  script: true;
+  dapp?: false;
+};
+
+export type DappOnly = {
+  dapp: true;
+  script?: false;
+};
+
+export type CreateOption = ScriptOnly | DappOnly;
 
 export function createScriptProject(name: string) {
   const cmd = `cargo generate gh:cryptape/ckb-script-templates workspace --name ${name}`;
@@ -19,6 +27,15 @@ export function createScriptProject(name: string) {
     execSync(cmd, { encoding: 'utf-8', stdio: 'inherit' });
   } catch (error: unknown) {
     console.error('create script project failed, ', (error as Error).message);
+  }
+}
+
+export function createDappProject(name: string) {
+  const cmd = `npx create-ccc-app@latest ${name} --ts}`;
+  try {
+    execSync(cmd, { encoding: 'utf-8', stdio: 'inherit' });
+  } catch (error: unknown) {
+    console.error('create ccc-appp project failed, ', (error as Error).message);
   }
 }
 

@@ -11,7 +11,7 @@ import { DeployOptions, deploy } from './cmd/deploy';
 import { syncScripts } from './cmd/sync-scripts';
 import { TransferOptions, transfer } from './cmd/transfer';
 import { BalanceOption, balanceOf } from './cmd/balance';
-import { create, selectBareTemplate, CreateOption, createScriptProject } from './cmd/create';
+import { create, selectBareTemplate, CreateOption, createScriptProject, createDappProject } from './cmd/create';
 import { printMyScripts, DeployedScriptOption } from './cmd/my-scripts';
 import { Config, ConfigItem } from './cmd/config';
 import { debugSingleScript, debugTransaction, parseSingleScriptOption } from './cmd/debug';
@@ -35,10 +35,15 @@ program
   .command('create [your-project-name]')
   .description('Create a new dApp from bare templates')
   .option('-s, --script', 'Only create the script project')
+  .option('-d, --dapp', 'Only create the ccc dapp project')
   .action(async (projectName: string, option: CreateOption) => {
     const name = projectName ?? 'my-first-ckb-project';
     if (option.script) {
       return await createScriptProject(name);
+    }
+
+    if (option.dapp) {
+      return await createDappProject(name);
     }
 
     const template = await selectBareTemplate();
