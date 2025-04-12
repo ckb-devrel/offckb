@@ -40,6 +40,7 @@ export function injectConfig({ target }: InjectConfigProp) {
   const myScriptCodeHash = offCKB.myScripts['script-name'].codeHash;
   const omnilockScriptCodeHash = offCKB.systemScripts['omnilock'].codeHash;
 
-Check example at https://github.com/nervosnetwork/docs.nervos.org/tree/develop/examples/simple-transfer
+Check more on how to integrate offckb config to develop your app at https://docs.nervos.org/docs/getting-started/quick-start#different-frontend-framework
+A Full example can also be found at https://github.com/nervosnetwork/docs.nervos.org/tree/develop/examples/simple-transfer
   `);
 }
