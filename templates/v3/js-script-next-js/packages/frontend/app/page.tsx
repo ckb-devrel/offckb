@@ -19,10 +19,10 @@ export default function Home() {
         <div className="my-6">
           <div className="text-xl font-semibold my-2">Tech Stack</div>
           <li>
-            <a target="_blank" href="https://github.com/cryptape/ckb-script-templates" rel="noreferrer">
-              ckb-scripts-template
+            <a target="_blank" href="https://github.com/nervosnetwork/ckb-js-vm" rel="noreferrer">
+              ckb-js-std & ckb-js-vm
             </a>{' '}
-            for smart contract development in Rust
+            for smart contract development in Typescript
           </li>
           <li>
             <a target="_blank" href="https://nextjs.org/" rel="noreferrer">
