@@ -8,7 +8,7 @@ async function main() {
 
   const mainScript = resource.deployCell(hexFrom(readFileSync(DEFAULT_SCRIPT_CKB_JS_VM)), tx, false);
   const alwaysSuccessScript = resource.deployCell(hexFrom(readFileSync(DEFAULT_SCRIPT_ALWAYS_SUCCESS)), tx, false);
-  const jsScript = resource.deployCell(hexFrom(readFileSync('../on-chain-script/dist/index.bc')), tx, false);
+  const jsScript = resource.deployCell(hexFrom(readFileSync('../on-chain-script/dist/hello-world.bc')), tx, false);
   mainScript.args = hexFrom(
     '0x0000' +
       jsScript.codeHash.slice(2) +
