@@ -30,7 +30,7 @@ There are BREAKING CHANGES between v0.2.x and v0.3.x, make sure to read the [mig
   - [Tweak Devnet Config](#tweak-devnet-config)
   - [Create a full-stack Project](#create-a-full-stack-project)
   - [Create a script-only Project](#create-a-script-only-project)
-  - Create a dApp-only Project
+  - [Create a dApp-only Project](#create-a-dapp-only-project)
   - [Build and Deploy a script](#build-and-deploy-a-script)
   - [Start the frontend project](#start-the-frontend-project)
   - [Debug a transaction](#debug-a-transaction)
