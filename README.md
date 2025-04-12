@@ -30,6 +30,7 @@ There are BREAKING CHANGES between v0.2.x and v0.3.x, make sure to read the [mig
   - [Tweak Devnet Config](#tweak-devnet-config)
   - [Create a full-stack Project](#create-a-full-stack-project)
   - [Create a script-only Project](#create-a-script-only-project)
+  - Create a dApp-only Project
   - [Build and Deploy a script](#build-and-deploy-a-script)
   - [Start the frontend project](#start-the-frontend-project)
   - [Debug a transaction](#debug-a-transaction)
@@ -207,6 +208,14 @@ offckb create <your-project-name> --script
 ```
 
 Note: you need to have rust/cargo/cargo-generate/clang 16+ installed in your environment to use this command. offckb doesn't do anything really, it just call [ckb-script-template](https://github.com/cryptape/ckb-script-templates) to do all the magic.
+
+### Create a dApp-only Project
+
+You can create a new dApp project without the script(CKB Smart Contract). This is useful when you don't need to create your own on-chain script logic.
+
+```sh
+offckb create <your-project-name> --dapp # or -d
+```
 
 ### Build and Deploy a script
 
