@@ -5,7 +5,7 @@ import { ccc } from '@ckb-ccc/connector-react';
 import Wallet from './wallet';
 
 export default function Home() {
-  const isScriptDeployed = offckb.myScripts['hello-world'] != null;
+  const isScriptDeployed = offckb.myScripts['hello-world.bc'] != null;
   return (
     <ccc.Provider>
       <div className="max-w-screen-md mx-auto mt-10">
