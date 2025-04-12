@@ -1,7 +1,8 @@
 import path from 'path';
 import { findFileInFolder } from '../util/fs';
 import { gitCloneAndDownloadFolderSync } from '../util/git';
-import { select } from '@inquirer/prompts';
+import { injectConfig } from './inject-config';
+import { select, confirm } from '@inquirer/prompts';
 import { execSync } from 'child_process';
 import { genMyScriptsJsonFile, genSystemScriptsJsonFile } from '../scripts/gen';
 import { readSettings } from '../cfg/setting';
@@ -30,10 +31,12 @@ export function createScriptProject(name: string) {
   }
 }
 
-export function createDappProject(name: string) {
+export async function createDappProject(name: string) {
   const cmd = `npx create-ccc-app@latest ${name} --ts}`;
   try {
     execSync(cmd, { encoding: 'utf-8', stdio: 'inherit' });
+    const dappFolderPath = path.resolve(process.cwd(), name);
+    await askForInjectOffckbConfig(dappFolderPath);
   } catch (error: unknown) {
     console.error('create ccc-appp project failed, ', (error as Error).message);
   }
@@ -85,4 +88,13 @@ export async function selectBareTemplate() {
   });
 
   return opts.find((opt) => opt.value === answer)!;
+}
+
+export async function askForInjectOffckbConfig(target: string) {
+  const answer = await confirm({
+    message: 'Do you want to inject offckb configs in your project  so that it can work with local blockchain info?',
+  });
+  if (answer) {
+    injectConfig({ target });
+  }
 }
