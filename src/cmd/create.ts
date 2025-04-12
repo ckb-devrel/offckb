@@ -32,7 +32,7 @@ export function createScriptProject(name: string) {
 }
 
 export async function createDappProject(name: string) {
-  const cmd = `npx create-ccc-app@latest ${name} --ts}`;
+  const cmd = `npx create-ccc-app@latest ${name} --ts --}`;
   try {
     execSync(cmd, { encoding: 'utf-8', stdio: 'inherit' });
     const dappFolderPath = path.resolve(process.cwd(), name);
@@ -90,11 +90,12 @@ export async function selectBareTemplate() {
   return opts.find((opt) => opt.value === answer)!;
 }
 
-export async function askForInjectOffckbConfig(target: string) {
+export async function askForInjectOffckbConfig(dappFolderPath: string) {
   const answer = await confirm({
     message: 'Do you want to inject offckb configs in your project  so that it can work with local blockchain info?',
   });
   if (answer) {
+    const target = path.resolve(dappFolderPath, 'offckb.config.ts');
     injectConfig({ target });
   }
 }
