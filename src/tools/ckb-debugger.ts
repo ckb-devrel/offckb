@@ -1,4 +1,5 @@
 import { spawnSync, execSync } from 'child_process';
+import { readSettings } from '../cfg/setting';
 
 export interface DebugOption {
   fullTxJsonFilePath: string;
@@ -21,6 +22,21 @@ export class CKBDebugger {
   static isBinaryInstalled() {
     const result = spawnSync('ckb-debugger', ['--version'], { stdio: 'ignore' });
     return result.status === 0;
+  }
+
+  static isBinaryVersionValid() {
+    const result = spawnSync('ckb-debugger', ['--version']);
+    if (result.status !== 0) {
+      console.error('ckb-debugger is not installed');
+      return false;
+    }
+    const version = result.stdout.toString().split(' ')[1];
+    const settings = readSettings();
+    if (version < settings.tools.ckbDebugger.minVersion) {
+      console.error(`ckb-debugger version ${version} is less than ${settings.tools.ckbDebugger.minVersion}`);
+      return false;
+    }
+    return true;
   }
 
   static installCKBDebugger() {
