@@ -1,7 +1,8 @@
 import path from 'path';
 import { findFileInFolder } from '../util/fs';
 import { gitCloneAndDownloadFolderSync } from '../util/git';
-import { select } from '@inquirer/prompts';
+import { injectConfig } from './inject-config';
+import { select, confirm } from '@inquirer/prompts';
 import { execSync } from 'child_process';
 import { genMyScriptsJsonFile, genSystemScriptsJsonFile } from '../scripts/gen';
 import { readSettings } from '../cfg/setting';
@@ -9,9 +10,17 @@ import { BareTemplateOption, loadBareTemplateOpts } from '../template/option';
 import { OffCKBConfigFile } from '../template/offckb-config';
 const version = require('../../package.json').version;
 
-export interface CreateOption {
-  script: boolean;
-}
+export type ScriptOnly = {
+  script: true;
+  dapp?: false;
+};
+
+export type DappOnly = {
+  dapp: true;
+  script?: false;
+};
+
+export type CreateOption = ScriptOnly | DappOnly;
 
 export function createScriptProject(name: string) {
   const cmd = `cargo generate gh:cryptape/ckb-script-templates workspace --name ${name}`;
@@ -19,6 +28,17 @@ export function createScriptProject(name: string) {
     execSync(cmd, { encoding: 'utf-8', stdio: 'inherit' });
   } catch (error: unknown) {
     console.error('create script project failed, ', (error as Error).message);
+  }
+}
+
+export async function createDappProject(name: string) {
+  const cmd = `npx create-ccc-app@latest ${name} --ts --}`;
+  try {
+    execSync(cmd, { encoding: 'utf-8', stdio: 'inherit' });
+    const dappFolderPath = path.resolve(process.cwd(), name);
+    await askForInjectOffckbConfig(dappFolderPath);
+  } catch (error: unknown) {
+    console.error('create ccc-appp project failed, ', (error as Error).message);
   }
 }
 
@@ -68,4 +88,14 @@ export async function selectBareTemplate() {
   });
 
   return opts.find((opt) => opt.value === answer)!;
+}
+
+export async function askForInjectOffckbConfig(dappFolderPath: string) {
+  const answer = await confirm({
+    message: 'Do you want to inject offckb configs in your project  so that it can work with local blockchain info?',
+  });
+  if (answer) {
+    const target = path.resolve(dappFolderPath, 'offckb.config.ts');
+    injectConfig({ target });
+  }
 }

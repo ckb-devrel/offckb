@@ -68,6 +68,9 @@ export interface Settings {
       cachePath: string;
       binFolder: string;
     };
+    ckbDebugger: {
+      minVersion: string;
+    };
   };
 }
 
@@ -78,7 +81,7 @@ export const defaultSettings: Settings = {
   },
   bins: {
     rootFolder: path.resolve(dataPath, 'bins'),
-    defaultCKBVersion: '0.113.1',
+    defaultCKBVersion: '0.201.0',
     downloadPath: path.resolve(cachePath, 'download'),
   },
   devnet: {
@@ -117,6 +120,9 @@ export const defaultSettings: Settings = {
       downloadPath: path.resolve(cachePath, 'download', 'molecule-es'),
       cachePath: path.resolve(cachePath, 'tools', 'moleculec-es'),
       binFolder: path.resolve(dataPath, 'tools', 'moleculec-es'),
+    },
+    ckbDebugger: {
+      minVersion: '0.200.0',
     },
   },
 };

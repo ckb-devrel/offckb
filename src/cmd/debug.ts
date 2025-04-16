@@ -119,7 +119,7 @@ export function buildDebugFullTransactionFilePath(network: Network, txHash: stri
 }
 
 export function debugRaw(options: string) {
-  if (!CKBDebugger.isBinaryInstalled()) {
+  if (!CKBDebugger.isBinaryInstalled() || !CKBDebugger.isBinaryVersionValid()) {
     CKBDebugger.installCKBDebugger();
   }
   return CKBDebugger.runRaw(options);
