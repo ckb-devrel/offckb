@@ -1,6 +1,0 @@
-onlyBuiltDependencies:
-  - cpu-features
-  - secp256k1
-
-packages:
-  - "packages/*"

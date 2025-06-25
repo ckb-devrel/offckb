@@ -8,15 +8,14 @@
 
 CKB local development network for your first try.
 
-- One-line command to start a devnet
-- No docker required
+- One-line command to start a devnet, no docker required
 - Pre-funded test accounts
 - Built-in scripts like [Omnilock](https://github.com/cryptape/omnilock) and [Spore-contract](https://github.com/sporeprotocol/spore-contract)
-- Multiple minimal dApp templates to learn and get your hands dirty
+- Create boilerplate project to build your CKB dApp
 
-**Migrate from v0.2.x to v0.3.x:**
+**Migrate from v0.3.x to v0.4.x:**
 
-There are BREAKING CHANGES between v0.2.x and v0.3.x, make sure to read the [migration guide](/docs/migration.md) before upgrading.
+There are BREAKING CHANGES between v0.3.x and v0.4.x, make sure to read the [migration guide](/docs/migration.md) before upgrading.
 
 ## Table of Contents
 
