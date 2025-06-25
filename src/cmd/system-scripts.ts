@@ -1,5 +1,5 @@
 import { readSettings } from '../cfg/setting';
-import { getDevnetListHashes, ListHashes, SpecHashes, SystemCell } from './list-hashes';
+import { getDevnetListHashes, ListHashes, SpecHashes, SystemCell } from '../util/list-hashes';
 import toml from '@iarna/toml';
 import { CellDepInfoLike, KnownScript, Script } from '@ckb-ccc/core';
 import { ScriptInfo, SystemScript, SystemScriptName, SystemScriptsRecord } from '../scripts/type';

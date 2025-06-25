@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
-import { printDevnetListHashes } from './cmd/list-hashes';
 import { node } from './cmd/node';
 import { accounts } from './cmd/accounts';
 import { clean } from './cmd/clean';
@@ -67,10 +66,6 @@ program
 
 program.command('clean').description('Clean the devnet data, need to stop running the chain first').action(clean);
 program.command('accounts').description('Print account list info').action(accounts);
-program
-  .command('list-hashes [CKB-Version]')
-  .description('Use the CKB to list blockchain scripts hashes')
-  .action(printDevnetListHashes);
 program
   .command('inject-config')
   .description('Add offckb.config.ts to your frontend workspace')

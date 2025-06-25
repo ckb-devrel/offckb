@@ -48,7 +48,6 @@ Commands:
   proxy-rpc [options]                           Start the rpc proxy server
   clean                                         Clean the devnet data, need to stop running the chain first
   accounts                                      Print account list info
-  list-hashes [CKB-Version]                     Use the CKB to list blockchain scripts hashes
   inject-config                                 Add offckb.config.ts to your frontend workspace
   sync-scripts                                  Sync scripts json files in your frontend workspace
   deposit [options] [toAddress] [amountInCKB]   Deposit CKB tokens to address, only devnet and testnet
