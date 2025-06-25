@@ -33,11 +33,6 @@ There are BREAKING CHANGES between v0.3.x and v0.4.x, make sure to read the [mig
   - [Build and Deploy a script](#build-and-deploy-a-script)
   - [Start the frontend project](#start-the-frontend-project)
   - [Debug a transaction](#debug-a-transaction)
-  - [Generate Moleculec bindings](#generate-moleculec-bindings)
-- [REPL Mode](#repl-mode)
-  - [Start the OffCKB REPL](#start-the-offckb-repl)
-  - [Build CKB transaction in REPL](#build-ckb-transaction-in-repl)
-  - [Get balance in REPL](#get-balance-in-repl)
 - [Config Setting](#config-setting)
   - [List All Settings](#list-all-settings)
   - [Set CKB version](#set-ckb-version)
@@ -91,8 +86,6 @@ Commands:
   config <action> [item] [value]                do a configuration action
   debug [options]                               CKB Debugger for development
   system-scripts [options]                      Output system scripts of the local devnet
-  mol [options]                                 Generate CKB Moleculec binding code for development
-  repl [options]                                A custom Nodejs REPL environment bundle for CKB.
   help [command]                                display help for command
 ```
 
@@ -316,88 +309,6 @@ offckb debug <transaction-hash> --single-script <single-cell-script-option> --bi
 ```
 
 All the debug utils are borrowed from [ckb-debugger](https://github.com/nervosnetwork/ckb-standalone-debugger/tree/develop/ckb-debugger).
-
-### Generate Moleculec bindings
-
-[Moleculec](https://github.com/nervosnetwork/molecule) is the official Serialization/Deserialization system for CKB smart contracts.
-
-You will define your data structure in `.mol` file(schema), and generate the bindings for different programming languages to use in your development.
-
-```sh
-offckb mol --schema <path/to/mol/file> --output <path/to/output/file> --lang <lang>
-```
-
-The `lang` could be `ts`, `js`, `c`, `rs` and `go`.
-
-If you have multiple `.mol` files, you can use a folder as the input and specify an output folder:
-
-```sh
-offckb mol --schema <path/to/mol/folder> --output-folder <path/to/output/folder> --lang <lang>
-```
-
-## REPL Mode
-
-OffCKB pack a custom Nodejs REPL with built-in variables and functions to help you develop CKB right in the terminal with minimal effort. This is suitable for simple script testing task when you don't want to write long and serious codes.
-
-### Start the OffCKB REPL
-
-```sh
-offckb repl --network <devnet/testnet/mainnet, default: devnet>
-
-Welcome to OffCKB REPL!
-[[ Default Network: devnet, enableProxyRPC: false ]]
-Type 'help()' to learn how to use.
-OffCKB > 
-```
-
-Type `help()` to learn about the built-in variables and functions:
-
-```sh
-OffCKB > help()
-
-OffCKB Repl, a Nodejs REPL with CKB bundles.
-
-Global Variables to use:
-  - ccc, cccA, imported from CKB Javascript SDK CCC
-  - client, a CCC client instance bundle with current network
-  - Client, a Wrap of CCC client class, you can build new client with
-     const myClient = Client.new('devnet' | 'testnet' | 'mainnet');
-     // or
-     const myClient = Client.fromUrl('<your rpc url>', 'devnet' | 'testnet' | 'mainnet');
-  - accounts, test accounts array from OffCKB
-  - networks, network information configs
-  - help, print this help message
-```
-
-### Build CKB transaction in REPL
-
-```sh
-OffCKB > let amountInCKB = ccc.fixedPointFrom(63);
-OffCKB > let tx = ccc.Transaction.from({
-...   outputs: [
-...     {
-...       capacity: ccc.fixedPointFrom(amountInCKB),
-...       lock: accounts[0].lockScript,
-...     },
-...   ],
-... });
-OffCKB > let signer = new ccc.SignerCkbPrivateKey(client, accounts[0].privkey);
-OffCKB > await tx.completeInputsByCapacity(signer);
-2
-OffCKB > await tx.completeFeeBy(signer, 1000);
-[ 0, true ]
-OffCKB > await mySigner.sendTransaction(tx)
-'0x50fbfa8c47907d6842a325e85e48d5da6917e16ca7e2253ec3bd5bcdf8da99ce'
-```
-
-### Get balance in REPL
-
-```sh
-OffCKB > let myClient = Client.fromUrl(networks.testnet.rpc_url, 'testnet');
-OffCKB > await myClient.getBalanceSingle(accounts[0].lockScript);
-60838485293944n
-OffCKB > 
-```
 
 ## Config Setting
 
