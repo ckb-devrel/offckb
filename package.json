@@ -8,9 +8,9 @@
     "type": "git",
     "url": "git+https://github.com/ckb-devrel/offckb.git"
   },
-  "main": "build/cli.js",
+  "main": "build/index.js",
   "bin": {
-    "offckb": "build/cli.js"
+    "offckb": "build/index.js"
   },
   "files": [
     "build",
