@@ -33,7 +33,6 @@ There are BREAKING CHANGES between v0.3.x and v0.4.x, make sure to read the [mig
   - [Build and Deploy a script](#build-and-deploy-a-script)
   - [Start the frontend project](#start-the-frontend-project)
   - [Debug a transaction](#debug-a-transaction)
-  - [Generate Moleculec bindings](#generate-moleculec-bindings)
 - [Config Setting](#config-setting)
   - [List All Settings](#list-all-settings)
   - [Set CKB version](#set-ckb-version)
@@ -310,24 +309,6 @@ offckb debug <transaction-hash> --single-script <single-cell-script-option> --bi
 ```
 
 All the debug utils are borrowed from [ckb-debugger](https://github.com/nervosnetwork/ckb-standalone-debugger/tree/develop/ckb-debugger).
-
-### Generate Moleculec bindings
-
-[Moleculec](https://github.com/nervosnetwork/molecule) is the official Serialization/Deserialization system for CKB smart contracts.
-
-You will define your data structure in `.mol` file(schema), and generate the bindings for different programming languages to use in your development.
-
-```sh
-offckb mol --schema <path/to/mol/file> --output <path/to/output/file> --lang <lang>
-```
-
-The `lang` could be `ts`, `js`, `c`, `rs` and `go`.
-
-If you have multiple `.mol` files, you can use a folder as the input and specify an output folder:
-
-```sh
-offckb mol --schema <path/to/mol/folder> --output-folder <path/to/output/folder> --lang <lang>
-```
 
 ## Config Setting
 
