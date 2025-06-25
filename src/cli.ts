@@ -17,8 +17,6 @@ import { Config, ConfigItem } from './cmd/config';
 import { debugSingleScript, debugTransaction, parseSingleScriptOption } from './cmd/debug';
 import { printSystemScripts } from './cmd/system-scripts';
 import { proxyRpc, ProxyRpcOptions } from './cmd/proxy-rpc';
-import { molFiles, molSingleFile } from './cmd/mol';
-import * as fs from 'fs';
 import { transferAll } from './cmd/transfer-all';
 
 const version = require('../package.json').version;
@@ -172,21 +170,6 @@ program
     const network = option.network;
     const exportStyle = option.exportStyle;
     return printSystemScripts({ style: exportStyle, network });
-  });
-
-program
-  .command('mol')
-  .requiredOption('--schema <schema>', 'Specify the scheme .mol file/folders to generate bindings')
-  .option('--output <output>', 'Specify the output file/folder path')
-  .option('--output-folder <output-folder>', 'Specify the output folder path, only valid when schema is a folder')
-  .option('--lang <lang>', 'Specify the binding language, [ts, js, c, rs, go]', 'ts')
-  .description('Generate CKB Moleculec binding code for development')
-  .action(async (option) => {
-    if (fs.statSync(option.schema).isDirectory()) {
-      const outputFolderPath = option.outputFolder ?? './';
-      return molFiles(option.schema, outputFolderPath, option.lang);
-    }
-    return molSingleFile(option.schema, option.output, option.lang);
   });
 
 program.parse(process.argv);
