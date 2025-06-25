@@ -1,12 +1,9 @@
 import path from 'path';
 import { findFileInFolder } from '../util/fs';
-import { gitCloneAndDownloadFolderSync } from '../util/git';
 import { injectConfig } from './inject-config';
-import { select, confirm } from '@inquirer/prompts';
+import { confirm } from '@inquirer/prompts';
 import { execSync } from 'child_process';
 import { genMyScriptsJsonFile, genSystemScriptsJsonFile } from '../scripts/gen';
-import { readSettings } from '../cfg/setting';
-import { BareTemplateOption, loadBareTemplateOpts } from '../template/option';
 import { OffCKBConfigFile } from '../template/offckb-config';
 const version = require('../../package.json').version;
 
@@ -23,7 +20,7 @@ export type DappOnly = {
 export type CreateOption = ScriptOnly | DappOnly;
 
 export function createScriptProject(name: string) {
-  const cmd = `cargo generate gh:cryptape/ckb-script-templates workspace --name ${name}`;
+  const cmd = `pnpm create ckb-js-vm-app ${name}`;
   try {
     execSync(cmd, { encoding: 'utf-8', stdio: 'inherit' });
   } catch (error: unknown) {
@@ -31,7 +28,7 @@ export function createScriptProject(name: string) {
   }
 }
 
-export async function createDappProject(name: string) {
+export async function createDAppProject(name: string) {
   const cmd = `npx create-ccc-app@latest ${name} --ts --}`;
   try {
     execSync(cmd, { encoding: 'utf-8', stdio: 'inherit' });
@@ -42,20 +39,26 @@ export async function createDappProject(name: string) {
   }
 }
 
-export async function create(name: string, template: BareTemplateOption) {
-  const targetPath = path.resolve(process.cwd(), name);
-  const settings = readSettings();
-  const dappTemplateFolderPath = `${settings.dappTemplate.gitFolder}/${template.value}`;
-  gitCloneAndDownloadFolderSync(
-    settings.dappTemplate.gitRepoUrl,
-    settings.dappTemplate.gitBranch,
-    dappTemplateFolderPath,
-    targetPath,
-  );
+export async function createFullstackProject(name: string) {
+  createScriptProject(name);
+  console.log("Now let's create the dapp part..");
+  const cmd = `pnpm create create-ccc-app@latest ${name}/packages/dapp --ts --}`;
+  try {
+    execSync(cmd, { encoding: 'utf-8', stdio: 'inherit' });
+    const dappFolderPath = path.resolve(process.cwd(), name, 'packages', 'dapp');
+    await askForInjectOffckbConfig(dappFolderPath);
+    return dappFolderPath;
+  } catch (error: unknown) {
+    console.error('create fullstack appp project failed, ', (error as Error).message);
+    process.exit(1);
+  }
+}
+
+export async function create(name: string) {
+  const dappFolderPath = await createFullstackProject(name);
 
   // update the version
-  const projectFolder = path.resolve(process.cwd(), name);
-  const targetConfigPath = findFileInFolder(projectFolder, 'offckb.config.ts');
+  const targetConfigPath = findFileInFolder(dappFolderPath, 'offckb.config.ts');
   if (targetConfigPath) {
     OffCKBConfigFile.updateVersion(version, targetConfigPath);
     const contractInfoFolder = OffCKBConfigFile.readContractInfoFolder(targetConfigPath);
@@ -71,23 +74,6 @@ export async function create(name: string, template: BareTemplateOption) {
   } else {
     console.log("Couldn't find the offckb config file in project. abort.");
   }
-}
-
-export async function selectBareTemplate() {
-  const opts = await loadBareTemplateOpts();
-
-  const answer = await select({
-    message: 'Select a bare template',
-    choices: opts.map((opt) => {
-      return {
-        name: opt.name,
-        value: opt.value,
-        description: `${opt.description}, \n[${opt.tag.toString()}]`,
-      };
-    }),
-  });
-
-  return opts.find((opt) => opt.value === answer)!;
 }
 
 export async function askForInjectOffckbConfig(dappFolderPath: string) {

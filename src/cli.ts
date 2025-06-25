@@ -11,7 +11,7 @@ import { DeployOptions, deploy } from './cmd/deploy';
 import { syncScripts } from './cmd/sync-scripts';
 import { TransferOptions, transfer } from './cmd/transfer';
 import { BalanceOption, balanceOf } from './cmd/balance';
-import { create, selectBareTemplate, CreateOption, createScriptProject, createDappProject } from './cmd/create';
+import { create, CreateOption, createScriptProject, createDAppProject } from './cmd/create';
 import { printMyScripts, DeployedScriptOption } from './cmd/my-scripts';
 import { Config, ConfigItem } from './cmd/config';
 import { debugSingleScript, debugTransaction, parseSingleScriptOption } from './cmd/debug';
@@ -40,11 +40,10 @@ program
     }
 
     if (option.dapp) {
-      return await createDappProject(name);
+      return await createDAppProject(name);
     }
 
-    const template = await selectBareTemplate();
-    return create(name, template);
+    return create(name);
   });
 
 program

@@ -17,32 +17,6 @@ CKB local development network for your first try.
 
 There are BREAKING CHANGES between v0.3.x and v0.4.x, make sure to read the [migration guide](/docs/migration.md) before upgrading.
 
-## Table of Contents
-
-- [OffCKB](#offckb)
-- [Table of Contents](#table-of-contents)
-- [Install](#install)
-- [Usage](#usage)
-- [Get started](#get-started)
-  - [Running CKB](#running-ckb)
-  - [List scripts info](#list-scripts-info)
-  - [Tweak Devnet Config](#tweak-devnet-config)
-  - [Create a full-stack Project](#create-a-full-stack-project)
-  - [Create a script-only Project](#create-a-script-only-project)
-  - [Create a dApp-only Project](#create-a-dapp-only-project)
-  - [Build and Deploy a script](#build-and-deploy-a-script)
-  - [Start the frontend project](#start-the-frontend-project)
-  - [Debug a transaction](#debug-a-transaction)
-- [Config Setting](#config-setting)
-  - [List All Settings](#list-all-settings)
-  - [Set CKB version](#set-ckb-version)
-  - [Set Network Proxy](#set-network-proxy)
-- [Built-in scripts](#built-in-scripts)
-- [Accounts](#accounts)
-- [About CCC](#about-ccc)
-- [FAQ](#faq)
-- [Contributing](#contributing)
-
 ## Install
 
 ```sh
@@ -199,7 +173,7 @@ You can create a new script project without a frontend. This is useful when you 
 offckb create <your-project-name> --script
 ```
 
-Note: you need to have rust/cargo/cargo-generate/clang 16+ installed in your environment to use this command. offckb doesn't do anything really, it just call [ckb-script-template](https://github.com/cryptape/ckb-script-templates) to do all the magic.
+Note: you need to have pnpm installed in your environment to use this command. offckb doesn't do anything really, it just call [create-js-vm-app](https://github.com/nervosnetwork/ckb-js-vm/tree/main/packages/create-app) to do all the magic.
 
 ### Create a dApp-only Project
 
