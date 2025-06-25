@@ -1,6 +1,6 @@
 import { execSync } from 'child_process';
 import { getCKBBinaryPath, readSettings } from '../cfg/setting';
-import { encodeBinPathForTerminal } from '../util/encoding';
+import { encodeBinPathForTerminal } from './encoding';
 import { H256 } from '../type/base';
 
 export interface SystemCell {
@@ -27,11 +27,6 @@ export interface SpecHashes {
 
 export interface ListHashes {
   offckb: SpecHashes;
-}
-
-export async function printDevnetListHashes(version?: string) {
-  const output = getDevnetListHashes(version);
-  console.log(output);
 }
 
 export function getDevnetListHashes(version?: string): string | null {
