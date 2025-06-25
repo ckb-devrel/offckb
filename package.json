@@ -8,23 +8,28 @@
     "type": "git",
     "url": "git+https://github.com/ckb-devrel/offckb.git"
   },
-  "main": "dist/cli.js",
+  "main": "build/cli.js",
   "bin": {
-    "offckb": "dist/cli.js"
+    "offckb": "build/cli.js"
   },
   "files": [
-    "dist",
+    "build",
     "account",
     "ckb",
-    "npm-shrinkwrap.json",
     "templates/v3/offckb.config.example.ts"
   ],
   "private": false,
   "publishConfig": {
     "access": "public"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "cpu-features",
+      "secp256k1"
+    ]
+  },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && ncc build dist/cli.js -o build",
     "start": "ts-node-dev --transpile-only src/cli.ts",
     "clean": "rm -rf ./target",
     "lint": "eslint \"src/**/*.ts\" --ignore-pattern 'node_modules/'",
@@ -54,6 +59,7 @@
     "@types/tar": "^6.1.11",
     "@typescript-eslint/eslint-plugin": "^7.0.2",
     "@typescript-eslint/parser": "^7.0.2",
+    "@vercel/ncc": "^0.38.3",
     "eslint": "^8.57.0",
     "husky": "^9.0.11",
     "lint-staged": "^15.2.2",

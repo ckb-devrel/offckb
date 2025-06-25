@@ -26,16 +26,8 @@ edit the things in `templates/v${version}`
 
 ### Install dependencies
 
-Since we use `pnpm` as a developing package manager, people install `offckb` by `npm` would require a [`npm-shrinkwrap.json`](https://docs.npmjs.com/cli/v8/commands/npm-shrinkwrap) file.
-
-When updating the dependencies, remember to run the following command to generate the `npm-shrinkwrap.json` file.
+We use `pnpm` as a developing package manager
 
 ```sh
 pnpm add <new-dependency>
-
-// run the following to keep npm-shrinkwrap consistent with out pnpm-lock.json
-
-npm shrinkwrap
 ```
-
-Remember to run the above command when trying to publish a new version.
