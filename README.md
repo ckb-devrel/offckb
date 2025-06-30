@@ -45,7 +45,6 @@ Options:
 Commands:
   create [options] [your-project-name]          Create a new dApp from bare templates
   node [options] [CKB-Version]                  Use the CKB to start devnet
-  proxy-rpc [options]                           Start the rpc proxy server
   clean                                         Clean the devnet data, need to stop running the chain first
   accounts                                      Print account list info
   inject-config                                 Add offckb.config.ts to your frontend workspace
@@ -87,19 +86,7 @@ offckb config set ckb-version 0.117.0
 offckb node
 ```
 
-Once you start the devnet, there is a RPC server running at `http://localhost:8114`. There is also a RPC proxy server running at `http://localhost:9000` which will proxy all the requests to the RPC server. The meaning of using a proxy RPC server is to record request and automatically dump failed transactions so you can debug them easily later.
-
-The proxy server is optional, you can use the RPC server directly if you don't need a proxy:
-
-```sh
-offckb node --no-proxy
-```
-
-Or start the proxy server in a standalone terminal to better monitor the logs:
-
-```sh
-offckb proxy-rpc --ckb-rpc http://localhost:8114 --port 9000 --network devnet
-```
+Once you start the devnet, there is a RPC server running at `http://localhost:8114`. There is also a RPC proxy server running at `http://localhost:28114` which will proxy all the requests to the RPC server. The meaning of using a proxy RPC server is to record request and automatically dump failed transactions so you can debug them easily later.
 
 ### List scripts info
 

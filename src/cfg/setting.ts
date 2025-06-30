@@ -77,7 +77,7 @@ export interface Settings {
 export const defaultSettings: Settings = {
   proxy: undefined,
   rpc: {
-    proxyPort: 9000,
+    proxyPort: 28114,
   },
   bins: {
     rootFolder: path.resolve(dataPath, 'bins'),

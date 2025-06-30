@@ -15,7 +15,6 @@ import { printMyScripts, DeployedScriptOption } from './cmd/my-scripts';
 import { Config, ConfigItem } from './cmd/config';
 import { debugSingleScript, debugTransaction, parseSingleScriptOption } from './cmd/debug';
 import { printSystemScripts } from './cmd/system-scripts';
-import { proxyRpc, ProxyRpcOptions } from './cmd/proxy-rpc';
 import { transferAll } from './cmd/transfer-all';
 
 const version = require('../package.json').version;
@@ -48,20 +47,8 @@ program
 program
   .command('node [CKB-Version]')
   .description('Use the CKB to start devnet')
-  .option('--no-proxy', 'Do not start the rpc proxy server', true)
-  .action(async (version: string, options) => {
-    // commander.js change our noProxy option to proxy
-    return node({ version, noProxyServer: !options.proxy });
-  });
-
-program
-  .command('proxy-rpc')
-  .description('Start the rpc proxy server')
-  .option('--ckb-rpc <ckbRpc>', 'Specify the ckb rpc address')
-  .option('--port <port>', 'Specify the port to start the proxy server')
-  .option('--network <network>', 'Specify the network to proxy')
-  .action((options: ProxyRpcOptions) => {
-    return proxyRpc(options);
+  .action(async (version: string) => {
+    return node({ version });
   });
 
 program.command('clean').description('Clean the devnet data, need to stop running the chain first').action(clean);

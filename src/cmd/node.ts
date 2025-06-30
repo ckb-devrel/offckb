@@ -8,10 +8,9 @@ import { Network } from '../type/base';
 
 export interface NodeProp {
   version?: string;
-  noProxyServer?: boolean;
 }
 
-export async function node({ version, noProxyServer }: NodeProp) {
+export async function node({ version }: NodeProp) {
   const settings = readSettings();
   const ckbVersion = version || settings.bins.defaultCKBVersion;
   await installCKBBinary(ckbVersion);
@@ -46,13 +45,11 @@ export async function node({ version, noProxyServer }: NodeProp) {
           console.error('CKB-Miner error:', data.toString());
         });
 
-        console.log('noProxyServer: ', noProxyServer);
-        if (!noProxyServer) {
-          const ckbRpc = settings.devnet.rpcUrl;
-          const port = settings.rpc.proxyPort;
-          const proxy = createRPCProxy(Network.devnet, ckbRpc, port);
-          proxy.start();
-        }
+        // by default we start the proxy server
+        const ckbRpc = settings.devnet.rpcUrl;
+        const port = settings.rpc.proxyPort;
+        const proxy = createRPCProxy(Network.devnet, ckbRpc, port);
+        proxy.start();
       } catch (error) {
         console.error('Error running CKB-Miner:', error);
       }
