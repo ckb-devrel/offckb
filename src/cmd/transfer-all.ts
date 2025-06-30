@@ -5,13 +5,9 @@ import { validateNetworkOpt } from '../util/validator';
 
 export interface TransferAllOptions extends NetworkOption {
   privkey?: string | null;
-  proxyRpc?: boolean;
 }
 
-export async function transferAll(
-  toAddress: string,
-  opt: TransferAllOptions = { network: Network.devnet, proxyRpc: false },
-) {
+export async function transferAll(toAddress: string, opt: TransferAllOptions = { network: Network.devnet }) {
   const network = opt.network;
   validateNetworkOpt(network);
 
@@ -19,9 +15,8 @@ export async function transferAll(
     throw new Error('--privkey is required!');
   }
 
-  const isEnableProxyRpc = opt.proxyRpc;
   const privateKey = opt.privkey;
-  const ckb = new CKB({ network, isEnableProxyRpc });
+  const ckb = new CKB({ network });
 
   const txHash = await ckb.transferAll({
     toAddress,

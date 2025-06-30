@@ -6,20 +6,17 @@ import { validateNetworkOpt } from '../util/validator';
 import { Request } from '../util/request';
 import { RequestInit } from 'node-fetch';
 
-export interface DepositOptions extends NetworkOption {
-  proxyRpc?: boolean;
-}
+export interface DepositOptions extends NetworkOption {}
 
 export async function deposit(
   toAddress: string,
   amountInCKB: string,
-  opt: DepositOptions = { network: Network.devnet, proxyRpc: false },
+  opt: DepositOptions = { network: Network.devnet },
 ) {
   const network = opt.network;
   validateNetworkOpt(network);
 
-  const isEnableProxyRpc = opt.proxyRpc;
-  const ckb = new CKB({ network, isEnableProxyRpc });
+  const ckb = new CKB({ network });
 
   if (network === 'testnet') {
     return await depositFromTestnetFaucet(toAddress, ckb);

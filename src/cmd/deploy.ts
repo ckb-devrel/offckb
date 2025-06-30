@@ -12,17 +12,13 @@ export interface DeployOptions extends NetworkOption {
   config?: string;
   privkey?: string | null;
   typeId?: boolean;
-  proxyRpc?: boolean;
 }
 
-export async function deploy(
-  opt: DeployOptions = { network: Network.devnet, typeId: false, target: undefined, proxyRpc: false },
-) {
+export async function deploy(opt: DeployOptions = { network: Network.devnet, typeId: false, target: undefined }) {
   const network = opt.network as Network;
   validateNetworkOpt(network);
 
-  const isEnableProxyRpc = opt.proxyRpc;
-  const ckb = new CKB({ network, isEnableProxyRpc });
+  const ckb = new CKB({ network });
 
   // we use deployerAccount to deploy contract by default
   const privateKey = opt.privkey || deployerAccount.privkey;

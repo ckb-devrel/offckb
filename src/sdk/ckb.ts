@@ -36,7 +36,7 @@ export class CKB {
   public isEnableProxyRpc: boolean;
   private client: ClientPublicTestnet | ClientPublicMainnet;
 
-  constructor({ network = Network.devnet, feeRate = 1000, isEnableProxyRpc = false }: CKBProps) {
+  constructor({ network = Network.devnet, feeRate = 1000, isEnableProxyRpc = true }: CKBProps) {
     if (!isValidNetworkString(network)) {
       throw new Error('invalid network option');
     }
