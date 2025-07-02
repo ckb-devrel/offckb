@@ -17,7 +17,7 @@ export function injectConfig({ target }: InjectConfigProp) {
       ? target
       : path.resolve(process.cwd(), target)
     : path.resolve(process.cwd(), 'offckb.config.ts');
-  const predefinedOffCKBConfigTsPath = path.resolve(packageRootPath, 'templates/v3/offckb.config.example.ts');
+  const predefinedOffCKBConfigTsPath = path.resolve(packageRootPath, 'templates/v4/offckb.config.example.ts');
   copyFileSync(predefinedOffCKBConfigTsPath, userOffCKBConfigPath);
   // update the version in the offckb.config.ts
   OffCKBConfigFile.updateVersion(version, userOffCKBConfigPath);
