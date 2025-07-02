@@ -43,8 +43,8 @@ Options:
   -h, --help                                    display help for command
 
 Commands:
-  create [options] [your-project-name]          Create a new dApp from bare templates
   node [options] [CKB-Version]                  Use the CKB to start devnet
+  create [options] [your-project-name]          Create a new dApp from bare templates
   clean                                         Clean the devnet data, need to stop running the chain first
   accounts                                      Print account list info
   inject-config                                 Add offckb.config.ts to your frontend workspace
@@ -339,3 +339,4 @@ npm install -g @offckb/cli
 ## Contributing
 
 check [development doc](/docs/develop.md)
+
