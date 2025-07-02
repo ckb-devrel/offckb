@@ -29,7 +29,7 @@
     ]
   },
   "scripts": {
-    "build": "tsc && ncc build dist/cli.js -o build",
+    "build": "tsc && ncc build dist/cli.js -o build --external cpu-features",
     "start": "ts-node-dev --transpile-only src/cli.ts",
     "clean": "rm -rf ./target",
     "lint": "eslint \"src/**/*.ts\" --ignore-pattern 'node_modules/'",
