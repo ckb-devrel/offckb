@@ -27,8 +27,9 @@ export async function deploy(
   const privateKey = opt.privkey || deployerAccount.privkey;
   const enableTypeId = opt.typeId ?? false;
   const targetFolder = opt.target!;
-  const outputFolder = opt.output!;
+  const output = opt.output!;
 
+  const outputFolder = isAbsolutePath(output) ? output : path.resolve(process.cwd(), output);
   const binFilesOrFolder = isAbsolutePath(targetFolder) ? targetFolder : path.resolve(process.cwd(), targetFolder);
   let binPaths = getBinaryFilesFromPath(binFilesOrFolder);
 

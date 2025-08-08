@@ -47,14 +47,11 @@ Commands:
   create [options] [your-project-name]          Create a new dApp from bare templates
   clean                                         Clean the devnet data, need to stop running the chain first
   accounts                                      Print account list info
-  inject-config                                 Add offckb.config.ts to your frontend workspace
-  sync-scripts                                  Sync scripts json files in your frontend workspace
   deposit [options] [toAddress] [amountInCKB]   Deposit CKB tokens to address, only devnet and testnet
   transfer [options] [toAddress] [amountInCKB]  Transfer CKB tokens to address, only devnet and testnet
   transfer-all [options] [toAddress]            Transfer All CKB tokens to address, only devnet and testnet
   balance [options] [toAddress]                 Check account balance, only devnet and testnet
   deploy [options]                              Deploy contracts to different networks, only supports devnet and testnet
-  my-scripts [options]                          Show deployed contracts info on different networks, only supports devnet and testnet
   config <action> [item] [value]                do a configuration action
   debug [options]                               CKB Debugger for development
   system-scripts [options]                      Output system scripts of the local devnet
@@ -90,13 +87,13 @@ Once you start the devnet, there is a RPC server running at `http://localhost:81
 
 ### List scripts info
 
-List all the predefined scripts for the local blockchain:
+Print all the predefined scripts for the local blockchain:
 
 ```sh
 offckb system-scripts
 ```
 
-Or export the scripts info to a lumos JSON file:
+Or print the scripts info to a lumos JSON file:
 
 ```sh
 offckb system-scripts --export-style lumos
@@ -106,6 +103,12 @@ Or print the scripts info in a CCC style:
 
 ```sh
 offckb system-scripts --export-style ccc
+```
+
+You can also export the scripts info to a JSON file:
+
+```sh
+offckb system-scripts --output <output-file-path>
 ```
 
 ### Tweak Devnet Config
