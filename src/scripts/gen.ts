@@ -5,6 +5,7 @@ import { getDevnetSystemScriptsFromListHashes } from '../cmd/system-scripts';
 import path from 'path';
 import { Network } from '../type/base';
 import { readUserDeployedScriptsInfo } from './util';
+import { isAbsolutePath } from '../util/fs';
 
 export function genSystemScripts(): NetworkSystemScripts | null {
   const devnetScripts = getDevnetSystemScriptsFromListHashes();
@@ -20,9 +21,13 @@ export function genSystemScripts(): NetworkSystemScripts | null {
 }
 
 export function genSystemScriptsJsonFile(filePath: string) {
+  let outputFilePath = filePath;
+  if (isAbsolutePath(filePath)) {
+    outputFilePath = path.resolve(process.cwd(), filePath);
+  }
   const scripts = genSystemScripts();
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, JSON.stringify(scripts, null, 2));
+  fs.mkdirSync(path.dirname(outputFilePath), { recursive: true });
+  fs.writeFileSync(outputFilePath, JSON.stringify(scripts, null, 2));
 }
 
 export function genMyScripts(): NetworkMyScripts {
