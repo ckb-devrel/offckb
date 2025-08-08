@@ -1,5 +1,11 @@
-import { DeploymentOptions, generateDeploymentToml } from '../deploy/toml';
-import { DeploymentRecipe, generateDeploymentMigrationFile, Migration } from '../deploy/migration';
+import { DeploymentOptions, generateDeploymentToml, generateDeploymentTomlInPath } from '../deploy/toml';
+import {
+  DeploymentRecipe,
+  generateDeploymentMigrationFile,
+  generateDeploymentMigrationFileInPath,
+  getFormattedMigrationDate,
+  Migration,
+} from '../deploy/migration';
 import { genMyScriptsJsonFile } from '../scripts/gen';
 import { OffCKBConfigFile } from '../template/offckb-config';
 import { readFileToUint8Array, isAbsolutePath, getBinaryFilesFromPath } from '../util/fs';
@@ -9,6 +15,9 @@ import { Network } from '../type/base';
 import { CKB } from '../sdk/ckb';
 import { HexString } from '../type/base';
 import { ccc } from '@ckb-ccc/core';
+import { MyScriptsRecord } from '../scripts/type';
+import { getScriptInfoFrom } from '../scripts/util';
+import { generateScriptInfoJsonFile } from './script';
 
 export type DeployBinaryReturnType = ReturnType<typeof deployBinary>;
 export type UnwrapPromise<T> = T extends Promise<infer U> ? U : T;
@@ -30,6 +39,35 @@ export function getToDeployBinsPath(userOffCKBConfigPath: string) {
     console.log('contractBinFolder value not found in offckb.config.ts');
     return [];
   }
+}
+
+export async function saveArtifacts(artifactsPath: string, results: DeployedInterfaceType[], network: Network) {
+  if (results.length === 0) {
+    return console.log('No artifacts to save.');
+  }
+  if (!fs.existsSync(artifactsPath)) {
+    fs.mkdirSync(artifactsPath, { recursive: true });
+  }
+  const deployedScriptsInfo: MyScriptsRecord = {};
+  for (const result of results) {
+    console.log(`Saving artifacts for ${result.deploymentOptions.name}...`);
+    const tomlPath = path.join(artifactsPath, network, result.deploymentOptions.name, 'deployment.toml');
+    generateDeploymentTomlInPath(result.deploymentOptions, tomlPath);
+    const migrationPath = path.join(
+      artifactsPath,
+      network,
+      result.deploymentOptions.name,
+      'migrations',
+      `${getFormattedMigrationDate()}.json`,
+    );
+    generateDeploymentMigrationFileInPath(result.deploymentRecipe, migrationPath);
+    const { name, scriptsInfo } = getScriptInfoFrom(result.deploymentRecipe);
+    deployedScriptsInfo[name] = scriptsInfo;
+  }
+
+  const scriptInfoFilePath = path.join(artifactsPath, 'scripts.json');
+  generateScriptInfoJsonFile(network, deployedScriptsInfo, scriptInfoFilePath);
+  console.log(`Script info file ${scriptInfoFilePath} generated successfully.`);
 }
 
 export async function recordDeployResult(
