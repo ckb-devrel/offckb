@@ -4,18 +4,16 @@ import { node } from './cmd/node';
 import { accounts } from './cmd/accounts';
 import { clean } from './cmd/clean';
 import { setUTF8EncodingForWindows } from './util/encoding';
-import { injectConfig } from './cmd/inject-config';
 import { DepositOptions, deposit } from './cmd/deposit';
 import { DeployOptions, deploy } from './cmd/deploy';
-import { syncScripts } from './cmd/sync-scripts';
 import { TransferOptions, transfer } from './cmd/transfer';
 import { BalanceOption, balanceOf } from './cmd/balance';
 import { create, CreateOption, createScriptProject, createDAppProject } from './cmd/create';
-import { printMyScripts, DeployedScriptOption } from './cmd/my-scripts';
 import { Config, ConfigItem } from './cmd/config';
 import { debugSingleScript, debugTransaction, parseSingleScriptOption } from './cmd/debug';
 import { printSystemScripts } from './cmd/system-scripts';
 import { transferAll } from './cmd/transfer-all';
+import { genSystemScriptsJsonFile } from './scripts/gen';
 
 const version = require('../package.json').version;
 const description = require('../package.json').description;
@@ -53,19 +51,6 @@ program
 
 program.command('clean').description('Clean the devnet data, need to stop running the chain first').action(clean);
 program.command('accounts').description('Print account list info').action(accounts);
-program
-  .command('inject-config')
-  .description('Add offckb.config.ts to your frontend workspace')
-  .option('--target <target>', 'Specify the custom file path of the new injected config')
-  .action(injectConfig);
-program
-  .command('sync-scripts')
-  .description('Sync scripts json files in your frontend workspace')
-  .option('--config <config>', 'Specify the offckb.config.ts file path', undefined)
-  .action((opt) => {
-    const configPath = opt.config;
-    return syncScripts({ configPath });
-  });
 
 program
   .command('deposit [toAddress] [amountInCKB]')
@@ -115,12 +100,6 @@ program
   .action((options: DeployOptions) => deploy(options));
 
 program
-  .command('my-scripts')
-  .description('Show deployed contracts info on different networks, only supports devnet and testnet')
-  .option('--network <network>', 'Specify the network to deploy to', 'devnet')
-  .action((options: DeployedScriptOption) => printMyScripts(options));
-
-program
   .command('config <action> [item] [value]')
   .description('do a configuration action')
   .action((action, item, value) => Config(action, item as ConfigItem, value));
@@ -145,10 +124,19 @@ program
   .command('system-scripts')
   .option('--export-style <exportStyle>', 'Specify the export format, possible values are system, lumos and ccc.')
   .option('--network <network>', 'Specify the CKB blockchain network', 'devnet')
-  .description('Output system scripts of the CKB blockchain')
+  .option(
+    '-o, --output <output>',
+    'Specify the output json file path for the system scripts, export-style and network will be ignored if output is specified',
+  )
+  .description('Print/Output system scripts of the CKB blockchain')
   .action(async (option) => {
     const network = option.network;
     const exportStyle = option.exportStyle;
+    if (option.output) {
+      await genSystemScriptsJsonFile(option.output);
+      console.log(`File ${option.output} generated successfully.`);
+      return;
+    }
     return printSystemScripts({ style: exportStyle, network });
   });
 
