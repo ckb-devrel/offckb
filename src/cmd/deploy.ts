@@ -9,13 +9,13 @@ import { confirm } from '@inquirer/prompts';
 
 export interface DeployOptions extends NetworkOption {
   target?: string;
-  artifacts?: string;
+  output?: string;
   privkey?: string | null;
   typeId?: boolean;
 }
 
 export async function deploy(
-  opt: DeployOptions = { network: Network.devnet, typeId: false, target: './', artifacts: './deployment' },
+  opt: DeployOptions = { network: Network.devnet, typeId: false, target: './', output: './deployment' },
 ) {
   const network = opt.network as Network;
   validateNetworkOpt(network);
@@ -27,7 +27,7 @@ export async function deploy(
   const privateKey = opt.privkey || deployerAccount.privkey;
   const enableTypeId = opt.typeId ?? false;
   const targetFolder = opt.target!;
-  const artifactsFolder = opt.artifacts!;
+  const outputFolder = opt.output!;
 
   const binFilesOrFolder = isAbsolutePath(targetFolder) ? targetFolder : path.resolve(process.cwd(), targetFolder);
   let binPaths = getBinaryFilesFromPath(binFilesOrFolder);
@@ -47,7 +47,7 @@ export async function deploy(
   for (const binPath of binPaths) {
     console.log(`- ${binPath}`);
   }
-  console.log(`\nThe deployment will be saved to ${artifactsFolder}`);
+  console.log(`\nThe deployment will be saved to ${outputFolder}`);
   console.log(`\nThe network is: ${network}`);
 
   const res = await confirm({
@@ -62,5 +62,5 @@ export async function deploy(
   const results = await deployBinaries(binPaths, privateKey, enableTypeId, ckb);
 
   // record the deployed contract infos
-  saveArtifacts(artifactsFolder, results, network);
+  saveArtifacts(outputFolder, results, network);
 }

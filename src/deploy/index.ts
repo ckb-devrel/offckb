@@ -65,9 +65,9 @@ export async function saveArtifacts(artifactsPath: string, results: DeployedInte
     deployedScriptsInfo[name] = scriptsInfo;
   }
 
-  const scriptInfoFilePath = path.join(artifactsPath, 'my-scripts.json');
+  const scriptInfoFilePath = path.join(artifactsPath, 'scripts.json');
   generateScriptInfoJsonFile(network, deployedScriptsInfo, scriptInfoFilePath);
-  console.log(`Script info json file ${scriptInfoFilePath} generated successfully.`);
+  console.log(`Script info file ${scriptInfoFilePath} generated successfully.`);
 }
 
 export async function recordDeployResult(

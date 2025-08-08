@@ -109,7 +109,7 @@ program
   .description('Deploy contracts to different networks, only supports devnet and testnet')
   .option('--network <network>', 'Specify the network to deploy to', 'devnet')
   .option('--target <target>', 'Specify the script binaries file/folder path to deploy', './')
-  .option('-a, --artifacts <artifacts>', 'Specify the artifacts save path for the deployment', './deployment')
+  .option('-o, --output <output>', 'Specify the output folder path for the deployment record files', './deployment')
   .option('-t, --type-id', 'Specify if use upgradable type id to deploy the script')
   .option('--privkey <privkey>', 'Specify the private key to deploy scripts')
   .action((options: DeployOptions) => deploy(options));
