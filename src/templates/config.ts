@@ -18,6 +18,7 @@ export const TEMPLATE_CONFIG: TemplateDependencies = {
   },
   devDependencies: {
     'ckb-testtool': '~0.1.1',
+    '@ckb-ccc/core': '~1.5.3', // Pin to version compatible with ckb-testtool
     esbuild: '~0.25.8',
     jest: '~29.7.0',
     prettier: '^3.5.3',
