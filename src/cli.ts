@@ -8,7 +8,7 @@ import { DepositOptions, deposit } from './cmd/deposit';
 import { DeployOptions, deploy } from './cmd/deploy';
 import { TransferOptions, transfer } from './cmd/transfer';
 import { BalanceOption, balanceOf } from './cmd/balance';
-import { create, CreateOption, createScriptProject, createDAppProject } from './cmd/create';
+import { createScriptProject, CreateScriptProjectOptions } from './cmd/create';
 import { Config, ConfigItem } from './cmd/config';
 import { debugSingleScript, debugTransaction, parseSingleScriptOption } from './cmd/debug';
 import { printSystemScripts } from './cmd/system-scripts';
@@ -26,20 +26,12 @@ program.name('offckb').description(description).version(version);
 
 program
   .command('create [your-project-name]')
-  .description('Create a new dApp from bare templates')
-  .option('-s, --script', 'Only create the script project')
-  .option('-d, --dapp', 'Only create the ccc dapp project')
-  .action(async (projectName: string, option: CreateOption) => {
-    const name = projectName ?? 'my-first-ckb-project';
-    if (option.script) {
-      return await createScriptProject(name);
-    }
-
-    if (option.dapp) {
-      return await createDAppProject(name);
-    }
-
-    return create(name);
+  .description('Create a new CKB Script project from bare templates')
+  .option('-m, --manager <manager>', 'Specify the package manager to use, possible values are pnpm, yarn, npm', 'pnpm')
+  .option('-t, --typescript', 'Specify if use typescript', true)
+  .action(async (projectName: string, options: CreateScriptProjectOptions) => {
+    const name = projectName ?? 'my-ckb-project';
+    return await createScriptProject(name, options);
   });
 
 program
