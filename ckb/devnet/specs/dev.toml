@@ -64,6 +64,9 @@ create_type_id = false
 [[genesis.system_cells]]
 file = { file = "spore/spore_extension_lua" }
 create_type_id = false
+[[genesis.system_cells]]
+file = { file = "ckb-js-vm" }
+create_type_id = true
 
 [genesis.system_cells_lock]
 code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
