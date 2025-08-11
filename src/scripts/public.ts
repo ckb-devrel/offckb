@@ -138,6 +138,24 @@ export const TESTNET_SYSTEM_SCRIPTS: SystemScriptsRecord = {
       ],
     },
   },
+  ckb_js_vm: {
+    name: 'ckb_js_vm',
+    script: {
+      codeHash: '0x3e9b6bead927bef62fcb56f0c79f4fbd1b739f32dd222beac10d346f2918bed7',
+      hashType: 'type',
+      cellDeps: [
+        {
+          cellDep: {
+            outPoint: {
+              txHash: '0x9f6558e91efa7580bfe97830d11cd94ca5d614bbf4a10b36f3a5b9d092749353',
+              index: 0,
+            },
+            depType: 'code',
+          },
+        },
+      ],
+    },
+  },
 };
 
 export const MAINNET_SYSTEM_SCRIPTS: SystemScriptsRecord = {
@@ -223,6 +241,7 @@ export const MAINNET_SYSTEM_SCRIPTS: SystemScriptsRecord = {
   spore_cluster_agent: undefined,
   spore_cluster_proxy: undefined,
   spore_extension_lua: undefined,
+  ckb_js_vm: undefined,
 };
 
 export default {

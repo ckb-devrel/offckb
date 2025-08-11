@@ -8,7 +8,7 @@ This document outlines the implementation plan for enhancing the `offckb create`
 
 1. **Multiple Package Manager Support**: yarn/npm/pnpm/npx
 2. **No Workspace Dependencies**: Generate standalone projects
-3. **Language Options**: TypeScript/JavaScript support  
+3. **Language Options**: TypeScript/JavaScript support
 4. **Contract Management**: Easy "add new contract" functionality
 5. **High Maintainability**: Single source of truth, automated validation
 
@@ -22,9 +22,10 @@ This document outlines the implementation plan for enhancing the `offckb create`
 - **Testing**: ckb-testtool with Jest integration
 
 ### Build Process Flow
+
 ```bash
 1. tsc --noEmit                           # Type checking
-2. esbuild --target=es2022 --bundle       # JavaScript bundling  
+2. esbuild --target=es2022 --bundle       # JavaScript bundling
 3. ckb-debugger --compile                 # Bytecode compilation
 ```
 
@@ -33,6 +34,7 @@ This document outlines the implementation plan for enhancing the `offckb create`
 ### 1. Template System Design
 
 **Single Template Approach** (Maintainable)
+
 ```
 templates/v4/
 └── base-template/
@@ -61,32 +63,34 @@ templates/v4/
 ### 2. Configuration Management
 
 **Central Dependency Management**
+
 ```typescript
 // src/templates/config.ts
 export const TEMPLATE_CONFIG = {
   dependencies: {
     '@ckb-js-std/bindings': '~0.1.0',
-    '@ckb-js-std/core': '~0.1.1'
+    '@ckb-js-std/core': '~0.1.1',
   },
   devDependencies: {
     'ckb-testtool': '~0.1.1',
-    'esbuild': '~0.25.8',
-    'jest': '~29.7.0',
-    'prettier': '^3.5.3',
-    'rimraf': '^6.0.1'
+    esbuild: '~0.25.8',
+    jest: '~29.7.0',
+    prettier: '^3.5.3',
+    rimraf: '^6.0.1',
   },
   typescriptDevDeps: {
-    'typescript': '~5.8.2',
+    typescript: '~5.8.2',
     'ts-jest': '~29.2.6',
     '@types/node': '~22.13.8',
-    '@types/jest': '~29.5.14'
-  }
+    '@types/jest': '~29.5.14',
+  },
 };
 ```
 
 ### 3. Template Processing Engine
 
 **Smart Template System**
+
 ```typescript
 interface TemplateContext {
   projectName: string;
@@ -98,13 +102,13 @@ interface TemplateContext {
 class TemplateProcessor {
   // Process template files with variable substitution
   processTemplate(templatePath: string, context: TemplateContext): string;
-  
+
   // Determine which files to include based on language choice
   shouldIncludeFile(filePath: string, context: TemplateContext): boolean;
-  
+
   // Generate package.json with correct dependencies
   generatePackageJson(context: TemplateContext): object;
-  
+
   // Copy and process entire template directory
   generateProject(outputDir: string, context: TemplateContext): void;
 }
@@ -113,6 +117,7 @@ class TemplateProcessor {
 ### 4. Enhanced CLI Interface
 
 **Command Structure**
+
 ```bash
 offckb create [project-name] [options]
 
@@ -125,6 +130,7 @@ Options:
 ```
 
 **Interactive Prompts**
+
 - Project name (if not provided)
 - Language preference (TypeScript/JavaScript)
 - Package manager (with auto-detection)
@@ -133,12 +139,13 @@ Options:
 ### 5. Package Manager Detection
 
 **Detection Strategy**
+
 ```typescript
 class PackageManagerDetector {
-  detectFromLockFiles(): string | null;     // Check for lock files
-  detectFromEnvironment(): string | null;   // Check available binaries
-  getDefault(): string;                     // Fallback to npm
-  
+  detectFromLockFiles(): string | null; // Check for lock files
+  detectFromEnvironment(): string | null; // Check available binaries
+  getDefault(): string; // Fallback to npm
+
   // Returns: npm, yarn, or pnpm
   detect(): string;
 }
@@ -147,6 +154,7 @@ class PackageManagerDetector {
 ### 6. Project Structure Generated
 
 **Generated Project Layout**
+
 ```
 my-ckb-project/
 ├── contracts/
@@ -171,6 +179,7 @@ my-ckb-project/
 ### 7. Build System Integration
 
 **Package.json Scripts**
+
 ```json
 {
   "scripts": {
@@ -185,6 +194,7 @@ my-ckb-project/
 ```
 
 **Cross-Platform Build Scripts**
+
 ```javascript
 // scripts/build-contract.js
 const { execSync } = require('child_process');
@@ -195,21 +205,26 @@ function buildContract(contractName) {
   const contractDir = path.join('contracts', contractName);
   const srcFile = path.join(contractDir, 'src', 'index.ts');
   const distDir = path.join(contractDir, 'dist');
-  
+
   // Ensure dist directory exists
   fs.mkdirSync(distDir, { recursive: true });
-  
+
   // Build JavaScript bundle
-  execSync(`esbuild --platform=neutral --minify --bundle --external:@ckb-js-std/bindings --target=es2022 ${srcFile} --outfile=${distDir}/index.js`);
-  
+  execSync(
+    `esbuild --platform=neutral --minify --bundle --external:@ckb-js-std/bindings --target=es2022 ${srcFile} --outfile=${distDir}/index.js`,
+  );
+
   // Compile to bytecode
-  execSync(`ckb-debugger --read-file ${distDir}/index.js --bin node_modules/ckb-testtool/src/unittest/defaultScript/ckb-js-vm -- -c ${distDir}/index.bc`);
+  execSync(
+    `ckb-debugger --read-file ${distDir}/index.js --bin node_modules/ckb-testtool/src/unittest/defaultScript/ckb-js-vm -- -c ${distDir}/index.bc`,
+  );
 }
 ```
 
 ### 8. Add Contract Functionality
 
 **Add Contract Script**
+
 ```javascript
 // scripts/add-contract.js
 const fs = require('fs');
@@ -226,6 +241,7 @@ async function addContract(contractName) {
 ```
 
 **Usage Example**
+
 ```bash
 npm run add-contract my-new-contract
 # Creates: contracts/my-new-contract/src/index.ts
@@ -235,6 +251,7 @@ npm run add-contract my-new-contract
 ### 9. Template Content Examples
 
 **Basic Contract Template**
+
 ```typescript
 // contracts/{{CONTRACT_NAME}}/src/index.ts.template
 import * as bindings from '@ckb-js-std/bindings';
@@ -244,9 +261,9 @@ function main(): number {
   log.setLevel(log.LogLevel.Debug);
   let script = bindings.loadScript();
   log.debug(`{{CONTRACT_NAME}} script loaded: ${JSON.stringify(script)}`);
-  
+
   // Your contract logic here
-  
+
   return 0;
 }
 
@@ -254,6 +271,7 @@ bindings.exit(main());
 ```
 
 **Test Template**
+
 ```typescript
 // tests/{{CONTRACT_NAME}}.test.ts.template
 import { hexFrom, Transaction, hashTypeToBytes } from '@ckb-ccc/core';
@@ -264,13 +282,17 @@ describe('{{CONTRACT_NAME}} contract', () => {
   test('should execute successfully', async () => {
     const resource = Resource.default();
     const tx = Transaction.default();
-    
+
     const mainScript = resource.deployCell(hexFrom(readFileSync(DEFAULT_SCRIPT_CKB_JS_VM)), tx, false);
     const alwaysSuccessScript = resource.deployCell(hexFrom(readFileSync(DEFAULT_SCRIPT_ALWAYS_SUCCESS)), tx, false);
-    const contractScript = resource.deployCell(hexFrom(readFileSync('contracts/{{CONTRACT_NAME}}/dist/index.bc')), tx, false);
-    
+    const contractScript = resource.deployCell(
+      hexFrom(readFileSync('contracts/{{CONTRACT_NAME}}/dist/index.bc')),
+      tx,
+      false,
+    );
+
     // Contract deployment and testing logic
-    
+
     const verifier = Verifier.from(resource, tx);
     verifier.verifySuccess(true);
   });
@@ -280,24 +302,28 @@ describe('{{CONTRACT_NAME}} contract', () => {
 ## Implementation Steps
 
 ### Phase 1: Infrastructure Setup
+
 1. Create template configuration system
 2. Implement template processing engine
 3. Set up package manager detection
 4. Create base template structure
 
-### Phase 2: Core Implementation  
+### Phase 2: Core Implementation
+
 1. Update create command with new interface
 2. Implement template generation logic
 3. Add interactive prompts
 4. Create cross-platform build scripts
 
 ### Phase 3: Contract Management
+
 1. Implement add-contract functionality
 2. Create contract templates
 3. Add contract validation
 4. Test multi-contract projects
 
 ### Phase 4: Testing & Documentation
+
 1. Automated template testing
 2. Cross-platform compatibility testing
 3. Package manager compatibility testing
@@ -306,21 +332,25 @@ describe('{{CONTRACT_NAME}} contract', () => {
 ## Maintainability Benefits
 
 ### Single Source of Truth
+
 - One template directory with conditional inclusion
 - Central dependency version management
 - Shared build utilities across all generated projects
 
 ### Automated Validation
+
 - Template generation tests ensure functionality
 - Build pipeline verification catches breaking changes
 - Cross-platform compatibility automated testing
 
 ### Extensibility Design
+
 - Plugin system for new contract types
 - Configurable build steps
 - Easy template customization without code changes
 
 ### Platform Compatibility
+
 - Node.js-based scripts work on all platforms
 - No shell script dependencies
 - Proper error handling and logging
