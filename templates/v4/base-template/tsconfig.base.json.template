@@ -2,8 +2,8 @@
   "compilerOptions": {
     /* The QuickJS supports ES2022 */
     "module": "ESNext",
-    /* Use esbuild to bundle the code */
-    "moduleResolution": "Bundler",
+    /* Use Node module resolution for better compatibility */
+    "moduleResolution": "Node",
     "target": "ES2022",
     "incremental": true,
     "allowJs": true,

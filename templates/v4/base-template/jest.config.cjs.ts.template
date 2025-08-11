@@ -1,16 +1,8 @@
-/** @type {import('jest').Config} */
+/** @type {import('ts-jest').JestConfigWithTsJest} */
 module.exports = {
   preset: "ts-jest",
   testEnvironment: "node",
   testPathIgnorePatterns: ["/node_modules/", "/dist/", "/contracts/*/dist/"],
-  moduleFileExtensions: ["ts", "js", "json"],
-  testMatch: ["**/tests/**/*.test.ts"],
-  transform: {
-    "^.+\\.ts$": "ts-jest"
-  },
-  transformIgnorePatterns: [
-    "node_modules/(?!(@ckb-ccc|ckb-testtool)/)"
-  ],
   collectCoverageFrom: [
     "contracts/*/src/**/*.ts",
     "!contracts/*/dist/**"
