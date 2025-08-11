@@ -58,11 +58,14 @@ export async function createScriptProject(name?: string, options: CreateScriptPr
     );
 
     // Parse project name and path from the collected project info
-    const { projectPath } = parseProjectNameAndPath(projectInfo.projectName);
+    const { projectName, projectPath } = parseProjectNameAndPath(projectInfo.projectName);
 
     // Override install/git options if provided
     if (options.noInstall) projectInfo.installDeps = false;
     if (options.noGit) projectInfo.initGit = false;
+
+    // Update the project info with the correct project name (without path)
+    projectInfo.projectName = projectName;
 
     // Use the parsed project path instead of just the name
     const fullProjectPath = path.resolve(projectPath);
