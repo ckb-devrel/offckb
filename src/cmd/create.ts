@@ -5,6 +5,34 @@ import { TemplateProcessor } from '../templates/processor';
 import { PackageManagerDetector } from '../templates/package-manager';
 import { InteractivePrompts } from '../templates/prompts';
 
+/**
+ * Parse project name and path from the input string.
+ * Supports formats like:
+ * - "my-project" -> name: "my-project", path: "./my-project"
+ * - "path/to/my-project" -> name: "my-project", path: "./path/to/my-project"
+ * - "path\\to\\my-project" -> name: "my-project", path: "./path/to/my-project"
+ */
+function parseProjectNameAndPath(input?: string): { projectName: string; projectPath: string } {
+  if (!input) {
+    return { projectName: 'my-ckb-project', projectPath: './my-ckb-project' };
+  }
+
+  const normalizedInput = input.trim();
+
+  // Normalize path separators to forward slashes for consistency
+  const normalizedPath = normalizedInput.replace(/\\/g, '/');
+
+  // If input contains path separators, extract the project name from the last part
+  if (normalizedPath.includes('/')) {
+    const projectName = path.basename(normalizedPath);
+    const projectPath = normalizedPath;
+    return { projectName, projectPath };
+  }
+
+  // If it's just a name, use it as both name and path
+  return { projectName: normalizedInput, projectPath: `./${normalizedInput}` };
+}
+
 export interface CreateScriptProjectOptions {
   manager?: 'pnpm' | 'yarn' | 'npm';
   language?: 'typescript' | 'javascript' | 'ts' | 'js';
@@ -21,9 +49,12 @@ export async function createScriptProject(name?: string, options: CreateScriptPr
     const prompts = new InteractivePrompts();
     const packageManagerDetector = new PackageManagerDetector();
 
+    // Parse project name and path
+    const { projectName, projectPath } = parseProjectNameAndPath(name);
+
     // Collect project information
     const projectInfo = await prompts.collectProjectInfo(
-      name,
+      projectName,
       options.language,
       options.manager,
       options.interactive !== false,
@@ -33,11 +64,12 @@ export async function createScriptProject(name?: string, options: CreateScriptPr
     if (options.noInstall) projectInfo.installDeps = false;
     if (options.noGit) projectInfo.initGit = false;
 
-    const projectPath = path.resolve(projectInfo.projectName);
+    // Use the parsed project path instead of just the name
+    const fullProjectPath = path.resolve(projectPath);
 
     // Check if directory already exists
-    if (fs.existsSync(projectPath)) {
-      console.error(chalk.red(`❌ Directory '${projectInfo.projectName}' already exists!`));
+    if (fs.existsSync(fullProjectPath)) {
+      console.error(chalk.red(`❌ Directory '${projectPath}' already exists!`));
       process.exit(1);
     }
 
@@ -45,13 +77,14 @@ export async function createScriptProject(name?: string, options: CreateScriptPr
     console.log(chalk.gray(`   Name: ${projectInfo.projectName}`));
     console.log(chalk.gray(`   Language: ${projectInfo.language}`));
     console.log(chalk.gray(`   Package Manager: ${projectInfo.packageManager}`));
-    console.log(chalk.gray(`   Path: ${projectPath}\n`));
+    console.log(chalk.gray(`   Path: ${fullProjectPath}\n`));
 
     // Try to find the template directory
     const possiblePaths = [
       path.join(__dirname, '../../templates/v4/base-template'), // from built files
       path.join(process.cwd(), 'templates/v4/base-template'), // from project root
       path.join(__dirname, '../../../templates/v4/base-template'), // alternative build location
+      path.join(__dirname, '../templates/v4/base-template'), // from source files
     ];
 
     // Get template directory (adjust path based on whether we're running from source or built)
@@ -67,16 +100,16 @@ export async function createScriptProject(name?: string, options: CreateScriptPr
 
     // Generate project
     console.log(chalk.blue('📦 Generating project files...'));
-    await processor.generateProject(projectPath, projectInfo);
+    await processor.generateProject(fullProjectPath, projectInfo);
 
     // Install dependencies
     if (projectInfo.installDeps) {
       console.log(chalk.blue('\n📥 Installing dependencies...'));
       try {
-        packageManagerDetector.installDependencies(projectPath, projectInfo.packageManager);
+        packageManagerDetector.installDependencies(fullProjectPath, projectInfo.packageManager);
       } catch (error) {
         console.warn(chalk.yellow('⚠️  Failed to install dependencies. You can install them manually later.'));
-        console.warn(chalk.gray(`   Run: cd ${projectInfo.projectName} && ${projectInfo.packageManager} install`));
+        console.warn(chalk.gray(`   Run: cd ${projectPath} && ${projectInfo.packageManager} install`));
       }
     }
 
@@ -84,7 +117,7 @@ export async function createScriptProject(name?: string, options: CreateScriptPr
     if (projectInfo.initGit) {
       console.log(chalk.blue('\n🔧 Initializing git repository...'));
       try {
-        packageManagerDetector.initializeGit(projectPath);
+        packageManagerDetector.initializeGit(fullProjectPath);
       } catch (error) {
         console.warn(chalk.yellow('⚠️  Failed to initialize git repository.'));
       }
@@ -94,7 +127,7 @@ export async function createScriptProject(name?: string, options: CreateScriptPr
     console.log(chalk.green('\n🎉 Project created successfully!\n'));
 
     console.log(chalk.bold('📖 Next steps:'));
-    console.log(chalk.gray(`   1. cd ${projectInfo.projectName}`));
+    console.log(chalk.gray(`   1. cd ${projectPath}`));
 
     if (!projectInfo.installDeps) {
       console.log(chalk.gray(`   2. ${projectInfo.packageManager} install`));

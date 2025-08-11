@@ -21,8 +21,9 @@ export class InteractivePrompts {
         if (!input.trim()) {
           return 'Project name cannot be empty';
         }
-        if (!/^[a-zA-Z0-9-_]+$/.test(input.trim())) {
-          return 'Project name can only contain letters, numbers, hyphens, and underscores';
+        // Allow path separators for location support
+        if (!/^[a-zA-Z0-9-_/\\]+$/.test(input.trim())) {
+          return 'Project name can only contain letters, numbers, hyphens, underscores, and path separators (/, \\)';
         }
         return true;
       },

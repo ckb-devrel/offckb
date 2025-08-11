@@ -26,7 +26,7 @@ program.name('offckb').description(description).version(version);
 
 program
   .command('create [project-name]')
-  .description('Create a new CKB Smart Contract project in JavaScript')
+  .description('Create a new CKB Smart Contract project in JavaScript. Supports path: "create path/to/my-project"')
   .option('-m, --manager <manager>', 'Specify the package manager to use (npm, yarn, pnpm)')
   .option('-l, --language <language>', 'Specify the language to use (typescript, javascript)')
   .option('--no-interactive', 'Disable interactive prompts')
