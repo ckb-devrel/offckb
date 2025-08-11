@@ -11,19 +11,17 @@ export class InteractivePrompts {
 
   async getProjectName(providedName?: string): Promise<string> {
     if (providedName) {
+      // If a name is provided (from command line), use it as-is
+      // The path parsing will be handled by the create command
       return providedName;
     }
 
     const projectName = await input({
       message: 'What is your project name?',
-      default: 'my-ckb-project',
+      default: './my-ckb-project',
       validate: (input: string) => {
         if (!input.trim()) {
           return 'Project name cannot be empty';
-        }
-        // Allow path separators for location support
-        if (!/^[a-zA-Z0-9-_/\\]+$/.test(input.trim())) {
-          return 'Project name can only contain letters, numbers, hyphens, underscores, and path separators (/, \\)';
         }
         return true;
       },

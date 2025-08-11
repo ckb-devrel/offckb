@@ -49,16 +49,16 @@ export async function createScriptProject(name?: string, options: CreateScriptPr
     const prompts = new InteractivePrompts();
     const packageManagerDetector = new PackageManagerDetector();
 
-    // Parse project name and path
-    const { projectName, projectPath } = parseProjectNameAndPath(name);
-
     // Collect project information
     const projectInfo = await prompts.collectProjectInfo(
-      projectName,
+      name, // Pass the original name to let prompts handle path parsing in interactive mode
       options.language,
       options.manager,
       options.interactive !== false,
     );
+
+    // Parse project name and path from the collected project info
+    const { projectPath } = parseProjectNameAndPath(projectInfo.projectName);
 
     // Override install/git options if provided
     if (options.noInstall) projectInfo.installDeps = false;
