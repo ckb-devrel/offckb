@@ -1,0 +1,21 @@
+/** @type {import('jest').Config} */
+module.exports = {
+  preset: "ts-jest/presets/default-esm",
+  extensionsToTreatAsEsm: [".ts"],
+  testEnvironment: "node",
+  testPathIgnorePatterns: ["/node_modules/", "/dist/", "/contracts/*/dist/"],
+  moduleFileExtensions: ["ts", "js", "json"],
+  testMatch: ["**/tests/**/*.test.ts"],
+  transform: {
+    "^.+\\.ts$": ["ts-jest", {
+      useESM: true
+    }]
+  },
+  moduleNameMapping: {
+    "^(\\.{1,2}/.*)\\.js$": "$1"
+  },
+  collectCoverageFrom: [
+    "contracts/*/src/**/*.ts",
+    "!contracts/*/dist/**"
+  ]
+};

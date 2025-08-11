@@ -25,13 +25,15 @@ const program = new Command();
 program.name('offckb').description(description).version(version);
 
 program
-  .command('create [your-project-name]')
-  .description('Create a new CKB Script project from bare templates')
-  .option('-m, --manager <manager>', 'Specify the package manager to use, possible values are pnpm, yarn, npm', 'pnpm')
-  .option('-t, --typescript', 'Specify if use typescript', true)
+  .command('create [project-name]')
+  .description('Create a new CKB JavaScript VM project')
+  .option('-m, --manager <manager>', 'Specify the package manager to use (npm, yarn, pnpm)')
+  .option('-l, --language <language>', 'Specify the language to use (typescript, javascript)')
+  .option('--no-interactive', 'Disable interactive prompts')
+  .option('--no-install', 'Skip dependency installation')
+  .option('--no-git', 'Skip git repository initialization')
   .action(async (projectName: string, options: CreateScriptProjectOptions) => {
-    const name = projectName ?? 'my-ckb-project';
-    return await createScriptProject(name, options);
+    return await createScriptProject(projectName, options);
   });
 
 program

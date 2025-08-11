@@ -16,7 +16,8 @@
     "build",
     "account",
     "ckb",
-    "templates/v3/offckb.config.example.ts"
+    "templates/v3/offckb.config.example.ts",
+    "templates/v4"
   ],
   "private": false,
   "publishConfig": {
