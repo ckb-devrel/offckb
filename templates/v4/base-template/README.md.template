@@ -125,9 +125,9 @@ Tests use the `ckb-testtool` framework to simulate CKB blockchain execution. Eac
 
 ## Resources
 
-- [CKB JavaScript VM Documentation](https://docs.nervos.org/docs/script/js/)
-- [CKB Developer Documentation](https://docs.nervos.org/)
-- [CKB-JS-STD API Reference](https://github.com/nervosnetwork/ckb-js-std)
+- [CKB JavaScript VM Documentation](https://github.com/nervosnetwork/ckb-js-vm)
+- [CKB Developer Documentation](https://docs.nervos.org/docs/script/js/js-quick-start)
+- [The Little Book of ckb-js-vm ](https://nervosnetwork.github.io/ckb-js-vm/)
 
 ## License
 
