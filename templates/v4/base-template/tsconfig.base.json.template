@@ -13,12 +13,15 @@
     "experimentalDecorators": true,
     "useDefineForClassFields": false,
     "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
     "strict": true,
     "noImplicitAny": true,
     "strictBindCallApply": true,
     "strictNullChecks": true,
     "alwaysStrict": true,
     "noFallthroughCasesInSwitch": true,
-    "forceConsistentCasingInFileNames": true
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true
   }
 }

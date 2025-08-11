@@ -1,6 +1,6 @@
-import { hexFrom, Transaction, hashTypeToBytes } from '@ckb-ccc/core';
-import { readFileSync } from 'fs';
-import { Resource, Verifier, DEFAULT_SCRIPT_ALWAYS_SUCCESS, DEFAULT_SCRIPT_CKB_JS_VM } from 'ckb-testtool';
+const { hexFrom, Transaction, hashTypeToBytes } = require('@ckb-ccc/core');
+const { readFileSync } = require('fs');
+const { Resource, Verifier, DEFAULT_SCRIPT_ALWAYS_SUCCESS, DEFAULT_SCRIPT_CKB_JS_VM } = require('ckb-testtool');
 
 describe('{{CONTRACT_NAME}} contract', () => {
   test('should execute successfully', async () => {
