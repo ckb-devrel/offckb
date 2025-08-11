@@ -25,7 +25,7 @@ export class InteractivePrompts {
           return 'Project name can only contain letters, numbers, hyphens, and underscores';
         }
         return true;
-      }
+      },
     });
 
     return projectName.trim();
@@ -38,15 +38,15 @@ export class InteractivePrompts {
         {
           name: 'TypeScript (recommended)',
           value: 'typescript' as const,
-          description: 'Strong typing and better IDE support'
+          description: 'Strong typing and better IDE support',
         },
         {
           name: 'JavaScript',
           value: 'javascript' as const,
-          description: 'Simpler setup, no type checking'
-        }
+          description: 'Simpler setup, no type checking',
+        },
       ],
-      default: 'typescript'
+      default: 'typescript',
     });
 
     return language;
@@ -62,10 +62,10 @@ export class InteractivePrompts {
 
     // Try to detect automatically
     const detected = this.packageManagerDetector.detect();
-    
+
     const shouldUseDetected = await confirm({
       message: `Use detected package manager: ${detected}?`,
-      default: true
+      default: true,
     });
 
     if (shouldUseDetected) {
@@ -79,20 +79,20 @@ export class InteractivePrompts {
         {
           name: 'pnpm (recommended)',
           value: 'pnpm' as const,
-          description: 'Fast, disk space efficient'
+          description: 'Fast, disk space efficient',
         },
         {
           name: 'yarn',
           value: 'yarn' as const,
-          description: 'Fast, reliable, secure'
+          description: 'Fast, reliable, secure',
         },
         {
           name: 'npm',
           value: 'npm' as const,
-          description: 'Default Node.js package manager'
-        }
+          description: 'Default Node.js package manager',
+        },
       ],
-      default: 'pnpm'
+      default: 'pnpm',
     });
 
     return packageManager;
@@ -101,14 +101,14 @@ export class InteractivePrompts {
   async shouldInstallDependencies(): Promise<boolean> {
     return await confirm({
       message: 'Install dependencies now?',
-      default: true
+      default: true,
     });
   }
 
   async shouldInitializeGit(): Promise<boolean> {
     return await confirm({
       message: 'Initialize git repository?',
-      default: true
+      default: true,
     });
   }
 
@@ -116,7 +116,7 @@ export class InteractivePrompts {
     providedProjectName?: string,
     providedLanguage?: string,
     providedPackageManager?: string,
-    interactive: boolean = true
+    interactive: boolean = true,
   ): Promise<TemplateContext & { installDeps: boolean; initGit: boolean }> {
     let projectName: string;
     let language: 'typescript' | 'javascript';
@@ -126,7 +126,7 @@ export class InteractivePrompts {
 
     if (interactive) {
       projectName = await this.getProjectName(providedProjectName);
-      
+
       // Language selection
       if (providedLanguage) {
         const lang = providedLanguage.toLowerCase();
@@ -147,7 +147,7 @@ export class InteractivePrompts {
     } else {
       // Non-interactive mode - use defaults or provided values
       projectName = providedProjectName || 'my-ckb-project';
-      
+
       if (providedLanguage) {
         const lang = providedLanguage.toLowerCase();
         if (['typescript', 'ts'].includes(lang)) {
@@ -170,7 +170,7 @@ export class InteractivePrompts {
       packageManager,
       contractName: 'hello-world', // default contract name
       installDeps,
-      initGit
+      initGit,
     };
   }
 }

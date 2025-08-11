@@ -10,15 +10,16 @@ const __dirname = path.dirname(__filename);
 
 function buildAllContracts() {
   const contractsDir = path.join(process.cwd(), 'contracts');
-  
+
   if (!fs.existsSync(contractsDir)) {
     console.error('No contracts directory found!');
     process.exit(1);
   }
 
-  const contracts = fs.readdirSync(contractsDir, { withFileTypes: true })
-    .filter(dirent => dirent.isDirectory())
-    .map(dirent => dirent.name);
+  const contracts = fs
+    .readdirSync(contractsDir, { withFileTypes: true })
+    .filter((dirent) => dirent.isDirectory())
+    .map((dirent) => dirent.name);
 
   if (contracts.length === 0) {
     console.log('No contracts found to build.');

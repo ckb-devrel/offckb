@@ -3,17 +3,9 @@
   "description": "Base template for CKB JavaScript VM projects",
   "version": "1.0.0",
   "supportedLanguages": ["typescript", "javascript"],
-  "requiredFiles": [
-    "package.json.template",
-    "jest.config.cjs.template",
-    ".gitignore",
-    "README.md.template"
-  ],
+  "requiredFiles": ["package.json.template", "jest.config.cjs.template", ".gitignore", "README.md.template"],
   "conditionalFiles": {
-    "typescript": [
-      "tsconfig.json.template",
-      "tsconfig.base.json.template"
-    ],
+    "typescript": ["tsconfig.json.template", "tsconfig.base.json.template"],
     "javascript": []
   }
 }

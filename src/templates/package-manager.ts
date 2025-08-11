@@ -12,7 +12,7 @@ export class PackageManagerDetector {
     const lockFiles = {
       'pnpm-lock.yaml': 'pnpm' as PackageManager,
       'yarn.lock': 'yarn' as PackageManager,
-      'package-lock.json': 'npm' as PackageManager
+      'package-lock.json': 'npm' as PackageManager,
     };
 
     for (const [lockFile, manager] of Object.entries(lockFiles)) {
@@ -74,19 +74,19 @@ export class PackageManagerDetector {
    */
   installDependencies(projectDir: string, packageManager: PackageManager): void {
     console.log(`Installing dependencies with ${packageManager}...`);
-    
+
     try {
       const installCommands = {
         npm: 'npm install',
         yarn: 'yarn install',
-        pnpm: 'pnpm install'
+        pnpm: 'pnpm install',
       };
 
       execSync(installCommands[packageManager], {
         cwd: projectDir,
-        stdio: 'inherit'
+        stdio: 'inherit',
       });
-      
+
       console.log('Dependencies installed successfully!');
     } catch (error) {
       console.error(`Failed to install dependencies with ${packageManager}:`, (error as Error).message);

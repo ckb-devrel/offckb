@@ -17,7 +17,7 @@ function buildContract(contractName) {
   const contractDir = path.join('contracts', contractName);
   const srcDir = path.join(contractDir, 'src');
   const distDir = path.join(contractDir, 'dist');
-  
+
   // Check if contract exists
   if (!fs.existsSync(contractDir)) {
     console.error(`Contract '${contractName}' not found in contracts directory!`);
@@ -28,7 +28,7 @@ function buildContract(contractName) {
   let srcFile;
   const tsFile = path.join(srcDir, 'index.ts');
   const jsFile = path.join(srcDir, 'index.js');
-  
+
   if (fs.existsSync(tsFile)) {
     srcFile = tsFile;
   } else if (fs.existsSync(jsFile)) {
@@ -40,7 +40,7 @@ function buildContract(contractName) {
 
   // Ensure dist directory exists
   fs.mkdirSync(distDir, { recursive: true });
-  
+
   const outputJsFile = path.join(distDir, 'index.js');
   const outputBcFile = path.join(distDir, 'index.bc');
 
@@ -63,9 +63,9 @@ function buildContract(contractName) {
       '--external:@ckb-js-std/bindings',
       '--target=es2022',
       srcFile,
-      `--outfile=${outputJsFile}`
+      `--outfile=${outputJsFile}`,
     ].join(' ');
-    
+
     execSync(esbuildCmd, { stdio: 'pipe' });
 
     // Step 3: Compile to bytecode with ckb-debugger
@@ -76,15 +76,14 @@ function buildContract(contractName) {
       '--bin node_modules/ckb-testtool/src/unittest/defaultScript/ckb-js-vm',
       '--',
       '-c',
-      outputBcFile
+      outputBcFile,
     ].join(' ');
-    
+
     execSync(debuggerCmd, { stdio: 'pipe' });
 
     console.log(`  ✅ Contract '${contractName}' built successfully!`);
     console.log(`     📄 JavaScript: ${outputJsFile}`);
     console.log(`     🔗 Bytecode: ${outputBcFile}`);
-
   } catch (error) {
     console.error(`❌ Build failed for '${contractName}':`, error.message);
     process.exit(1);

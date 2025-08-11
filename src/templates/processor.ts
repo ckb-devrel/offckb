@@ -14,43 +14,45 @@ export class TemplateProcessor {
    */
   processTemplate(templateContent: string, context: TemplateContext): string {
     let processed = templateContent;
-    
+
     // Handle conditional blocks for TypeScript
     const isTypescript = context.language === 'typescript';
-    
+
     // Process template conditionals
     // Must process blocks with {{else}} first, then simple blocks
-    
+
     // Process {{#if_typescript}} ... {{else}} ... {{/if_typescript}}
-    processed = processed.replace(/\{\{#if_typescript\}\}([\s\S]*?)\{\{else\}\}([\s\S]*?)\{\{\/if_typescript\}\}/g, 
+    processed = processed.replace(
+      /\{\{#if_typescript\}\}([\s\S]*?)\{\{else\}\}([\s\S]*?)\{\{\/if_typescript\}\}/g,
       (match, ifContent, elseContent) => {
         return isTypescript ? ifContent : elseContent;
-      });
-    
+      },
+    );
+
     // Process {{#if_javascript}} ... {{else}} ... {{/if_javascript}}
-    processed = processed.replace(/\{\{#if_javascript\}\}([\s\S]*?)\{\{else\}\}([\s\S]*?)\{\{\/if_javascript\}\}/g, 
+    processed = processed.replace(
+      /\{\{#if_javascript\}\}([\s\S]*?)\{\{else\}\}([\s\S]*?)\{\{\/if_javascript\}\}/g,
       (match, ifContent, elseContent) => {
         return !isTypescript ? ifContent : elseContent;
-      });
-    
+      },
+    );
+
     // Process {{#if_typescript}} ... {{/if_typescript}} (without else)
-    processed = processed.replace(/\{\{#if_typescript\}\}([\s\S]*?)\{\{\/if_typescript\}\}/g, 
-      (match, content) => {
-        return isTypescript ? content : '';
-      });
-    
+    processed = processed.replace(/\{\{#if_typescript\}\}([\s\S]*?)\{\{\/if_typescript\}\}/g, (match, content) => {
+      return isTypescript ? content : '';
+    });
+
     // Process {{#if_javascript}} ... {{/if_javascript}} (without else)
-    processed = processed.replace(/\{\{#if_javascript\}\}([\s\S]*?)\{\{\/if_javascript\}\}/g, 
-      (match, content) => {
-        return !isTypescript ? content : '';
-      });
-    
+    processed = processed.replace(/\{\{#if_javascript\}\}([\s\S]*?)\{\{\/if_javascript\}\}/g, (match, content) => {
+      return !isTypescript ? content : '';
+    });
+
     // Replace simple template variables
     processed = processed.replace(/\{\{PROJECT_NAME\}\}/g, context.projectName);
     processed = processed.replace(/\{\{CONTRACT_NAME\}\}/g, context.contractName || 'hello-world');
     processed = processed.replace(/\{\{LANGUAGE\}\}/g, context.language);
     processed = processed.replace(/\{\{PACKAGE_MANAGER\}\}/g, context.packageManager);
-    
+
     return processed;
   }
 
@@ -60,9 +62,9 @@ export class TemplateProcessor {
   shouldIncludeFile(filePath: string, context: TemplateContext): boolean {
     const relativePath = path.relative(this.templateDir, filePath);
     const fileName = path.basename(filePath);
-    
+
     // Always include required files
-    if (BASE_TEMPLATE_METADATA.requiredFiles.some(reqFile => relativePath.includes(reqFile))) {
+    if (BASE_TEMPLATE_METADATA.requiredFiles.some((reqFile) => relativePath.includes(reqFile))) {
       return true;
     }
 
@@ -99,10 +101,10 @@ export class TemplateProcessor {
         test: 'jest',
         'add-contract': 'node scripts/add-contract.js',
         clean: 'rimraf contracts/*/dist',
-        format: 'prettier --write .'
+        format: 'prettier --write .',
       },
       dependencies: TEMPLATE_CONFIG.dependencies,
-      devDependencies: { ...TEMPLATE_CONFIG.devDependencies }
+      devDependencies: { ...TEMPLATE_CONFIG.devDependencies },
     };
 
     // Add TypeScript dependencies if needed
@@ -118,14 +120,14 @@ export class TemplateProcessor {
    */
   async processFile(sourcePath: string, targetPath: string, context: TemplateContext): Promise<void> {
     let finalTargetPath = targetPath.replace(/\.template$/, '');
-    
+
     // Handle language-specific files (e.g., jest.config.cjs.ts.template -> jest.config.cjs)
     const fileName = path.basename(finalTargetPath);
     if (fileName.includes('jest.config.cjs.')) {
       const dir = path.dirname(finalTargetPath);
       finalTargetPath = path.join(dir, 'jest.config.cjs');
     }
-    
+
     // Ensure target directory exists
     const targetDir = path.dirname(finalTargetPath);
     fs.mkdirSync(targetDir, { recursive: true });
@@ -146,7 +148,6 @@ export class TemplateProcessor {
 
     for (const entry of entries) {
       const sourcePath = path.join(sourceDir, entry.name);
-      const targetPath = path.join(targetDir, entry.name);
 
       if (entry.isDirectory()) {
         // Process subdirectory recursively

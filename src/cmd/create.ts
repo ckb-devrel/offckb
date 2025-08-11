@@ -26,7 +26,7 @@ export async function createScriptProject(name?: string, options: CreateScriptPr
       name,
       options.language,
       options.manager,
-      options.interactive !== false
+      options.interactive !== false,
     );
 
     // Override install/git options if provided
@@ -47,18 +47,16 @@ export async function createScriptProject(name?: string, options: CreateScriptPr
     console.log(chalk.gray(`   Package Manager: ${projectInfo.packageManager}`));
     console.log(chalk.gray(`   Path: ${projectPath}\n`));
 
-    // Get template directory (adjust path based on whether we're running from source or built)
-    let templateDir: string;
-    
     // Try to find the template directory
     const possiblePaths = [
       path.join(__dirname, '../../templates/v4/base-template'), // from built files
-      path.join(process.cwd(), 'templates/v4/base-template'),   // from project root
+      path.join(process.cwd(), 'templates/v4/base-template'), // from project root
       path.join(__dirname, '../../../templates/v4/base-template'), // alternative build location
     ];
-    
-    templateDir = possiblePaths.find(p => fs.existsSync(p)) || possiblePaths[0];
-    
+
+    // Get template directory (adjust path based on whether we're running from source or built)
+    const templateDir = possiblePaths.find((p) => fs.existsSync(p)) || possiblePaths[0];
+
     if (!fs.existsSync(templateDir)) {
       console.error(chalk.red(`❌ Template directory not found: ${templateDir}`));
       process.exit(1);
@@ -94,10 +92,10 @@ export async function createScriptProject(name?: string, options: CreateScriptPr
 
     // Success message
     console.log(chalk.green('\n🎉 Project created successfully!\n'));
-    
+
     console.log(chalk.bold('📖 Next steps:'));
     console.log(chalk.gray(`   1. cd ${projectInfo.projectName}`));
-    
+
     if (!projectInfo.installDeps) {
       console.log(chalk.gray(`   2. ${projectInfo.packageManager} install`));
       console.log(chalk.gray(`   3. ${projectInfo.packageManager} run build`));
@@ -106,10 +104,9 @@ export async function createScriptProject(name?: string, options: CreateScriptPr
       console.log(chalk.gray(`   2. ${projectInfo.packageManager} run build`));
       console.log(chalk.gray(`   3. ${projectInfo.packageManager} test`));
     }
-    
+
     console.log(chalk.gray(`\n💡 To add a new contract:`));
     console.log(chalk.gray(`   ${projectInfo.packageManager} run add-contract <contract-name>`));
-
   } catch (error: unknown) {
     console.error(chalk.red('\n❌ Failed to create project:'), (error as Error).message);
     process.exit(1);
