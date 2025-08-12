@@ -1,0 +1,14 @@
+/** @type {import('jest').Config} */
+module.exports = {
+  testEnvironment: "node",
+  testPathIgnorePatterns: ["/node_modules/", "/dist/", "/contracts/*/dist/"],
+  moduleFileExtensions: ["js", "json"],
+  testMatch: ["**/tests/**/*.test.js"],
+  transformIgnorePatterns: [
+    "node_modules/(?!(@ckb-ccc|ckb-testtool)/)"
+  ],
+  collectCoverageFrom: [
+    "contracts/*/src/**/*.js",
+    "!contracts/*/dist/**"
+  ]
+};

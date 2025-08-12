@@ -22,7 +22,7 @@ export function genSystemScripts(): NetworkSystemScripts | null {
 
 export function genSystemScriptsJsonFile(filePath: string) {
   let outputFilePath = filePath;
-  if (isAbsolutePath(filePath)) {
+  if (!isAbsolutePath(filePath)) {
     outputFilePath = path.resolve(process.cwd(), filePath);
   }
   const scripts = genSystemScripts();

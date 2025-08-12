@@ -10,3 +10,6 @@
 [submodule "ckb/spore-contract"]
 	path = ckb/spore-contract
 	url = https://github.com/sporeprotocol/spore-contract.git
+[submodule "ckb/ckb-js-vm"]
+	path = ckb/ckb-js-vm
+	url = https://github.com/nervosnetwork/ckb-js-vm.git

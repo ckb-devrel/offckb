@@ -8,7 +8,7 @@ import { DepositOptions, deposit } from './cmd/deposit';
 import { DeployOptions, deploy } from './cmd/deploy';
 import { TransferOptions, transfer } from './cmd/transfer';
 import { BalanceOption, balanceOf } from './cmd/balance';
-import { create, CreateOption, createScriptProject, createDAppProject } from './cmd/create';
+import { createScriptProject, CreateScriptProjectOptions } from './cmd/create';
 import { Config, ConfigItem } from './cmd/config';
 import { debugSingleScript, debugTransaction, parseSingleScriptOption } from './cmd/debug';
 import { printSystemScripts } from './cmd/system-scripts';
@@ -25,21 +25,15 @@ const program = new Command();
 program.name('offckb').description(description).version(version);
 
 program
-  .command('create [your-project-name]')
-  .description('Create a new dApp from bare templates')
-  .option('-s, --script', 'Only create the script project')
-  .option('-d, --dapp', 'Only create the ccc dapp project')
-  .action(async (projectName: string, option: CreateOption) => {
-    const name = projectName ?? 'my-first-ckb-project';
-    if (option.script) {
-      return await createScriptProject(name);
-    }
-
-    if (option.dapp) {
-      return await createDAppProject(name);
-    }
-
-    return create(name);
+  .command('create [project-name]')
+  .description('Create a new CKB Smart Contract project in JavaScript.')
+  .option('-m, --manager <manager>', 'Specify the package manager to use (npm, yarn, pnpm)')
+  .option('-l, --language <language>', 'Specify the language to use (typescript, javascript)')
+  .option('--no-interactive', 'Disable interactive prompts')
+  .option('--no-install', 'Skip dependency installation')
+  .option('--no-git', 'Skip git repository initialization')
+  .action(async (projectName: string, options: CreateScriptProjectOptions) => {
+    return await createScriptProject(projectName, options);
   });
 
 program

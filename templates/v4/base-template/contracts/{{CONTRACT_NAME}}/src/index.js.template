@@ -1,0 +1,15 @@
+import * as bindings from '@ckb-js-std/bindings';
+import { Script, HighLevel, log } from '@ckb-js-std/core';
+
+function main() {
+  log.setLevel(log.LogLevel.Debug);
+  let script = bindings.loadScript();
+  log.debug(`{{CONTRACT_NAME}} script loaded: ${JSON.stringify(script)}`);
+  
+  // Your contract logic here
+  // This is a basic template that loads the script and logs its information
+  
+  return 0;
+}
+
+bindings.exit(main());

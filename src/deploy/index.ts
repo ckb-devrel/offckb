@@ -1,13 +1,10 @@
-import { DeploymentOptions, generateDeploymentToml, generateDeploymentTomlInPath } from '../deploy/toml';
+import { DeploymentOptions, generateDeploymentTomlInPath } from '../deploy/toml';
 import {
   DeploymentRecipe,
-  generateDeploymentMigrationFile,
   generateDeploymentMigrationFileInPath,
   getFormattedMigrationDate,
   Migration,
 } from '../deploy/migration';
-import { genMyScriptsJsonFile } from '../scripts/gen';
-import { OffCKBConfigFile } from '../template/offckb-config';
 import { readFileToUint8Array, isAbsolutePath, getBinaryFilesFromPath } from '../util/fs';
 import path from 'path';
 import fs from 'fs';
@@ -68,35 +65,6 @@ export async function saveArtifacts(artifactsPath: string, results: DeployedInte
   const scriptInfoFilePath = path.join(artifactsPath, 'scripts.json');
   generateScriptInfoJsonFile(network, deployedScriptsInfo, scriptInfoFilePath);
   console.log(`Script info file ${scriptInfoFilePath} generated successfully.`);
-}
-
-export async function recordDeployResult(
-  results: DeployedInterfaceType[],
-  network: Network,
-  userOffCKBConfigPath?: string, // if provided, will update the script info json
-) {
-  if (results.length === 0) {
-    return;
-  }
-  for (const result of results) {
-    generateDeploymentToml(result.deploymentOptions, network);
-    generateDeploymentMigrationFile(result.deploymentOptions.name, result.deploymentRecipe, network);
-  }
-
-  // update my-scripts.json
-  if (userOffCKBConfigPath) {
-    if (!fs.existsSync(userOffCKBConfigPath)) {
-      throw new Error(`config file not exits: ${userOffCKBConfigPath}`);
-    }
-
-    const folder = OffCKBConfigFile.readContractInfoFolder(userOffCKBConfigPath);
-    if (folder) {
-      const myScriptsFilePath = path.resolve(folder, 'my-scripts.json');
-      genMyScriptsJsonFile(myScriptsFilePath);
-    }
-  }
-
-  console.log('done.');
 }
 
 export async function deployBinaries(binPaths: string[], privateKey: HexString, enableTypeId: boolean, ckb: CKB) {
