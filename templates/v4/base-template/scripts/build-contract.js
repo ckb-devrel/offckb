@@ -3,10 +3,6 @@
 import { execSync } from 'child_process';
 import path from 'path';
 import fs from 'fs';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 function buildContract(contractName) {
   if (!contractName) {
@@ -41,8 +37,8 @@ function buildContract(contractName) {
   // Ensure dist directory exists
   fs.mkdirSync(distDir, { recursive: true });
 
-  const outputJsFile = path.join(distDir, 'index.js');
-  const outputBcFile = path.join(distDir, 'index.bc');
+  const outputJsFile = path.join(distDir, `${contractName}.js`);
+  const outputBcFile = path.join(distDir, `${contractName}.bc`);
 
   console.log(`Building ${contractName} from ${srcFile}...`);
 

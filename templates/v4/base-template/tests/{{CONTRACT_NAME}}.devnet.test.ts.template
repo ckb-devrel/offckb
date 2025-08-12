@@ -15,7 +15,7 @@ describe("{{CONTRACT_NAME}} contract", () => {
 
   test("should execute successfully", async () => {
     const ckbJsVmScript = systemScripts.devnet["ckb-js-vm"];
-    const contractScript = scripts.devnet["index.bc"];
+    const contractScript = scripts.devnet["{{CONTRACT_NAME}}.bc"];
 
     const mainScript = {
       codeHash: ckbJsVmScript.script.codeHash,

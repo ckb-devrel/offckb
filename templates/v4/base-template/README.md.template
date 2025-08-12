@@ -89,8 +89,8 @@ This will:
 ### Build Output
 
 Each contract generates two files in its `dist/` directory:
-- `index.js` - Bundled JavaScript code
-- `index.bc` - Compiled bytecode for CKB execution
+- `{contract-name}.js` - Bundled JavaScript code
+- `{contract-name}.bc` - Compiled bytecode for CKB execution
 
 ### Testing
 
