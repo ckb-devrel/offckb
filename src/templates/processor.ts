@@ -49,6 +49,7 @@ export class TemplateProcessor {
 
     // Replace simple template variables
     processed = processed.replace(/\{\{PROJECT_NAME\}\}/g, context.projectName);
+    processed = processed.replace(/\{\{PROJECT_PATH\}\}/g, context.projectPath || '.');
     processed = processed.replace(/\{\{CONTRACT_NAME\}\}/g, context.contractName || 'hello-world');
     processed = processed.replace(/\{\{LANGUAGE\}\}/g, context.language);
     processed = processed.replace(/\{\{PACKAGE_MANAGER\}\}/g, context.packageManager);

@@ -76,7 +76,14 @@ export async function createScriptProject(name?: string, options: CreateScriptPr
 
     // Generate project
     console.log(chalk.blue('📦 Generating project files...'));
-    await processor.generateProject(fullProjectPath, projectInfo);
+
+    // Add project path to context
+    const contextWithPath = {
+      ...projectInfo,
+      projectPath: fullProjectPath,
+    };
+
+    await processor.generateProject(fullProjectPath, contextWithPath);
 
     // Generate system-scripts.json
     console.log(chalk.blue('🔧 Generating system scripts configuration...'));
