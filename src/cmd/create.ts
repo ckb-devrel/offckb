@@ -10,8 +10,8 @@ export interface CreateScriptProjectOptions {
   manager?: 'pnpm' | 'yarn' | 'npm';
   language?: 'typescript' | 'javascript' | 'ts' | 'js';
   interactive?: boolean;
-  noInstall?: boolean;
-  noGit?: boolean;
+  install?: boolean; // Note: --no-install sets this to false
+  git?: boolean; // Note: --no-git sets this to false
 }
 
 export async function createScriptProject(name?: string, options: CreateScriptProjectOptions = {}) {
@@ -28,14 +28,18 @@ export async function createScriptProject(name?: string, options: CreateScriptPr
       options.language,
       options.manager,
       options.interactive !== false, // Interactive by default, unless explicitly disabled
+      {
+        noInstall: options.install === false, // --no-install sets install to false
+        noGit: options.git === false, // --no-git sets git to false
+      },
     );
 
     // Parse project name and path from the collected project info
     const { projectName, projectPath } = parseProjectNameAndPath(projectInfo.projectName);
 
     // Override install/git options if provided
-    if (options.noInstall) projectInfo.installDeps = false;
-    if (options.noGit) projectInfo.initGit = false;
+    if (options.install === false) projectInfo.installDeps = false;
+    if (options.git === false) projectInfo.initGit = false;
 
     // Update the project info with the correct project name (without path)
     projectInfo.projectName = projectName;

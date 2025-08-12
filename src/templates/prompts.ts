@@ -116,6 +116,7 @@ export class InteractivePrompts {
     providedLanguage?: string,
     providedPackageManager?: string,
     interactive: boolean = true,
+    cliFlags?: { noInstall?: boolean; noGit?: boolean },
   ): Promise<TemplateContext & { installDeps: boolean; initGit: boolean }> {
     let projectName: string;
     let language: 'typescript' | 'javascript';
@@ -141,8 +142,20 @@ export class InteractivePrompts {
       }
 
       packageManager = await this.getPackageManager(providedPackageManager);
-      installDeps = await this.shouldInstallDependencies();
-      initGit = await this.shouldInitializeGit();
+
+      // Only ask about installing dependencies if --no-install wasn't passed
+      if (cliFlags?.noInstall) {
+        installDeps = false;
+      } else {
+        installDeps = await this.shouldInstallDependencies();
+      }
+
+      // Only ask about git initialization if --no-git wasn't passed
+      if (cliFlags?.noGit) {
+        initGit = false;
+      } else {
+        initGit = await this.shouldInitializeGit();
+      }
     } else {
       // Non-interactive mode - use defaults or provided values
       projectName = providedProjectName || 'my-ckb-project';
@@ -161,8 +174,8 @@ export class InteractivePrompts {
       }
 
       packageManager = (providedPackageManager as PackageManager) || this.packageManagerDetector.detect();
-      installDeps = true; // default to installing dependencies
-      initGit = true; // default to initializing git
+      installDeps = !cliFlags?.noInstall; // default to installing dependencies unless --no-install is passed
+      initGit = !cliFlags?.noGit; // default to initializing git unless --no-git is passed
     }
 
     return {
