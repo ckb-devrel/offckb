@@ -56,6 +56,7 @@ export const BASE_TEMPLATE_METADATA: TemplateMetadata = {
     'deployment/scripts.json.template',
     'deployment/README.md.template',
     'env.example.template',
+    'env.template',
   ],
   conditionalFiles: {
     typescript: ['tsconfig.json.template', 'tsconfig.base.json.template'],

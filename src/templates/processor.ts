@@ -152,6 +152,12 @@ export class TemplateProcessor {
       finalTargetPath = path.join(dir, '.env.example');
     }
 
+    // Handle env.template -> .env
+    if (fileName === 'env') {
+      const dir = path.dirname(finalTargetPath);
+      finalTargetPath = path.join(dir, '.env');
+    }
+
     // Ensure target directory exists
     const targetDir = path.dirname(finalTargetPath);
     fs.mkdirSync(targetDir, { recursive: true });
