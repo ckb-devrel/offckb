@@ -55,7 +55,7 @@ export async function createScriptProject(name?: string, options: CreateScriptPr
       name, // Pass the original name to let prompts handle path parsing in interactive mode
       options.language,
       options.manager,
-      options.interactive !== false,
+      options.interactive !== false, // Interactive by default, unless explicitly disabled
     );
 
     // Parse project name and path from the collected project info

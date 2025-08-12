@@ -161,6 +161,8 @@ export class InteractivePrompts {
       }
 
       packageManager = (providedPackageManager as PackageManager) || this.packageManagerDetector.detect();
+      installDeps = true; // default to installing dependencies
+      initGit = true; // default to initializing git
     }
 
     return {
