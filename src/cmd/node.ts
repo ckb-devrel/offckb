@@ -47,7 +47,7 @@ export async function node({ version }: NodeProp) {
 
         // by default we start the proxy server
         const ckbRpc = settings.devnet.rpcUrl;
-        const port = settings.rpc.proxyPort;
+        const port = settings.devnet.rpcProxyPort;
         const proxy = createRPCProxy(Network.devnet, ckbRpc, port);
         proxy.start();
       } catch (error) {
