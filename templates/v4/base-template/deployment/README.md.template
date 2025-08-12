@@ -18,22 +18,19 @@ To deploy your contracts to the CKB blockchain, use the `offckb deploy` command:
 {{PACKAGE_MANAGER}} run build
 
 # Deploy to devnet (default)
-offckb deploy --network devnet
+offckb deploy --network devnet --target <contract-binary-path> --output {{PROJECT_PATH}}/deployment
 ```
 
 ### Deploy to Testnet
 
 ```bash
 # Deploy to testnet
-offckb deploy --network testnet
+offckb deploy --network testnet --target <contract-binary-path> --output {{PROJECT_PATH}}/deployment
 ```
 
 ### Deploy to Mainnet
 
-```bash
-# Deploy to mainnet (use with caution!)
-offckb deploy --network mainnet
-```
+For better security, we recommend the mainnet deployment using [ckb-cli](https://github.com/nervosnetwork/ckb-cli)
 
 ## After Deployment
 
