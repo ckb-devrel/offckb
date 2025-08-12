@@ -3,10 +3,6 @@
 import fs from 'fs';
 import path from 'path';
 import readline from 'readline';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 function askQuestion(question) {
   const rl = readline.createInterface({
@@ -26,10 +22,6 @@ function validateContractName(name) {
   // Basic validation: alphanumeric and hyphens only
   const validNamePattern = /^[a-zA-Z0-9-_]+$/;
   return validNamePattern.test(name) && name.length > 0;
-}
-
-function processTemplate(content, contractName, language) {
-  return content.replace(/\{\{CONTRACT_NAME\}\}/g, contractName).replace(/\{\{LANGUAGE\}\}/g, language);
 }
 
 async function addContract() {
@@ -123,7 +115,7 @@ describe('${contractName} contract', () => {
 
     const mainScript = resource.deployCell(hexFrom(readFileSync(DEFAULT_SCRIPT_CKB_JS_VM)), tx, false);
     const alwaysSuccessScript = resource.deployCell(hexFrom(readFileSync(DEFAULT_SCRIPT_ALWAYS_SUCCESS)), tx, false);
-    const contractScript = resource.deployCell(hexFrom(readFileSync('contracts/${contractName}/dist/index.bc')), tx, false);
+    const contractScript = resource.deployCell(hexFrom(readFileSync('contracts/${contractName}/dist/${contractName}.bc')), tx, false);
     
     mainScript.args = hexFrom(
       '0x0000' +
