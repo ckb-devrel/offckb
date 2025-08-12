@@ -6,34 +6,6 @@ import { PackageManagerDetector } from '../templates/package-manager';
 import { InteractivePrompts } from '../templates/prompts';
 import { genSystemScriptsJsonFile } from '../scripts/gen';
 
-/**
- * Parse project name and path from the input string.
- * Supports formats like:
- * - "my-project" -> name: "my-project", path: "./my-project"
- * - "path/to/my-project" -> name: "my-project", path: "./path/to/my-project"
- * - "path\\to\\my-project" -> name: "my-project", path: "./path/to/my-project"
- */
-function parseProjectNameAndPath(input?: string): { projectName: string; projectPath: string } {
-  if (!input) {
-    return { projectName: 'my-ckb-project', projectPath: './my-ckb-project' };
-  }
-
-  const normalizedInput = input.trim();
-
-  // Normalize path separators to forward slashes for consistency
-  const normalizedPath = normalizedInput.replace(/\\/g, '/');
-
-  // If input contains path separators, extract the project name from the last part
-  if (normalizedPath.includes('/')) {
-    const projectName = path.basename(normalizedPath);
-    const projectPath = normalizedPath;
-    return { projectName, projectPath };
-  }
-
-  // If it's just a name, use it as both name and path
-  return { projectName: normalizedInput, projectPath: `./${normalizedInput}` };
-}
-
 export interface CreateScriptProjectOptions {
   manager?: 'pnpm' | 'yarn' | 'npm';
   language?: 'typescript' | 'javascript' | 'ts' | 'js';
@@ -163,4 +135,32 @@ export async function createScriptProject(name?: string, options: CreateScriptPr
     console.error(chalk.red('\n❌ Failed to create project:'), (error as Error).message);
     process.exit(1);
   }
+}
+
+/**
+ * Parse project name and path from the input string.
+ * Supports formats like:
+ * - "my-project" -> name: "my-project", path: "./my-project"
+ * - "path/to/my-project" -> name: "my-project", path: "./path/to/my-project"
+ * - "path\\to\\my-project" -> name: "my-project", path: "./path/to/my-project"
+ */
+export function parseProjectNameAndPath(input?: string): { projectName: string; projectPath: string } {
+  if (!input) {
+    return { projectName: 'my-ckb-project', projectPath: './my-ckb-project' };
+  }
+
+  const normalizedInput = input.trim();
+
+  // Normalize path separators to forward slashes for consistency
+  const normalizedPath = normalizedInput.replace(/\\/g, '/');
+
+  // If input contains path separators, extract the project name from the last part
+  if (normalizedPath.includes('/')) {
+    const projectName = path.basename(normalizedPath);
+    const projectPath = normalizedPath;
+    return { projectName, projectPath };
+  }
+
+  // If it's just a name, use it as both name and path
+  return { projectName: normalizedInput, projectPath: `./${normalizedInput}` };
 }

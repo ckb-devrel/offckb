@@ -1,8 +1,8 @@
-# CKB-JS-VM Create Command Implementation Plan
+# offckb Create Command Implementation
 
 ## Overview
 
-This document outlines the implementation plan for enhancing the `offckb create` command to generate standalone CKB JavaScript script projects using ckb-js-vm, with focus on maintainability, flexibility, and ease of use.
+This document outlines the implementation explanation for enhancing the `offckb create` command to generate standalone CKB JavaScript script projects using ckb-js-vm, with focus on maintainability, flexibility, and ease of use.
 
 ## Requirements
 
@@ -371,5 +371,3 @@ describe('{{CONTRACT_NAME}} contract', () => {
 - **Rollout**: Replace existing implementation entirely
 
 ---
-
-**Ready for implementation upon approval.**
