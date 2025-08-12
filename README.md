@@ -43,18 +43,18 @@ Options:
   -h, --help                                    display help for command
 
 Commands:
-  node [options] [CKB-Version]                  Use the CKB to start devnet
-  create [options] [your-project-name]          Create a new dApp from bare templates
+  node [CKB-Version]                            Use the CKB to start devnet
+  create [options] [project-name]               Create a new CKB Smart Contract project in JavaScript.
+  deploy [options]                              Deploy contracts to different networks, only supports devnet and testnet
+  debug [options]                               CKB Debugger for development
+  system-scripts [options]                      Print/Output system scripts of the CKB blockchain
   clean                                         Clean the devnet data, need to stop running the chain first
   accounts                                      Print account list info
   deposit [options] [toAddress] [amountInCKB]   Deposit CKB tokens to address, only devnet and testnet
   transfer [options] [toAddress] [amountInCKB]  Transfer CKB tokens to address, only devnet and testnet
   transfer-all [options] [toAddress]            Transfer All CKB tokens to address, only devnet and testnet
   balance [options] [toAddress]                 Check account balance, only devnet and testnet
-  deploy [options]                              Deploy contracts to different networks, only supports devnet and testnet
   config <action> [item] [value]                do a configuration action
-  debug [options]                               CKB Debugger for development
-  system-scripts [options]                      Output system scripts of the local devnet
   help [command]                                display help for command
 ```
 
@@ -73,13 +73,13 @@ offckb node
 Or specify a CKB version:
 
 ```sh
-offckb node 0.117.0
+offckb node 0.201.0
 ```
 
 Or set the default CKB version:
 
 ```sh
-offckb config set ckb-version 0.117.0
+offckb config set ckb-version 0.201.0
 offckb node
 ```
 
@@ -144,76 +144,42 @@ Pay attention to the `devnet.configPath` and `devnet.dataPath`. They are the one
 
 Done.
 
-### Create a full-stack Project
+### Create a CKB Smart Contract Project
 
-Create a new project from predefined boilerplates.
+You can create a new CKB Smart Contract project in JavaScript from our boilerplate.
 
 ```sh
-offckb create <your-project-name, eg:my-first-ckb-project>
+offckb create <your-project-name>
 ```
 
-The boilerplate can be targeting on different CKB networks. Check [README.md](https://github.com/nervosnetwork/docs.nervos.org/blob/develop/examples/remix-vite-template/readme.md) in the project to get started.
+### Build and Deploy a CKB Smart Contract
 
-### Create a script-only Project
-
-You can create a new script project without a frontend. This is useful when you only want to develop smart contracts for CKB.
+After creating the project, you can build the CKB Smart Contract project by running:
 
 ```sh
-offckb create <your-project-name> --script
+cd <your-project-name> && npm/yarn/pnpm run build
 ```
 
-Note: you need to have pnpm installed in your environment to use this command. offckb doesn't do anything really, it just call [create-js-vm-app](https://github.com/nervosnetwork/ckb-js-vm/tree/main/packages/create-app) to do all the magic.
-
-### Create a dApp-only Project
-
-You can create a new dApp project without the script(CKB Smart Contract). This is useful when you don't need to create your own on-chain script logic.
+To deploy the script, use `offckb deploy` command:
 
 ```sh
-offckb create <your-project-name> --dapp # or -d
-```
-
-### Build and Deploy a script
-
-The fullstack boilerplate project is a monorepo, which contains a script project and a frontend project.
-
-To build the script, in the root of the project, run:
-
-```sh
-make build
-```
-
-To deploy the script, cd into the frontend folder where the default `offckb.config.ts` file is located and run:
-
-```sh
-cd frontend && offckb deploy --network <devnet/testnet>
-```
-
-Or specific the `offckb.config.ts` file path for deploy command to locate:
-
-```sh
-offckb deploy --network <devnet/testnet> --config <file-path-to-your-offckb.config.ts-file>
+offckb deploy --network <devnet/testnet> --target <path-to-your-contract-binary-file-or-folder> --output <output-folder-path>
 ```
 
 Pass `--type-id` option if you want Scripts to be upgradable
 
 ```sh
-cd frontend && offckb deploy --type-id --network <devnet/testnet>
+offckb deploy --type-id --network <devnet/testnet>
 ```
 
-Once the deployment is done, you can use the following command to check the deployed scripts:
+Your deployed scripts will be be listed in the `output-folder-path` which you defined in the command.
+
+### Test CKB Smart Contract
+
+To test the CKB Smart Contract project, cd into the project folder and run:
 
 ```sh
-offckb my-scripts --network <devnet/testnet>
-```
-
-Your deployed scripts will be also be listed in the `frontend/offckb/my-scripts` folder in your frontend project.
-
-### Start the frontend project
-
-To start the frontend project, cd into the frontend folder and run:
-
-```sh
-npm i & npm run dev
+npm/yarn/pnpm run test
 ```
 
 ### Debug a transaction
@@ -316,6 +282,8 @@ offckb config get proxy
   - commit id: 410b16c
 - [x] Spore https://github.com/sporeprotocol/spore-contract
   - version: 0.2.2-beta.1
+- [x] CKB-JS-VM https://github.com/nervosnetwork/ckb-js-vm
+  - version: 1.0.0
 
 ## Accounts
 
