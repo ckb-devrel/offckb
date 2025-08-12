@@ -32,7 +32,7 @@ export interface DeploymentToml {
   };
 }
 
-export function generateDeploymentToml(options: DeploymentOptions, network: Network) {
+export function generateDeploymentTomlInPath(options: DeploymentOptions, outputFilePath: string) {
   const data: DeploymentToml = {
     cells: [
       {
@@ -51,7 +51,6 @@ export function generateDeploymentToml(options: DeploymentOptions, network: Netw
   };
 
   const tomlString = toml.stringify(data as unknown as JsonMap);
-  const outputFilePath: string = `${getContractsPath(network)}/${options.name}/deployment.toml`;
   if (outputFilePath) {
     if (!fs.existsSync(dirname(outputFilePath))) {
       fs.mkdirSync(dirname(outputFilePath), { recursive: true });
@@ -61,8 +60,12 @@ export function generateDeploymentToml(options: DeploymentOptions, network: Netw
   }
 }
 
-export function readDeploymentToml(scriptName: string, network: Network) {
-  const filePath = `${getContractsPath(network)}/${scriptName}/deployment.toml`;
+export function generateDeploymentToml(options: DeploymentOptions, network: Network) {
+  const outputFilePath: string = `${getContractsPath(network)}/${options.name}/deployment.toml`;
+  return generateDeploymentTomlInPath(options, outputFilePath);
+}
+
+export function readDeploymentTomlInPath(filePath: string) {
   const file = fs.readFileSync(filePath, 'utf-8');
   const data = toml.parse(file) as unknown as DeploymentToml;
   return {
@@ -81,4 +84,9 @@ export function readDeploymentToml(scriptName: string, network: Network) {
       hashType: data.lock.hash_type as string,
     },
   };
+}
+
+export function readDeploymentToml(scriptName: string, network: Network) {
+  const filePath = `${getContractsPath(network)}/${scriptName}/deployment.toml`;
+  return readDeploymentTomlInPath(filePath);
 }

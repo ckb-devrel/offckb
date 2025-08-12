@@ -1,6 +1,6 @@
-.PHONY: all omnilock anyone-can-pay xudt spore
+.PHONY: all omnilock anyone-can-pay xudt spore ckb-js-vm
 
-all: omnilock anyone-can-pay xudt spore
+all: omnilock anyone-can-pay xudt spore ckb-js-vm
 
 omnilock:
 	@echo "Building omnilock via submodule"
@@ -28,3 +28,8 @@ spore:
 	cp ckb/spore-contract/build/release/cluster_agent ckb/devnet/specs/spore-scripts/
 	cp ckb/spore-contract/build/release/cluster_proxy ckb/devnet/specs/spore-scripts/
 	cp ckb/spore-contract/build/release/spore_extension_lua ckb/devnet/specs/spore-scripts/
+
+ckb-js-vm:
+	@echo "Building ckb-js-vm via submodule"
+	cd ckb/ckb-js-vm && git submodule update --init && make all
+	cp ckb/ckb-js-vm/build/ckb-js-vm ckb/devnet/specs/

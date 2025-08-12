@@ -72,22 +72,24 @@ export class Migration {
   }
 }
 
+export function generateDeploymentMigrationFileInPath(deploymentRecipe: DeploymentRecipe, outputFilePath: string) {
+  const cellRecipes = deploymentRecipe.cellRecipes;
+  const depGroupRecipes = deploymentRecipe.depGroupRecipes;
+  const jsonString = JSON.stringify(deploymentRecipeToJson({ cellRecipes, depGroupRecipes }), null, 2);
+  if (!fs.existsSync(dirname(outputFilePath))) {
+    fs.mkdirSync(dirname(outputFilePath), { recursive: true });
+  }
+  fs.writeFileSync(outputFilePath, jsonString);
+  console.log(`Migration json file ${outputFilePath} generated successfully.`);
+}
+
 export function generateDeploymentMigrationFile(
   name: string,
   deploymentRecipe: DeploymentRecipe,
   network = Network.devnet,
 ) {
-  const cellRecipes = deploymentRecipe.cellRecipes;
-  const depGroupRecipes = deploymentRecipe.depGroupRecipes;
-  const jsonString = JSON.stringify(deploymentRecipeToJson({ cellRecipes, depGroupRecipes }), null, 2);
   const outputFilePath: string = `${getContractsPath(network)}/${name}/migrations/${getFormattedMigrationDate()}.json`;
-  if (outputFilePath) {
-    if (!fs.existsSync(dirname(outputFilePath))) {
-      fs.mkdirSync(dirname(outputFilePath), { recursive: true });
-    }
-    fs.writeFileSync(outputFilePath, jsonString);
-    console.log(`${name} migration json file ${outputFilePath} generated successfully.`);
-  }
+  return generateDeploymentMigrationFileInPath(deploymentRecipe, outputFilePath);
 }
 
 export function readDeploymentMigrationFile(filePath: string): DeploymentRecipe {
