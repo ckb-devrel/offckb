@@ -4,6 +4,7 @@ import chalk from 'chalk';
 import { TemplateProcessor } from '../templates/processor';
 import { PackageManagerDetector } from '../templates/package-manager';
 import { InteractivePrompts } from '../templates/prompts';
+import { genSystemScriptsJsonFile } from '../scripts/gen';
 
 /**
  * Parse project name and path from the input string.
@@ -104,6 +105,21 @@ export async function createScriptProject(name?: string, options: CreateScriptPr
     // Generate project
     console.log(chalk.blue('📦 Generating project files...'));
     await processor.generateProject(fullProjectPath, projectInfo);
+
+    // Generate system-scripts.json
+    console.log(chalk.blue('🔧 Generating system scripts configuration...'));
+    try {
+      const systemScriptsPath = path.join(fullProjectPath, 'deployment', 'system-scripts.json');
+      genSystemScriptsJsonFile(systemScriptsPath);
+      console.log(chalk.green('✅ System scripts configuration generated successfully'));
+    } catch (error) {
+      console.warn(chalk.yellow('⚠️  Failed to generate system scripts configuration.'));
+      console.warn(
+        chalk.gray(
+          '   You can generate it manually later with: offckb system-scripts -o deployment/system-scripts.json',
+        ),
+      );
+    }
 
     // Install dependencies
     if (projectInfo.installDeps) {

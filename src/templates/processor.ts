@@ -77,7 +77,25 @@ export class TemplateProcessor {
       }
     }
 
-    // Check conditional files for contracts and tests
+    // Handle helper files - always include for matching language
+    if (fileName.includes('helper.')) {
+      if (context.language === 'typescript') {
+        return fileName.includes('.ts.template');
+      } else {
+        return fileName.includes('.js.template');
+      }
+    }
+
+    // Handle test files - include both mock and devnet tests for the appropriate language
+    if (fileName.includes('.test.') || fileName.includes('.mock.test.') || fileName.includes('.devnet.test.')) {
+      if (context.language === 'typescript') {
+        return fileName.includes('.ts.template');
+      } else {
+        return fileName.includes('.js.template');
+      }
+    }
+
+    // Check conditional files for contracts and other files
     if (context.language === 'typescript') {
       return !relativePath.includes('.js.template') || relativePath.includes('.ts.template');
     } else {
@@ -126,6 +144,12 @@ export class TemplateProcessor {
     if (fileName.includes('jest.config.cjs.')) {
       const dir = path.dirname(finalTargetPath);
       finalTargetPath = path.join(dir, 'jest.config.cjs');
+    }
+
+    // Handle env.example.template -> .env.example
+    if (fileName === 'env.example') {
+      const dir = path.dirname(finalTargetPath);
+      finalTargetPath = path.join(dir, '.env.example');
     }
 
     // Ensure target directory exists

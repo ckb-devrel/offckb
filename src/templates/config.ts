@@ -15,6 +15,7 @@ export const TEMPLATE_CONFIG: TemplateDependencies = {
   dependencies: {
     '@ckb-js-std/bindings': '~0.1.0',
     '@ckb-js-std/core': '~0.1.1',
+    dotenv: '^17.2.1',
   },
   devDependencies: {
     'ckb-testtool': '~0.1.1',
@@ -47,7 +48,15 @@ export const BASE_TEMPLATE_METADATA: TemplateMetadata = {
   name: 'ckb-js-vm-base',
   description: 'Base template for CKB JavaScript VM projects',
   supportedLanguages: ['typescript', 'javascript'],
-  requiredFiles: ['package.json.template', 'jest.config.cjs.template', '.gitignore', 'README.md.template'],
+  requiredFiles: [
+    'package.json.template',
+    'jest.config.cjs.template',
+    '.gitignore',
+    'README.md.template',
+    'deployment/scripts.json.template',
+    'deployment/README.md.template',
+    'env.example.template',
+  ],
   conditionalFiles: {
     typescript: ['tsconfig.json.template', 'tsconfig.base.json.template'],
     javascript: [],

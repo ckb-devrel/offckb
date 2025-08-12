@@ -1,0 +1,56 @@
+const { hexFrom, ccc, hashTypeToBytes } = require("@ckb-ccc/core");
+const scripts = require("../deployment/scripts.json");
+const systemScripts = require("../deployment/system-scripts.json");
+const { buildClient, buildSigner } = require("./helper");
+
+describe("{{CONTRACT_NAME}} contract", () => {
+  let client;
+  let signer;
+
+  beforeAll(() => {
+    // Create global devnet client and signer for all tests in this describe block
+    client = buildClient("devnet");
+    signer = buildSigner(client);
+  });
+
+  test("should execute successfully", async () => {
+    const ckbJsVmScript = systemScripts.devnet["ckb-js-vm"];
+    const contractScript = scripts.devnet["index.bc"];
+
+    const mainScript = {
+      codeHash: ckbJsVmScript.script.codeHash,
+      hashType: ckbJsVmScript.script.hashType,
+      args: hexFrom(
+        "0x0000" +
+          contractScript.codeHash.slice(2) +
+          hexFrom(hashTypeToBytes(contractScript.hashType)).slice(2) +
+          "0000000000000000000000000000000000000000000000000000000000000000",
+      ),
+    };
+
+    const signerLock = (await signer.getRecommendedAddressObj()).script;
+    const toLock = {
+      codeHash: signerLock.codeHash,
+      hashType: signerLock.hashType,
+      args: signerLock.args,
+    };
+
+    const tx = ccc.Transaction.from({
+      outputs: [
+        {
+          lock: toLock,
+          type: mainScript,
+        },
+      ],
+      cellDeps: [
+        ...ckbJsVmScript.script.cellDeps.map((c) => c.cellDep),
+        ...contractScript.cellDeps.map((c) => c.cellDep),
+      ],
+    });
+
+    await tx.completeInputsByCapacity(signer);
+    await tx.completeFeeBy(signer, 1000);
+    const txHash = await signer.sendTransaction(tx);
+    console.log(`Transaction sent: ${txHash}`);
+  });
+});
