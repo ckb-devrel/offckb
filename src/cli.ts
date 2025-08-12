@@ -25,6 +25,13 @@ const program = new Command();
 program.name('offckb').description(description).version(version);
 
 program
+  .command('node [CKB-Version]')
+  .description('Use the CKB to start devnet')
+  .action(async (version: string) => {
+    return node({ version });
+  });
+
+program
   .command('create [project-name]')
   .description('Create a new CKB Smart Contract project in JavaScript.')
   .option('-m, --manager <manager>', 'Specify the package manager to use (npm, yarn, pnpm)')
@@ -37,10 +44,49 @@ program
   });
 
 program
-  .command('node [CKB-Version]')
-  .description('Use the CKB to start devnet')
-  .action(async (version: string) => {
-    return node({ version });
+  .command('deploy')
+  .description('Deploy contracts to different networks, only supports devnet and testnet')
+  .option('--network <network>', 'Specify the network to deploy to', 'devnet')
+  .option('--target <target>', 'Specify the script binaries file/folder path to deploy', './')
+  .option('-o, --output <output>', 'Specify the output folder path for the deployment record files', './deployment')
+  .option('-t, --type-id', 'Specify if use upgradable type id to deploy the script')
+  .option('--privkey <privkey>', 'Specify the private key to deploy scripts')
+  .action((options: DeployOptions) => deploy(options));
+
+program
+  .command('debug')
+  .requiredOption('--tx-hash <txHash>', 'Specify the transaction hash to debug with')
+  .option('--single-script <singleScript>', 'Specify the cell script to debug with')
+  .option('--bin <bin>', 'Specify a binary to replace the script to debug with')
+  .option('--network <network>', 'Specify the network to debug', 'devnet')
+  .description('CKB Debugger for development')
+  .action(async (option) => {
+    const txHash = option.txHash;
+    if (option.singleScript) {
+      const { cellType, cellIndex, scriptType } = parseSingleScriptOption(option.singleScript);
+      return debugSingleScript(txHash, cellIndex, cellType, scriptType, option.network, option.bin);
+    }
+    return debugTransaction(txHash, option.network);
+  });
+
+program
+  .command('system-scripts')
+  .option('--export-style <exportStyle>', 'Specify the export format, possible values are system, lumos and ccc.')
+  .option('--network <network>', 'Specify the CKB blockchain network', 'devnet')
+  .option(
+    '-o, --output <output>',
+    'Specify the output json file path for the system scripts, export-style and network will be ignored if output is specified',
+  )
+  .description('Print/Output system scripts of the CKB blockchain')
+  .action(async (option) => {
+    const network = option.network;
+    const exportStyle = option.exportStyle;
+    if (option.output) {
+      await genSystemScriptsJsonFile(option.output);
+      console.log(`File ${option.output} generated successfully.`);
+      return;
+    }
+    return printSystemScripts({ style: exportStyle, network });
   });
 
 program.command('clean').description('Clean the devnet data, need to stop running the chain first').action(clean);
@@ -84,55 +130,9 @@ program
   });
 
 program
-  .command('deploy')
-  .description('Deploy contracts to different networks, only supports devnet and testnet')
-  .option('--network <network>', 'Specify the network to deploy to', 'devnet')
-  .option('--target <target>', 'Specify the script binaries file/folder path to deploy', './')
-  .option('-o, --output <output>', 'Specify the output folder path for the deployment record files', './deployment')
-  .option('-t, --type-id', 'Specify if use upgradable type id to deploy the script')
-  .option('--privkey <privkey>', 'Specify the private key to deploy scripts')
-  .action((options: DeployOptions) => deploy(options));
-
-program
   .command('config <action> [item] [value]')
   .description('do a configuration action')
   .action((action, item, value) => Config(action, item as ConfigItem, value));
-
-program
-  .command('debug')
-  .requiredOption('--tx-hash <txHash>', 'Specify the transaction hash to debug with')
-  .option('--single-script <singleScript>', 'Specify the cell script to debug with')
-  .option('--bin <bin>', 'Specify a binary to replace the script to debug with')
-  .option('--network <network>', 'Specify the network to debug', 'devnet')
-  .description('CKB Debugger for development')
-  .action(async (option) => {
-    const txHash = option.txHash;
-    if (option.singleScript) {
-      const { cellType, cellIndex, scriptType } = parseSingleScriptOption(option.singleScript);
-      return debugSingleScript(txHash, cellIndex, cellType, scriptType, option.network, option.bin);
-    }
-    return debugTransaction(txHash, option.network);
-  });
-
-program
-  .command('system-scripts')
-  .option('--export-style <exportStyle>', 'Specify the export format, possible values are system, lumos and ccc.')
-  .option('--network <network>', 'Specify the CKB blockchain network', 'devnet')
-  .option(
-    '-o, --output <output>',
-    'Specify the output json file path for the system scripts, export-style and network will be ignored if output is specified',
-  )
-  .description('Print/Output system scripts of the CKB blockchain')
-  .action(async (option) => {
-    const network = option.network;
-    const exportStyle = option.exportStyle;
-    if (option.output) {
-      await genSystemScriptsJsonFile(option.output);
-      console.log(`File ${option.output} generated successfully.`);
-      return;
-    }
-    return printSystemScripts({ style: exportStyle, network });
-  });
 
 program.parse(process.argv);
 

@@ -25,9 +25,6 @@ export interface ProxyConfig {
 
 export interface Settings {
   proxy?: ProxyConfig;
-  rpc: {
-    proxyPort: number;
-  };
   bins: {
     rootFolder: string;
     defaultCKBVersion: string;
@@ -35,6 +32,7 @@ export interface Settings {
   };
   devnet: {
     rpcUrl: string;
+    rpcProxyPort: number;
     configPath: string;
     dataPath: string;
     debugFullTransactionsPath: string;
@@ -44,6 +42,7 @@ export interface Settings {
   };
   testnet: {
     rpcUrl: string;
+    rpcProxyPort: number;
     debugFullTransactionsPath: string;
     transactionsPath: string;
     failedTransactionsPath: string;
@@ -51,23 +50,13 @@ export interface Settings {
   };
   mainnet: {
     rpcUrl: string;
+    rpcProxyPort: number;
     debugFullTransactionsPath: string;
     transactionsPath: string;
     failedTransactionsPath: string;
     contractsPath: string;
   };
-  dappTemplate: {
-    gitRepoUrl: string;
-    gitBranch: string;
-    gitFolder: string;
-    downloadPath: string;
-  };
   tools: {
-    moleculeES: {
-      downloadPath: string;
-      cachePath: string;
-      binFolder: string;
-    };
     ckbDebugger: {
       minVersion: string;
     };
@@ -76,9 +65,6 @@ export interface Settings {
 
 export const defaultSettings: Settings = {
   proxy: undefined,
-  rpc: {
-    proxyPort: 28114,
-  },
   bins: {
     rootFolder: path.resolve(dataPath, 'bins'),
     defaultCKBVersion: '0.201.0',
@@ -86,6 +72,7 @@ export const defaultSettings: Settings = {
   },
   devnet: {
     rpcUrl: 'http://localhost:8114',
+    rpcProxyPort: 28114,
     // todo: maybe add a root folder for all devnet data
     // so we can clean it easily
     configPath: path.resolve(dataPath, 'devnet'),
@@ -97,6 +84,7 @@ export const defaultSettings: Settings = {
   },
   testnet: {
     rpcUrl: 'https://testnet.ckb.dev',
+    rpcProxyPort: 38114,
     debugFullTransactionsPath: path.resolve(dataPath, 'testnet/full-transactions'),
     transactionsPath: path.resolve(dataPath, 'testnet/transactions'),
     failedTransactionsPath: path.resolve(dataPath, 'testnet/failed-transactions'),
@@ -104,23 +92,13 @@ export const defaultSettings: Settings = {
   },
   mainnet: {
     rpcUrl: 'https://mainnet.ckb.dev',
+    rpcProxyPort: 48114,
     debugFullTransactionsPath: path.resolve(dataPath, 'mainnet/full-transactions'),
     transactionsPath: path.resolve(dataPath, 'mainnet/transactions'),
     failedTransactionsPath: path.resolve(dataPath, 'mainnet/failed-transactions'),
     contractsPath: path.resolve(dataPath, 'mainnet/contracts'),
   },
-  dappTemplate: {
-    gitRepoUrl: `https://github.com/ckb-devrel/offckb`,
-    gitBranch: 'master',
-    gitFolder: 'templates/v3',
-    downloadPath: path.resolve(cachePath, 'download', 'dapp-template'),
-  },
   tools: {
-    moleculeES: {
-      downloadPath: path.resolve(cachePath, 'download', 'molecule-es'),
-      cachePath: path.resolve(cachePath, 'tools', 'moleculec-es'),
-      binFolder: path.resolve(dataPath, 'tools', 'moleculec-es'),
-    },
     ckbDebugger: {
       minVersion: '0.200.0',
     },
