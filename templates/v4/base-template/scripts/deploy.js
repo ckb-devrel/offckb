@@ -101,7 +101,7 @@ function main() {
   }
 
   // Try to find offckb binary
-  let offckbCmd = 'offckb';
+  const offckbCmd = 'offckb';
 
   // For now, use 'offckb' directly - users should have it installed
   console.log(`💻 Running: ${offckbCmd} ${args.join(' ')}`);
