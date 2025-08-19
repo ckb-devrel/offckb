@@ -122,7 +122,7 @@ export class TemplateProcessor {
       scripts: {
         build: 'node scripts/build-all.js',
         'build:contract': 'node scripts/build-contract.js',
-        test: 'jest',
+        test: 'node scripts/build-all.js && jest',
         'add-contract': 'node scripts/add-contract.js',
         clean: 'rimraf dist',
         format: 'prettier --write .',
