@@ -121,8 +121,7 @@ function main() {
       console.log('');
       console.log('💡 Next steps:');
       console.log('   - Check the deployment artifacts in the deployment/ folder');
-      console.log('   - Update your tests to use the deployed contract addresses');
-      console.log('   - Consider backing up your deployment files');
+      console.log('   - Run your tests to use the deployed contract scripts');
     } else {
       console.error('');
       console.error('❌ Deployment failed.');
