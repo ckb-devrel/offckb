@@ -64,6 +64,11 @@ export class TemplateProcessor {
     const relativePath = path.relative(this.templateDir, filePath);
     const fileName = path.basename(filePath);
 
+    // Exclude template metadata files
+    if (fileName === '_template.config.json') {
+      return false;
+    }
+
     // Always include required files
     if (BASE_TEMPLATE_METADATA.requiredFiles.some((reqFile) => relativePath.includes(reqFile))) {
       return true;
