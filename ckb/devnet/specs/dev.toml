@@ -67,6 +67,9 @@ create_type_id = false
 [[genesis.system_cells]]
 file = { file = "ckb_js_vm" }
 create_type_id = true
+[[genesis.system_cells]]
+file = { file = "nostr_lock" }
+create_type_id = false
 
 [genesis.system_cells_lock]
 code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
