@@ -15,6 +15,7 @@ export enum SystemScriptName {
   spore_cluster_proxy = 'spore_cluster_proxy',
   spore_extension_lua = 'spore_extension_lua',
   ckb_js_vm = 'ckb_js_vm',
+  nostr_lock = 'nostr_lock',
 }
 
 export interface ScriptInfo {

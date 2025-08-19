@@ -1,6 +1,6 @@
-.PHONY: all omnilock anyone-can-pay xudt spore ckb-js-vm
+.PHONY: all omnilock anyone-can-pay xudt spore ckb-js-vm nostr-lock
 
-all: omnilock anyone-can-pay xudt spore ckb-js-vm
+all: omnilock anyone-can-pay xudt spore ckb-js-vm nostr-lock
 
 omnilock:
 	@echo "Building omnilock via submodule"
@@ -33,3 +33,8 @@ ckb-js-vm:
 	@echo "Building ckb-js-vm via submodule"
 	cd ckb/ckb-js-vm && git submodule update --init && make all
 	cp ckb/ckb-js-vm/build/ckb-js-vm ckb/devnet/specs/ckb_js_vm
+
+nostr-lock:
+	@echo "Building nostr-lock via submodule"
+	cd ckb/nostr-binding && make build
+	cp ckb/nostr-binding/build/release/nostr-lock ckb/devnet/specs/nostr_lock
