@@ -124,7 +124,7 @@ export class TemplateProcessor {
         'build:contract': 'node scripts/build-contract.js',
         test: 'jest',
         'add-contract': 'node scripts/add-contract.js',
-        clean: 'rimraf contracts/*/dist',
+        clean: 'rimraf dist',
         format: 'prettier --write .',
       },
       dependencies: TEMPLATE_CONFIG.dependencies,

@@ -12,15 +12,17 @@ This project uses the CKB JavaScript VM (ckb-js-vm) to write smart contracts in 
 {{PROJECT_NAME}}/
 ├── contracts/           # Smart contract source code
 │   └── hello-world/
-│       ├── src/
-│       │   └── index.{{LANGUAGE}} # Contract implementation
-│       └── dist/        # Compiled output (generated)
+│       └── src/
+│           └── index.{{LANGUAGE}} # Contract implementation
 ├── tests/              # Contract tests
 │   └── hello-world.test.{{LANGUAGE}}
 ├── scripts/            # Build and utility scripts
 │   ├── build-all.js
 │   ├── build-contract.js
 │   └── add-contract.js
+├── dist/               # Compiled output (generated)
+│   ├── hello-world.js  # Bundled JavaScript
+│   └── hello-world.bc  # Compiled bytecode
 ├── package.json
 {{#if_typescript}}├── tsconfig.json       # TypeScript configuration
 ├── tsconfig.base.json  # Base TypeScript settings
@@ -88,9 +90,9 @@ This will:
 
 ### Build Output
 
-Each contract generates two files in its `dist/` directory:
-- `{contract-name}.js` - Bundled JavaScript code
-- `{contract-name}.bc` - Compiled bytecode for CKB execution
+All contracts are built to the global `dist/` directory:
+- `dist/{contract-name}.js` - Bundled JavaScript code
+- `dist/{contract-name}.bc` - Compiled bytecode for CKB execution
 
 ### Testing
 

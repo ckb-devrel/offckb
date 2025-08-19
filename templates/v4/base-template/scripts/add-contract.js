@@ -73,9 +73,7 @@ async function addContract() {
   try {
     // Create contract directory structure
     const srcDir = path.join(contractDir, 'src');
-    const distDir = path.join(contractDir, 'dist');
     fs.mkdirSync(srcDir, { recursive: true });
-    fs.mkdirSync(distDir, { recursive: true });
 
     // Create main contract file
     const fileExtension = language === 'typescript' ? 'ts' : 'js';
@@ -115,7 +113,7 @@ describe('${contractName} contract', () => {
 
     const mainScript = resource.deployCell(hexFrom(readFileSync(DEFAULT_SCRIPT_CKB_JS_VM)), tx, false);
     const alwaysSuccessScript = resource.deployCell(hexFrom(readFileSync(DEFAULT_SCRIPT_ALWAYS_SUCCESS)), tx, false);
-    const contractScript = resource.deployCell(hexFrom(readFileSync('contracts/${contractName}/dist/${contractName}.bc')), tx, false);
+    const contractScript = resource.deployCell(hexFrom(readFileSync('dist/${contractName}.bc')), tx, false);
     
     mainScript.args = hexFrom(
       '0x0000' +
