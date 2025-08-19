@@ -9,30 +9,56 @@
  * - target: dist/ (where all built contracts are located)
  * - output: deployment/ (where deployment artifacts are saved)
  *
- * Environment variables accepted:
- * - NETWORK: Network to deploy to (devnet, testnet, mainnet) - defaults to devnet
- * - PRIVKEY: Private key for deployment - defaults to offckb's deployer account
- * - TYPE_ID: Whether to use upgradable type id (true/false) - defaults to false
+ * Command line arguments accepted:
+ * - --network: Network to deploy to (devnet, testnet, mainnet) - defaults to devnet
+ * - --privkey: Private key for deployment - defaults to offckb's deployer account
+ * - --type-id: Whether to use upgradable type id - defaults to false
  *
  * Usage:
- *   node scripts/deploy.js
- *   NETWORK=testnet node scripts/deploy.js
- *   NETWORK=testnet PRIVKEY=0x... node scripts/deploy.js
- *   NETWORK=testnet TYPE_ID=true node scripts/deploy.js
+ *   pnpm run deploy
+ *   pnpm run deploy --network testnet
+ *   pnpm run deploy --network testnet --privkey 0x...
+ *   pnpm run deploy --network testnet --type-id
  */
 
 import { spawn } from 'child_process';
 import fs from 'fs';
+
+function parseArgs() {
+  const args = process.argv.slice(2);
+  const parsed = {
+    network: 'devnet',
+    privkey: null,
+    typeId: false,
+  };
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+
+    if (arg === '--network' && i + 1 < args.length) {
+      parsed.network = args[i + 1];
+      i++; // Skip next argument since we consumed it
+    } else if (arg === '--privkey' && i + 1 < args.length) {
+      parsed.privkey = args[i + 1];
+      i++; // Skip next argument since we consumed it
+    } else if (arg === '--type-id' || arg === '-t') {
+      parsed.typeId = true;
+    }
+  }
+
+  return parsed;
+}
 
 function main() {
   // Fixed parameters for the template project
   const TARGET = 'dist';
   const OUTPUT = 'deployment';
 
-  // Environment variables with defaults
-  const NETWORK = process.env.NETWORK || 'devnet';
-  const PRIVKEY = process.env.PRIVKEY;
-  const TYPE_ID = process.env.TYPE_ID === 'true';
+  // Parse command line arguments
+  const options = parseArgs();
+  const NETWORK = options.network;
+  const PRIVKEY = options.privkey;
+  const TYPE_ID = options.typeId;
 
   // Validate that dist directory exists
   if (!fs.existsSync(TARGET)) {
@@ -75,7 +101,6 @@ function main() {
   }
 
   // Try to find offckb binary
-  const offckbCommands = ['offckb', 'npx offckb', 'pnpm offckb', 'yarn offckb'];
   let offckbCmd = 'offckb';
 
   // For now, use 'offckb' directly - users should have it installed

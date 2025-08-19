@@ -108,8 +108,52 @@ Tests use the `ckb-testtool` framework to simulate CKB blockchain execution. Eac
 - `build:contract <name>` - Build a specific contract
 - `test` - Run all tests
 - `add-contract <name>` - Add a new contract
+- `deploy` - Deploy contracts to CKB network
 - `clean` - Remove all build outputs
 - `format` - Format code with Prettier
+
+## Deployment
+
+Deploy your contracts to CKB networks using the built-in deploy script:
+
+### Basic Usage
+
+```bash
+# Deploy to devnet (default)
+{{PACKAGE_MANAGER}} run deploy
+
+# Deploy to testnet
+{{PACKAGE_MANAGER}} run deploy -- --network testnet
+
+# Deploy to mainnet
+{{PACKAGE_MANAGER}} run deploy -- --network mainnet
+```
+
+### Advanced Options
+
+```bash
+# Deploy with upgradable type ID
+{{PACKAGE_MANAGER}} run deploy -- --network testnet --type-id
+
+# Deploy with custom private key
+{{PACKAGE_MANAGER}} run deploy -- --network testnet --privkey 0x...
+
+# Combine multiple options
+{{PACKAGE_MANAGER}} run deploy -- --network testnet --type-id --privkey 0x...
+```
+
+### Available Options
+
+- `--network <network>` - Target network: `devnet`, `testnet`, or `mainnet` (default: `devnet`)
+- `--privkey <privkey>` - Private key for deployment (default: uses offckb's deployer account)
+- `--type-id` - Enable upgradable type ID for contract updates
+
+### Deployment Artifacts
+
+After successful deployment, artifacts are saved to the `deployment/` directory:
+- `deployment/scripts.json` - Contract script information
+- `deployment/<network>/<contract>/deployment.toml` - Deployment configuration
+- `deployment/<network>/<contract>/migrations/` - Migration history
 
 ## Dependencies
 
