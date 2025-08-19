@@ -52,7 +52,7 @@ export const BASE_TEMPLATE_METADATA: TemplateMetadata = {
   requiredFiles: [
     'package.json.template',
     'jest.config.cjs.template',
-    '.gitignore',
+    'gitignore.template',
     'README.md.template',
     'deployment/scripts.json.template',
     'deployment/README.md.template',

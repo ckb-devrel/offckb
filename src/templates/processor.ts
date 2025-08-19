@@ -159,6 +159,12 @@ export class TemplateProcessor {
       finalTargetPath = path.join(dir, '.env');
     }
 
+    // Handle gitignore.template -> .gitignore
+    if (fileName === 'gitignore') {
+      const dir = path.dirname(finalTargetPath);
+      finalTargetPath = path.join(dir, '.gitignore');
+    }
+
     // Ensure target directory exists
     const targetDir = path.dirname(finalTargetPath);
     fs.mkdirSync(targetDir, { recursive: true });
