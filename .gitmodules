@@ -13,3 +13,6 @@
 [submodule "ckb/ckb-js-vm"]
 	path = ckb/ckb-js-vm
 	url = https://github.com/nervosnetwork/ckb-js-vm.git
+[submodule "ckb/nostr-binding"]
+	path = ckb/nostr-binding
+	url = https://github.com/cryptape/nostr-binding.git

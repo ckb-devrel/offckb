@@ -1,7 +1,7 @@
 /** @type {import('jest').Config} */
 module.exports = {
   testEnvironment: "node",
-  testPathIgnorePatterns: ["/node_modules/", "/dist/", "/contracts/*/dist/"],
+  testPathIgnorePatterns: ["/node_modules/", "/dist/"],
   moduleFileExtensions: ["js", "json"],
   testMatch: ["**/tests/**/*.test.js"],
   transformIgnorePatterns: [
@@ -9,6 +9,6 @@ module.exports = {
   ],
   collectCoverageFrom: [
     "contracts/*/src/**/*.js",
-    "!contracts/*/dist/**"
+    "!dist/**"
   ]
 };

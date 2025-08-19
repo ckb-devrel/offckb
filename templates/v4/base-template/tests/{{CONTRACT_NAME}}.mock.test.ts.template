@@ -9,7 +9,7 @@ describe('{{CONTRACT_NAME}} contract', () => {
 
     const mainScript = resource.deployCell(hexFrom(readFileSync(DEFAULT_SCRIPT_CKB_JS_VM)), tx, false);
     const alwaysSuccessScript = resource.deployCell(hexFrom(readFileSync(DEFAULT_SCRIPT_ALWAYS_SUCCESS)), tx, false);
-    const contractScript = resource.deployCell(hexFrom(readFileSync('contracts/{{CONTRACT_NAME}}/dist/{{CONTRACT_NAME}}.bc')), tx, false);
+    const contractScript = resource.deployCell(hexFrom(readFileSync('dist/{{CONTRACT_NAME}}.bc')), tx, false);
     
     mainScript.args = hexFrom(
       '0x0000' +

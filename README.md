@@ -284,6 +284,8 @@ offckb config get proxy
   - version: 0.2.2-beta.1
 - [x] CKB-JS-VM https://github.com/nervosnetwork/ckb-js-vm
   - version: 1.0.0
+- [x] Nostr-Lock https://github.com/cryptape/nostr-binding/tree/main/contracts/nostr-lock
+  - version: 25dd59d
 
 ## Accounts
 
