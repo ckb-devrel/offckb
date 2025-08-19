@@ -12,7 +12,7 @@ function buildContract(contractName) {
 
   const contractDir = path.join('contracts', contractName);
   const srcDir = path.join(contractDir, 'src');
-  const distDir = path.join(contractDir, 'dist');
+  const distDir = path.join('dist');
 
   // Check if contract exists
   if (!fs.existsSync(contractDir)) {
@@ -34,7 +34,7 @@ function buildContract(contractName) {
     process.exit(1);
   }
 
-  // Ensure dist directory exists
+  // Ensure global dist directory exists
   fs.mkdirSync(distDir, { recursive: true });
 
   const outputJsFile = path.join(distDir, `${contractName}.js`);

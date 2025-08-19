@@ -64,6 +64,11 @@ export class TemplateProcessor {
     const relativePath = path.relative(this.templateDir, filePath);
     const fileName = path.basename(filePath);
 
+    // Exclude template metadata files
+    if (fileName === '_template.config.json') {
+      return false;
+    }
+
     // Always include required files
     if (BASE_TEMPLATE_METADATA.requiredFiles.some((reqFile) => relativePath.includes(reqFile))) {
       return true;
@@ -111,15 +116,16 @@ export class TemplateProcessor {
     const basePackageJson = {
       name: context.projectName,
       version: '0.1.0',
-      description: 'CKB JavaScript VM project',
+      description: 'CKB JavaScript Smart Contract project',
       private: true,
       type: 'module',
       scripts: {
         build: 'node scripts/build-all.js',
         'build:contract': 'node scripts/build-contract.js',
-        test: 'jest',
+        test: 'node scripts/build-all.js && jest',
         'add-contract': 'node scripts/add-contract.js',
-        clean: 'rimraf contracts/*/dist',
+        deploy: 'node scripts/build-all.js && node scripts/deploy.js',
+        clean: 'rimraf dist',
         format: 'prettier --write .',
       },
       dependencies: TEMPLATE_CONFIG.dependencies,
@@ -157,6 +163,12 @@ export class TemplateProcessor {
     if (fileName === 'env') {
       const dir = path.dirname(finalTargetPath);
       finalTargetPath = path.join(dir, '.env');
+    }
+
+    // Handle gitignore.template -> .gitignore
+    if (fileName === 'gitignore') {
+      const dir = path.dirname(finalTargetPath);
+      finalTargetPath = path.join(dir, '.gitignore');
     }
 
     // Ensure target directory exists
