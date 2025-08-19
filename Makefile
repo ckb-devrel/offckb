@@ -32,4 +32,4 @@ spore:
 ckb-js-vm:
 	@echo "Building ckb-js-vm via submodule"
 	cd ckb/ckb-js-vm && git submodule update --init && make all
-	cp ckb/ckb-js-vm/build/ckb-js-vm ckb/devnet/specs/
+	cp ckb/ckb-js-vm/build/ckb-js-vm ckb/devnet/specs/ckb_js_vm
