@@ -116,7 +116,7 @@ export class TemplateProcessor {
     const basePackageJson = {
       name: context.projectName,
       version: '0.1.0',
-      description: 'CKB JavaScript VM project',
+      description: 'CKB JavaScript Smart Contract project',
       private: true,
       type: 'module',
       scripts: {
