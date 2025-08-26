@@ -1,6 +1,6 @@
-.PHONY: all omnilock anyone-can-pay xudt spore ckb-js-vm nostr-lock
+.PHONY: all omnilock anyone-can-pay xudt spore ckb-js-vm nostr-lock ckb-debugger
 
-all: omnilock anyone-can-pay xudt spore ckb-js-vm nostr-lock
+all: omnilock anyone-can-pay xudt spore ckb-js-vm nostr-lock ckb-debugger
 
 omnilock:
 	@echo "Building omnilock via submodule"
@@ -38,3 +38,10 @@ nostr-lock:
 	@echo "Building nostr-lock via submodule"
 	cd ckb/nostr-binding && make build
 	cp ckb/nostr-binding/build/release/nostr-lock ckb/devnet/specs/nostr_lock
+
+
+ckb-debugger:
+	@echo "Building ckb-debugger via submodule"
+	cd ckb/ckb-standalone-debugger/ckb-debugger && cargo build --target wasm32-wasip1 --release
+	cp -r ckb/ckb-standalone-debugger/target/wasm32-wasip1/release/ckb-debugger.wasm src/tools/ckb-debugger.wasm
+	

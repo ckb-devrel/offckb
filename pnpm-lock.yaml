@@ -61,7 +61,7 @@ importers:
         specifier: ^0.0.3
         version: 0.0.3
       '@types/node':
-        specifier: ^20.11.19
+        specifier: ^20.17.24
         version: 20.17.24
       '@types/node-fetch':
         specifier: ^2.6.11
