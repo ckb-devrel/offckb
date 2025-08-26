@@ -123,28 +123,6 @@ export function debugRaw(options: string) {
   return CKBDebugger.runRaw(options);
 }
 
-export function installCKBDebuggerOnly() {
-  console.log(chalk.blue('🔧 Installing CKB debugger...'));
-
-  // Check if already installed and valid
-  if (CKBDebugger.isBinaryInstalled() && CKBDebugger.isBinaryVersionValid()) {
-    console.log(chalk.green('✅ CKB debugger is already installed and up to date.'));
-    return;
-  }
-
-  try {
-    CKBDebugger.installCKBDebugger();
-    console.log(chalk.green('✅ CKB debugger installation completed successfully.'));
-  } catch (error) {
-    console.error(chalk.red('❌ Failed to install CKB debugger:'), error);
-    console.log(chalk.yellow('💡 You can install it manually by running:'));
-    console.log(
-      chalk.gray('   cargo install --git https://github.com/nervosnetwork/ckb-standalone-debugger ckb-debugger'),
-    );
-    process.exit(1);
-  }
-}
-
 export async function buildContract(jsFile: string, outputFile: string, jsVmPath?: string) {
   console.log(chalk.blue(`🔧 Building contract from ${jsFile} to ${outputFile}...`));
 

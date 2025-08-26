@@ -14,7 +14,6 @@ import { debugSingleScript, debugTransaction, parseSingleScriptOption } from './
 import { printSystemScripts } from './cmd/system-scripts';
 import { transferAll } from './cmd/transfer-all';
 import { genSystemScriptsJsonFile } from './scripts/gen';
-import { installCKBDebuggerOnly } from './cmd/debug';
 import { CKBDebugger } from './tools/ckb-debugger';
 
 const version = require('../package.json').version;
@@ -24,7 +23,7 @@ const description = require('../package.json').description;
 setUTF8EncodingForWindows();
 
 const program = new Command();
-program.name('offckb').description(description).version(version);
+program.name('offckb').description(description).version(version).enablePositionalOptions();
 
 program
   .command('node [CKB-Version]')
@@ -62,22 +61,8 @@ program
   .option('--single-script <singleScript>', 'Specify the cell script to debug with')
   .option('--bin <bin>', 'Specify a binary to replace the script to debug with')
   .option('--network <network>', 'Specify the network to debug', 'devnet')
-  .option('--install', 'Install CKB debugger only')
-  .option('--raw', 'Raw mode: pass all remaining arguments directly to ckb-debugger')
   .description('CKB Debugger for development')
   .action(async (option) => {
-    // If --install flag is provided, only install CKB debugger
-    if (option.install) {
-      return installCKBDebuggerOnly();
-    }
-
-    // Raw mode: pass all remaining arguments to CKBDebugger
-    if (option.raw) {
-      // Get all arguments after --raw
-      const rawArgs = process.argv.slice(process.argv.indexOf('--raw') + 1);
-      return CKBDebugger.runWithArgs(rawArgs);
-    }
-
     // For debugging, tx-hash is required
     if (!option.txHash) {
       console.error('Error: --tx-hash is required for debugging operations');
@@ -90,6 +75,16 @@ program
       return debugSingleScript(txHash, cellIndex, cellType, scriptType, option.network, option.bin);
     }
     return debugTransaction(txHash, option.network);
+  });
+
+program
+  .command('debugger')
+  .description('CKB Debugger for development')
+  .passThroughOptions()
+  .allowUnknownOption()
+  .helpOption(false) // Disable the default help option
+  .action(async () => {
+    return CKBDebugger.runWithArgs(process.argv.slice(2));
   });
 
 program

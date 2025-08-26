@@ -5,6 +5,7 @@ import { TemplateProcessor } from '../templates/processor';
 import { PackageManagerDetector } from '../templates/package-manager';
 import { InteractivePrompts } from '../templates/prompts';
 import { genSystemScriptsJsonFile } from '../scripts/gen';
+import { CKBDebugger } from '../tools/ckb-debugger';
 
 export interface CreateScriptProjectOptions {
   manager?: 'pnpm' | 'yarn' | 'npm';
@@ -141,14 +142,22 @@ export async function createScriptProject(name?: string, options: CreateScriptPr
     if (!projectInfo.installDeps) {
       console.log(chalk.gray(`   2. ${projectInfo.packageManager} install`));
       console.log(chalk.gray(`   3. ${projectInfo.packageManager} run build`));
-      console.log(chalk.gray(`   4. ${projectInfo.packageManager} test`));
+      console.log(chalk.gray(`   4. ${projectInfo.packageManager} run deploy`));
+      console.log(chalk.gray(`   5. ${projectInfo.packageManager} run test`));
     } else {
       console.log(chalk.gray(`   2. ${projectInfo.packageManager} run build`));
-      console.log(chalk.gray(`   3. ${projectInfo.packageManager} test`));
+      console.log(chalk.gray(`   3. ${projectInfo.packageManager} run deploy`));
+      console.log(chalk.gray(`   4. ${projectInfo.packageManager} run test`));
     }
 
     console.log(chalk.gray(`\n💡 To add a new contract:`));
     console.log(chalk.gray(`   ${projectInfo.packageManager} run add-contract <contract-name>`));
+
+    // check if ckb-debugger is installed
+    if (!CKBDebugger.isBinaryInstalled() || !CKBDebugger.isBinaryVersionValid()) {
+      console.log(`Oho! You don't have ckb-debugger installed, let me create a fallback binary for you...`);
+      CKBDebugger.createCkbDebuggerFallback();
+    }
   } catch (error: unknown) {
     console.error(chalk.red('\n❌ Failed to create project:'), (error as Error).message);
     process.exit(1);
