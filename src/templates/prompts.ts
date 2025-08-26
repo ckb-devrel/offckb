@@ -117,6 +117,7 @@ export class InteractivePrompts {
     providedPackageManager?: string,
     interactive: boolean = true,
     cliFlags?: { noInstall?: boolean; noGit?: boolean },
+    providedContractName?: string,
   ): Promise<TemplateContext & { installDeps: boolean; initGit: boolean }> {
     let projectName: string;
     let language: 'typescript' | 'javascript';
@@ -182,7 +183,7 @@ export class InteractivePrompts {
       projectName,
       language,
       packageManager,
-      contractName: 'hello-world', // default contract name
+      contractName: providedContractName || 'hello-world', // use provided contract name or default
       installDeps,
       initGit,
     };

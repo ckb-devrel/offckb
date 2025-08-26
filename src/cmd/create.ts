@@ -12,6 +12,7 @@ export interface CreateScriptProjectOptions {
   interactive?: boolean;
   install?: boolean; // Note: --no-install sets this to false
   git?: boolean; // Note: --no-git sets this to false
+  contractName?: string; // Custom contract name for the first contract
 }
 
 export async function createScriptProject(name?: string, options: CreateScriptProjectOptions = {}) {
@@ -32,17 +33,22 @@ export async function createScriptProject(name?: string, options: CreateScriptPr
         noInstall: options.install === false, // --no-install sets install to false
         noGit: options.git === false, // --no-git sets git to false
       },
+      options.contractName, // Pass the provided contract name
     );
 
     // Parse project name and path from the collected project info
     const { projectName, projectPath } = parseProjectNameAndPath(projectInfo.projectName);
 
+    // Determine the contract name: CLI option or default
+    const contractName = options.contractName || 'hello-world';
+
     // Override install/git options if provided
     if (options.install === false) projectInfo.installDeps = false;
     if (options.git === false) projectInfo.initGit = false;
 
-    // Update the project info with the correct project name (without path)
+    // Update the project info with the correct project name (without path) and contract name
     projectInfo.projectName = projectName;
+    projectInfo.contractName = contractName;
 
     // Use the parsed project path instead of just the name
     const fullProjectPath = path.resolve(projectPath);
@@ -55,6 +61,7 @@ export async function createScriptProject(name?: string, options: CreateScriptPr
 
     console.log(chalk.gray(`📝 Project details:`));
     console.log(chalk.gray(`   Name: ${projectInfo.projectName}`));
+    console.log(chalk.gray(`   Contract Name: ${contractName}`));
     console.log(chalk.gray(`   Language: ${projectInfo.language}`));
     console.log(chalk.gray(`   Package Manager: ${projectInfo.packageManager}`));
     console.log(chalk.gray(`   Path: ${fullProjectPath}\n`));
