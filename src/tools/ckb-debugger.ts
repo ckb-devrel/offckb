@@ -24,7 +24,31 @@ export class CKBDebugger {
     return this.wasmDebugger;
   }
 
+  /**
+   * Check if we're in a recursive call to avoid infinite loops
+   * This happens when ckb-debugger binary points to offckb CLI
+   */
+  private static isRecursiveCall(): boolean {
+    // Check if we're already running as a ckb-debugger process
+    if (process.argv[1] && process.argv[1].includes('ckb-debugger')) {
+      console.debug('Detected ckb-debugger process, using WASM to avoid recursion');
+      return true;
+    }
+
+    // Check if we're running the debugger command (which could be called from ckb-debugger binary)
+    if (process.argv.includes('debugger')) {
+      console.debug('Detected debugger command, using WASM to avoid recursion');
+      return true;
+    }
+
+    return false;
+  }
+
   private static shouldUseWasm(): boolean {
+    if (this.isRecursiveCall()) {
+      return true;
+    }
+
     if (this.isBinaryInstalled() && this.isBinaryVersionValid()) {
       console.debug('Using native ckb-debugger (better performance)');
       return false;
@@ -92,7 +116,7 @@ export class CKBDebugger {
     }
   }
 
-  static installCKBDebugger() {
+  static installCKBDebuggerBinary() {
     const command = `cargo install --git https://github.com/nervosnetwork/ckb-standalone-debugger ckb-debugger`;
     try {
       console.log('Installing ckb-debugger...');
@@ -104,7 +128,75 @@ export class CKBDebugger {
     }
   }
 
-  // Additional convenience methods that work with both CLI and WASM
+  /**
+   * Create a ckb-debugger fallback binary that points to offckb debugger
+   * This creates a shell script that calls: offckb debugger [args]
+   * Purpose: Reduce user friction by providing a placeholder when native binary is not available
+   * Users can install the real ckb-debugger binary for better performance if needed
+   */
+  static createCkbDebuggerFallback() {
+    const fs = require('fs');
+    const { spawnSync } = require('child_process');
+    const isWindows = process.platform === 'win32';
+    const binName = isWindows ? 'ckb-debugger.cmd' : 'ckb-debugger';
+
+    // Find the offckb binary location
+    let offckbPath: string;
+    if (isWindows) {
+      const result = spawnSync('where', ['offckb'], { encoding: 'utf8' });
+      offckbPath = result.stdout.trim().split('\n')[0];
+    } else {
+      const result = spawnSync('which', ['offckb'], { encoding: 'utf8' });
+      offckbPath = result.stdout.trim();
+    }
+
+    if (!offckbPath) {
+      console.error('❌ Could not find offckb binary. Please ensure offckb is installed and in your PATH.');
+      process.exit(1);
+    }
+
+    // Get the directory where offckb is located
+    const offckbDir = path.dirname(offckbPath);
+    const targetPath = path.join(offckbDir, binName);
+
+    // Create the binary content
+    let binContent;
+    if (isWindows) {
+      // Windows batch file
+      binContent = `@echo off
+offckb debugger %*`;
+    } else {
+      // Unix shell script
+      binContent = `#!/bin/sh
+exec offckb debugger "$@"`;
+    }
+
+    try {
+      // Ensure directory exists
+      fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+
+      // Write the binary
+      fs.writeFileSync(targetPath, binContent);
+
+      // Make executable on Unix systems
+      if (!isWindows) {
+        fs.chmodSync(targetPath, '755');
+      }
+
+      console.log(`✅ Created ckb-debugger fallback at: ${targetPath}`);
+      console.log(`   This fallback uses WASM and calls: offckb debugger [args]`);
+      console.log(
+        `   For better performance, install the real binary: cargo install --git https://github.com/nervosnetwork/ckb-standalone-debugger ckb-debugger`,
+      );
+      console.log(`   To uninstall the fallback binary: rm ${targetPath}`);
+    } catch (error: unknown) {
+      console.error(`❌ Failed to create ckb-debugger fallback: ${(error as Error).message}`);
+      console.error(`   Make sure you have write permissions to: ${path.dirname(targetPath)}`);
+      process.exit(1);
+    }
+  }
+
+  // Additional convenience methods that work with both native binary CLI and WASM
   static async runWithArgs(args: string[]) {
     await this.execute(args);
   }

@@ -65,7 +65,13 @@ export class CkbDebuggerWasi {
   private extractFilePathPreopens(args: string[]): Record<string, string> {
     const additionalPreopens: Record<string, string> = {};
     for (let i = 0; i < args.length - 1; i++) {
-      if (args[i] === '--tx-file' || args[i] === '--bin') {
+      if (args[i] === '--tx-file' || args[i] === '--bin' || args[i] === '--read-file') {
+        const filePath = args[i + 1].replace(/^["']|["']$/g, ''); // Remove quotes
+        const dir = path.dirname(filePath);
+        additionalPreopens[dir] = dir;
+      }
+      // Handle output file for build mode (-c argument)
+      if (args[i] === '-c' && i + 1 < args.length) {
         const filePath = args[i + 1].replace(/^["']|["']$/g, ''); // Remove quotes
         const dir = path.dirname(filePath);
         additionalPreopens[dir] = dir;
