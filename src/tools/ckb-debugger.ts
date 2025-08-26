@@ -43,8 +43,8 @@ export class CKBDebugger {
     const command = `cargo install --git https://github.com/nervosnetwork/ckb-standalone-debugger ckb-debugger`;
     try {
       console.log('Installing ckb-debugger...');
-      execSync(command);
-      console.log('ckb-debugger installed successfully.');
+      execSync(command, { stdio: 'inherit' });
+      console.log('ckb-debugger installed successfully. You can uninstall it by running: cargo uninstall ckb-debugger');
     } catch (error) {
       console.error('Failed to install ckb-debugger:', error);
       process.exit(1);
