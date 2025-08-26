@@ -6,14 +6,13 @@ import path from 'path';
 import { cccA } from '@ckb-ccc/core/advanced';
 import { Network } from '../type/base';
 import { encodeBinPathForTerminal } from '../util/encoding';
-import chalk from 'chalk';
+import { logger } from '../util/logger';
 
 export function debugTransaction(txHash: string, network: Network) {
   const txFile = buildTxFileOptionBy(txHash, network);
   const opts = buildTransactionDebugOptions(txHash, network);
   for (const opt of opts) {
-    console.log(`\n******************************`);
-    console.log(`****** ${opt.name} ******\n`);
+    logger.section(opt.name, [], 'info');
     debugRaw(`${txFile} ${opt.cmdOption}`);
   }
 }
@@ -124,7 +123,7 @@ export function debugRaw(options: string) {
 }
 
 export async function buildContract(jsFile: string, outputFile: string, jsVmPath?: string) {
-  console.log(chalk.blue(`🔧 Building contract from ${jsFile} to ${outputFile}...`));
+  logger.info(`🔧 Building contract from ${jsFile} to ${outputFile}...`);
 
   try {
     // Find the ckb-js-vm binary path
@@ -155,15 +154,15 @@ export async function buildContract(jsFile: string, outputFile: string, jsVmPath
       }
     }
 
-    console.log(chalk.gray(`📍 Using ckb-js-vm from: ${ckbJsVmPath}`));
+    logger.debug(`📍 Using ckb-js-vm from: ${ckbJsVmPath}`);
 
     // Use the CKBDebugger to compile JavaScript to bytecode
     const args = ['--read-file', jsFile, '--bin', ckbJsVmPath, '--', '-c', outputFile];
 
     await CKBDebugger.runWithArgs(args);
-    console.log(chalk.green(`✅ Contract built successfully: ${outputFile}`));
+    logger.success(`✅ Contract built successfully: ${outputFile}`);
   } catch (error) {
-    console.error(chalk.red(`❌ Build failed: ${error}`));
+    logger.error(`❌ Build failed: ${error}`);
     process.exit(1);
   }
 }

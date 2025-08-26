@@ -5,6 +5,7 @@ import { getCKBBinaryPath, readSettings } from '../cfg/setting';
 import { encodeBinPathForTerminal } from '../util/encoding';
 import { createRPCProxy } from '../tools/rpc-proxy';
 import { Network } from '../type/base';
+import { logger } from '../util/logger';
 
 export interface NodeProp {
   version?: string;
@@ -26,11 +27,11 @@ export async function node({ version }: NodeProp) {
     const ckbProcess = exec(ckbCmd);
     // Log first command's output
     ckbProcess.stdout?.on('data', (data) => {
-      console.log('CKB:', data.toString());
+      logger.info(['CKB:', data.toString()]);
     });
 
     ckbProcess.stderr?.on('data', (data) => {
-      console.error('CKB error:', data.toString());
+      logger.error(['CKB error:', data.toString()]);
     });
 
     // Start the second command after 3 seconds
@@ -39,10 +40,10 @@ export async function node({ version }: NodeProp) {
         // Run second command
         const minerProcess = exec(minerCmd);
         minerProcess.stdout?.on('data', (data) => {
-          console.log('CKB-Miner:', data.toString());
+          logger.info(['CKB-Miner:', data.toString()]);
         });
         minerProcess.stderr?.on('data', (data) => {
-          console.error('CKB-Miner error:', data.toString());
+          logger.error(['CKB-Miner error:', data.toString()]);
         });
 
         // by default we start the proxy server
@@ -51,10 +52,10 @@ export async function node({ version }: NodeProp) {
         const proxy = createRPCProxy(Network.devnet, ckbRpc, port);
         proxy.start();
       } catch (error) {
-        console.error('Error running CKB-Miner:', error);
+        logger.error('Error running CKB-Miner:', error);
       }
     }, 3000);
   } catch (error) {
-    console.error('Error:', error);
+    logger.error('Error:', error);
   }
 }

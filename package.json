@@ -82,6 +82,7 @@
     "https-proxy-agent": "^7.0.5",
     "node-fetch": "2",
     "semver": "^7.6.0",
-    "tar": "^6.2.1"
+    "tar": "^6.2.1",
+    "winston": "^3.17.0"
   }
 }

@@ -1,11 +1,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import chalk from 'chalk';
 import { TemplateProcessor } from '../templates/processor';
 import { PackageManagerDetector } from '../templates/package-manager';
 import { InteractivePrompts } from '../templates/prompts';
 import { genSystemScriptsJsonFile } from '../scripts/gen';
 import { CKBDebugger } from '../tools/ckb-debugger';
+import { logger } from '../util/logger';
 
 export interface CreateScriptProjectOptions {
   manager?: 'pnpm' | 'yarn' | 'npm';
@@ -17,7 +17,7 @@ export interface CreateScriptProjectOptions {
 }
 
 export async function createScriptProject(name?: string, options: CreateScriptProjectOptions = {}) {
-  console.log(chalk.blue('🚀 Creating CKB JavaScript VM project...\n'));
+  logger.info(['🚀 Creating CKB JavaScript VM project...', '']);
 
   try {
     // Initialize services
@@ -56,16 +56,19 @@ export async function createScriptProject(name?: string, options: CreateScriptPr
 
     // Check if directory already exists
     if (fs.existsSync(fullProjectPath)) {
-      console.error(chalk.red(`❌ Directory '${projectPath}' already exists!`));
+      logger.error(`❌ Directory '${projectPath}' already exists!`);
       process.exit(1);
     }
 
-    console.log(chalk.gray(`📝 Project details:`));
-    console.log(chalk.gray(`   Name: ${projectInfo.projectName}`));
-    console.log(chalk.gray(`   Contract Name: ${contractName}`));
-    console.log(chalk.gray(`   Language: ${projectInfo.language}`));
-    console.log(chalk.gray(`   Package Manager: ${projectInfo.packageManager}`));
-    console.log(chalk.gray(`   Path: ${fullProjectPath}\n`));
+    logger.info([
+      '📝 Project details:',
+      `   Name: ${projectInfo.projectName}`,
+      `   Contract Name: ${contractName}`,
+      `   Language: ${projectInfo.language}`,
+      `   Package Manager: ${projectInfo.packageManager}`,
+      `   Path: ${fullProjectPath}`,
+      '',
+    ]);
 
     // Try to find the template directory
     const possiblePaths = [
@@ -79,7 +82,7 @@ export async function createScriptProject(name?: string, options: CreateScriptPr
     const templateDir = possiblePaths.find((p) => fs.existsSync(p)) || possiblePaths[0];
 
     if (!fs.existsSync(templateDir)) {
-      console.error(chalk.red(`❌ Template directory not found: ${templateDir}`));
+      logger.error(`❌ Template directory not found: ${templateDir}`);
       process.exit(1);
     }
 
@@ -87,7 +90,7 @@ export async function createScriptProject(name?: string, options: CreateScriptPr
     const processor = new TemplateProcessor(templateDir);
 
     // Generate project
-    console.log(chalk.blue('📦 Generating project files...'));
+    logger.info('📦 Generating project files...');
 
     // Add project path to context
     const contextWithPath = {
@@ -98,60 +101,62 @@ export async function createScriptProject(name?: string, options: CreateScriptPr
     await processor.generateProject(fullProjectPath, contextWithPath);
 
     // Generate system-scripts.json
-    console.log(chalk.blue('🔧 Generating system scripts configuration...'));
+    logger.info('🔧 Generating system scripts configuration...');
     try {
       const systemScriptsPath = path.join(fullProjectPath, 'deployment', 'system-scripts.json');
       genSystemScriptsJsonFile(systemScriptsPath);
-      console.log(chalk.green('✅ System scripts configuration generated successfully'));
+      logger.success('✅ System scripts configuration generated successfully');
     } catch (error) {
-      console.warn(chalk.yellow('⚠️  Failed to generate system scripts configuration.'));
-      console.warn(
-        chalk.gray(
-          '   You can generate it manually later with: offckb system-scripts -o deployment/system-scripts.json',
-        ),
-      );
+      logger.warn([
+        '⚠️  Failed to generate system scripts configuration.',
+        '   You can generate it manually later with: offckb system-scripts -o deployment/system-scripts.json',
+      ]);
     }
 
     // Install dependencies
     if (projectInfo.installDeps) {
-      console.log(chalk.blue('\n📥 Installing dependencies...'));
+      logger.info('\n📥 Installing dependencies...');
       try {
         packageManagerDetector.installDependencies(fullProjectPath, projectInfo.packageManager);
       } catch (error) {
-        console.warn(chalk.yellow('⚠️  Failed to install dependencies. You can install them manually later.'));
-        console.warn(chalk.gray(`   Run: cd ${projectPath} && ${projectInfo.packageManager} install`));
+        logger.warn([
+          '⚠️  Failed to install dependencies. You can install them manually later.',
+          `   Run: cd ${projectPath} && ${projectInfo.packageManager} install`,
+        ]);
       }
     }
 
     // Initialize git repository
     if (projectInfo.initGit) {
-      console.log(chalk.blue('\n🔧 Initializing git repository...'));
+      logger.info('\n🔧 Initializing git repository...');
       try {
         packageManagerDetector.initializeGit(fullProjectPath);
       } catch (error) {
-        console.warn(chalk.yellow('⚠️  Failed to initialize git repository.'));
+        logger.warn('⚠️  Failed to initialize git repository.');
       }
     }
 
     // Success message
-    console.log(chalk.green('\n🎉 Project created successfully!\n'));
+    logger.success('\n🎉 Project created successfully!\n');
 
-    console.log(chalk.bold('📖 Next steps:'));
-    console.log(chalk.gray(`   1. cd ${projectPath}`));
+    const steps = !projectInfo.installDeps
+      ? [
+          `   1. cd ${projectPath}`,
+          `   2. ${projectInfo.packageManager} install`,
+          `   3. ${projectInfo.packageManager} run build`,
+          `   4. ${projectInfo.packageManager} run deploy`,
+          `   5. ${projectInfo.packageManager} run test`,
+        ]
+      : [
+          `   1. cd ${projectPath}`,
+          `   2. ${projectInfo.packageManager} run build`,
+          `   3. ${projectInfo.packageManager} run deploy`,
+          `   4. ${projectInfo.packageManager} run test`,
+        ];
 
-    if (!projectInfo.installDeps) {
-      console.log(chalk.gray(`   2. ${projectInfo.packageManager} install`));
-      console.log(chalk.gray(`   3. ${projectInfo.packageManager} run build`));
-      console.log(chalk.gray(`   4. ${projectInfo.packageManager} run deploy`));
-      console.log(chalk.gray(`   5. ${projectInfo.packageManager} run test`));
-    } else {
-      console.log(chalk.gray(`   2. ${projectInfo.packageManager} run build`));
-      console.log(chalk.gray(`   3. ${projectInfo.packageManager} run deploy`));
-      console.log(chalk.gray(`   4. ${projectInfo.packageManager} run test`));
-    }
+    logger.list('📖 Next steps', steps);
 
-    console.log(chalk.gray(`\n💡 To add a new contract:`));
-    console.log(chalk.gray(`   ${projectInfo.packageManager} run add-contract <contract-name>`));
+    logger.info(['', '💡 To add a new contract:', `   ${projectInfo.packageManager} run add-contract <contract-name>`]);
 
     // check if ckb-debugger is installed
     if (!CKBDebugger.isBinaryInstalled() || !CKBDebugger.isBinaryVersionValid()) {
@@ -159,7 +164,7 @@ export async function createScriptProject(name?: string, options: CreateScriptPr
       CKBDebugger.createCkbDebuggerFallback();
     }
   } catch (error: unknown) {
-    console.error(chalk.red('\n❌ Failed to create project:'), (error as Error).message);
+    logger.error(`\n❌ Failed to create project: ${(error as Error).message}`);
     process.exit(1);
   }
 }

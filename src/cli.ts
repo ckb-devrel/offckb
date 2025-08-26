@@ -15,6 +15,7 @@ import { printSystemScripts } from './cmd/system-scripts';
 import { transferAll } from './cmd/transfer-all';
 import { genSystemScriptsJsonFile } from './scripts/gen';
 import { CKBDebugger } from './tools/ckb-debugger';
+import { logger } from './util/logger';
 
 const version = require('../package.json').version;
 const description = require('../package.json').description;
@@ -65,7 +66,7 @@ program
   .action(async (option) => {
     // For debugging, tx-hash is required
     if (!option.txHash) {
-      console.error('Error: --tx-hash is required for debugging operations');
+      logger.error('Error: --tx-hash is required for debugging operations');
       process.exit(1);
     }
 
@@ -101,7 +102,7 @@ program
     const exportStyle = option.exportStyle;
     if (option.output) {
       await genSystemScriptsJsonFile(option.output);
-      console.log(`File ${option.output} generated successfully.`);
+      logger.success(`File ${option.output} generated successfully.`);
       return;
     }
     return printSystemScripts({ style: exportStyle, network });
