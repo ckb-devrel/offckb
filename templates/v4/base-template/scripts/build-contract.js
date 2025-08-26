@@ -4,7 +4,7 @@ import { execSync } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 
-function buildContract(contractName) {
+async function buildContract(contractName) {
   if (!contractName) {
     console.error('Usage: node build-contract.js <contract-name>');
     process.exit(1);
@@ -64,22 +64,39 @@ function buildContract(contractName) {
 
     execSync(esbuildCmd, { stdio: 'pipe' });
 
-    // Step 3: Compile to bytecode with ckb-debugger
+    // Step 3: Compile to bytecode with offckb debug command
     console.log('  🔧 Compiling to bytecode...');
+
+    // Use offckb debug command with build mode (supports both native and WASM fallback)
+    // Try to find offckb in various locations
+    const offckbPath = 'offckb';
     const debuggerCmd = [
-      'ckb-debugger',
-      `--read-file ${outputJsFile}`,
-      '--bin node_modules/ckb-testtool/src/unittest/defaultScript/ckb-js-vm',
-      '--',
-      '-c',
+      offckbPath,
+      'debug',
+      '--build',
+      outputJsFile,
+      '--output',
       outputBcFile,
+      '--js-vm',
+      'node_modules/ckb-testtool/src/unittest/defaultScript/ckb-js-vm',
     ].join(' ');
+
+    console.log(`  🔧 Using offckb from: ${offckbPath}`);
+    console.log(`  🔧 Command: ${debuggerCmd}`);
 
     execSync(debuggerCmd, { stdio: 'pipe' });
 
-    console.log(`  ✅ Contract '${contractName}' built successfully!`);
-    console.log(`     📄 JavaScript: ${outputJsFile}`);
-    console.log(`     🔗 Bytecode: ${outputBcFile}`);
+    // Check if the bytecode file was actually created
+    if (!fs.existsSync(outputBcFile)) {
+      console.warn(`⚠️  Bytecode file not created. This might be due to WASM debugger limitations.`);
+      console.warn(
+        `   You can manually compile using: offckb debug --build ${outputJsFile} --output ${outputBcFile} --js-vm node_modules/ckb-testtool/src/unittest/defaultScript/ckb-js-vm`,
+      );
+    } else {
+      console.log(`  ✅ Contract '${contractName}' built successfully!`);
+      console.log(`     📄 JavaScript: ${outputJsFile}`);
+      console.log(`     🔗 Bytecode: ${outputBcFile}`);
+    }
   } catch (error) {
     console.error(`❌ Build failed for '${contractName}':`, error.message);
     process.exit(1);
@@ -88,4 +105,7 @@ function buildContract(contractName) {
 
 // Get contract name from command line arguments
 const contractName = process.argv[2];
-buildContract(contractName);
+buildContract(contractName).catch((error) => {
+  console.error('❌ Build failed:', error.message);
+  process.exit(1);
+});

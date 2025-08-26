@@ -1,0 +1,300 @@
+From 6f800e3ac9626931f1bb55f1746477e52e651e55 Mon Sep 17 00:00:00 2001
+From: RetricSu <inneverland2013@gmail.com>
+Date: Tue, 26 Aug 2025 15:26:29 +0800
+Subject: [PATCH] Add WASM FileOperation syscalls implementation
+
+- Implement all file operation syscalls for WASM target
+- Add file handle management with in-memory buffering
+- Enable build mode support for WASM debugger
+- Files are written to disk when closed (write mode)
+---
+ ckb-debugger/src/syscall_file_operation.rs | 262 ++++++++++++++++++++-
+ 1 file changed, 257 insertions(+), 5 deletions(-)
+
+diff --git a/ckb-debugger/src/syscall_file_operation.rs b/ckb-debugger/src/syscall_file_operation.rs
+index 3267947..551029d 100644
+--- a/ckb-debugger/src/syscall_file_operation.rs
++++ b/ckb-debugger/src/syscall_file_operation.rs
+@@ -150,13 +150,58 @@ mod arch {
+ #[cfg(target_family = "wasm")]
+ mod arch {
+     use ckb_vm::{Error, SupportMachine, Syscalls};
++    use ckb_vm::{
++        Memory, Register,
++        registers::{A0, A1, A2, A3, A7},
++    };
++    use std::collections::HashMap;
++    use std::io;
+ 
+-    #[derive(Default)]
+-    pub struct FileOperation {}
++    const SYSCALL_NUMBER_FOPEN: u64 = 9003;
++    const SYSCALL_NUMBER_FREOPEN: u64 = 9004;
++    const SYSCALL_NUMBER_FREAD: u64 = 9005;
++    const SYSCALL_NUMBER_FEOF: u64 = 9006;
++    const SYSCALL_NUMBER_FERROR: u64 = 9007;
++    const SYSCALL_NUMBER_FGETC: u64 = 9008;
++    const SYSCALL_NUMBER_FCLOSE: u64 = 9009;
++    const SYSCALL_NUMBER_FTELL: u64 = 9010;
++    const SYSCALL_NUMBER_FSEEK: u64 = 9011;
++    const SYSCALL_NUMBER_FWRITE: u64 = 9012;
++
++    // Simple file handle implementation for WASM
++    struct FileHandle {
++        content: Vec<u8>,
++        position: usize,
++        mode: String,
++        path: Option<String>,
++    }
++
++    impl FileHandle {
++        fn new(content: Vec<u8>, mode: String, path: Option<String>) -> Self {
++            Self {
++                content,
++                position: 0,
++                mode,
++                path,
++            }
++        }
++    }
++
++    pub struct FileOperation {
++        files: HashMap<u64, FileHandle>,
++        next_handle: u64,
++    }
+ 
+     impl FileOperation {
+         pub fn new() -> Self {
+-            FileOperation {}
++            Self {
++                files: HashMap::new(),
++                next_handle: 1,
++            }
++        }
++
++        fn get_file(&mut self, handle: u64) -> Option<&mut FileHandle> {
++            self.files.get_mut(&handle)
+         }
+     }
+ 
+@@ -165,8 +210,215 @@ mod arch {
+             Ok(())
+         }
+ 
+-        fn ecall(&mut self, _machine: &mut Mac) -> Result<bool, Error> {
+-            Ok(false)
++        fn ecall(&mut self, machine: &mut Mac) -> Result<bool, Error> {
++            let id = machine.registers()[A7].to_u64();
++            let arg0 = machine.registers()[A0].to_u64();
++            let arg1 = machine.registers()[A1].to_u64();
++            let arg2 = machine.registers()[A2].to_u64();
++            let arg3 = machine.registers()[A3].to_u64();
++
++            match id {
++                SYSCALL_NUMBER_FOPEN => {
++                    let path = ckb_vm::memory::load_c_string_byte_by_byte(
++                        machine.memory_mut(),
++                        &Mac::REG::from_u64(arg0),
++                    )?;
++                    let path_str = String::from_utf8_lossy(&path);
++                    let mode = ckb_vm::memory::load_c_string_byte_by_byte(
++                        machine.memory_mut(),
++                        &Mac::REG::from_u64(arg1),
++                    )?;
++                    let mode_str = String::from_utf8_lossy(&mode);
++
++                    // Use the arch module's file_read function for reading
++                    let content = if mode_str.contains("r") {
++                        match crate::arch::file_read(&path_str) {
++                            Ok(data) => data,
++                            Err(_) => {
++                                // Return NULL pointer for file not found
++                                machine.set_register(A0, Mac::REG::from_u64(0));
++                                return Ok(true);
++                            }
++                        }
++                    } else {
++                        Vec::new() // Empty content for write mode
++                    };
++
++                    let handle = self.next_handle;
++                    self.next_handle += 1;
++                    
++                    self.files.insert(handle, FileHandle::new(content, mode_str.to_string(), Some(path_str.to_string())));
++                    machine.set_register(A0, Mac::REG::from_u64(handle));
++                }
++                SYSCALL_NUMBER_FREAD => {
++                    let ptr = arg0;
++                    let size = arg1;
++                    let nitems = arg2;
++                    let stream = arg3;
++                    let total_size = nitems * size;
++
++                    if let Some(file) = self.get_file(stream) {
++                        let remaining = file.content.len().saturating_sub(file.position);
++                        let read_size = std::cmp::min(total_size as usize, remaining);
++                        
++                        if read_size > 0 {
++                            let data = &file.content[file.position..file.position + read_size];
++                            machine.memory_mut().store_bytes(ptr, data)?;
++                            file.position += read_size;
++                            machine.set_register(A0, Mac::REG::from_u64((read_size / size as usize) as u64));
++                        } else {
++                            machine.set_register(A0, Mac::REG::from_u64(0));
++                        }
++                    } else {
++                        machine.set_register(A0, Mac::REG::from_u64(0));
++                    }
++                }
++                SYSCALL_NUMBER_FWRITE => {
++                    let ptr = arg0;
++                    let size = arg1;
++                    let nitems = arg2;
++                    let stream = arg3;
++                    let total_size = nitems * size;
++
++                    if let Some(file) = self.get_file(stream) {
++                        if file.mode.contains("w") || file.mode.contains("a") {
++                            let data = machine.memory_mut().load_bytes(ptr, total_size)?;
++                            
++                            if file.mode.contains("a") {
++                                // Append mode
++                                file.content.extend_from_slice(&data);
++                                file.position = file.content.len();
++                                                         } else {
++                                 // Write mode - replace content
++                                 file.content = data.to_vec();
++                                 file.position = file.content.len();
++                             }
++                            
++                            machine.set_register(A0, Mac::REG::from_u64(nitems));
++                        } else {
++                            machine.set_register(A0, Mac::REG::from_u64(0));
++                        }
++                    } else {
++                        machine.set_register(A0, Mac::REG::from_u64(0));
++                    }
++                }
++                SYSCALL_NUMBER_FCLOSE => {
++                    let handle = arg0;
++                    if let Some(file) = self.files.remove(&handle) {
++                        // If this was a write file and has a path, write it to disk
++                        if (file.mode.contains("w") || file.mode.contains("a")) && file.path.is_some() {
++                            if let Err(_) = crate::arch::file_write(&file.path.unwrap(), &file.content) {
++                                machine.set_register(A0, Mac::REG::from_i32(-1));
++                                return Ok(true);
++                            }
++                        }
++                        machine.set_register(A0, Mac::REG::from_i32(0));
++                    } else {
++                        machine.set_register(A0, Mac::REG::from_i32(-1));
++                    }
++                }
++                SYSCALL_NUMBER_FSEEK => {
++                    let stream = arg0;
++                    let offset = arg1 as i64;
++                    let whence = arg2;
++
++                    if let Some(file) = self.get_file(stream) {
++                        let new_pos = match whence {
++                            0 => offset as usize, // SEEK_SET
++                            1 => file.position.saturating_add_signed(offset.try_into().unwrap_or(0)), // SEEK_CUR
++                            2 => file.content.len().saturating_add_signed(offset.try_into().unwrap_or(0)), // SEEK_END
++                            _ => {
++                                machine.set_register(A0, Mac::REG::from_i32(-1));
++                                return Ok(true);
++                            }
++                        };
++
++                        if new_pos <= file.content.len() {
++                            file.position = new_pos;
++                            machine.set_register(A0, Mac::REG::from_i32(0));
++                        } else {
++                            machine.set_register(A0, Mac::REG::from_i32(-1));
++                        }
++                    } else {
++                        machine.set_register(A0, Mac::REG::from_i32(-1));
++                    }
++                }
++                SYSCALL_NUMBER_FTELL => {
++                    let stream = arg0;
++                    if let Some(file) = self.get_file(stream) {
++                        machine.set_register(A0, Mac::REG::from_i64(file.position as i64));
++                    } else {
++                        machine.set_register(A0, Mac::REG::from_i64(-1));
++                    }
++                }
++                SYSCALL_NUMBER_FEOF => {
++                    let stream = arg0;
++                    if let Some(file) = self.get_file(stream) {
++                        let eof = if file.position >= file.content.len() { 1 } else { 0 };
++                        machine.set_register(A0, Mac::REG::from_i32(eof));
++                    } else {
++                        machine.set_register(A0, Mac::REG::from_i32(1));
++                    }
++                }
++                SYSCALL_NUMBER_FERROR => {
++                    // For simplicity, always return no error
++                    machine.set_register(A0, Mac::REG::from_i32(0));
++                }
++                SYSCALL_NUMBER_FGETC => {
++                    let stream = arg0;
++                    if let Some(file) = self.get_file(stream) {
++                        if file.position < file.content.len() {
++                            let ch = file.content[file.position] as i32;
++                            file.position += 1;
++                            machine.set_register(A0, Mac::REG::from_i32(ch));
++                        } else {
++                            machine.set_register(A0, Mac::REG::from_i32(-1)); // EOF
++                        }
++                    } else {
++                        machine.set_register(A0, Mac::REG::from_i32(-1));
++                    }
++                }
++                SYSCALL_NUMBER_FREOPEN => {
++                    // Simplified implementation - just close and reopen
++                    let path = ckb_vm::memory::load_c_string_byte_by_byte(
++                        machine.memory_mut(),
++                        &Mac::REG::from_u64(arg0),
++                    )?;
++                    let path_str = String::from_utf8_lossy(&path);
++                    let mode = ckb_vm::memory::load_c_string_byte_by_byte(
++                        machine.memory_mut(),
++                        &Mac::REG::from_u64(arg1),
++                    )?;
++                    let mode_str = String::from_utf8_lossy(&mode);
++                    let old_stream = arg2;
++
++                    // Close old stream
++                    self.files.remove(&old_stream);
++
++                    // Open new stream
++                    let content = if mode_str.contains("r") {
++                        match crate::arch::file_read(&path_str) {
++                            Ok(data) => data,
++                            Err(_) => {
++                                machine.set_register(A0, Mac::REG::from_u64(0));
++                                return Ok(true);
++                            }
++                        }
++                    } else {
++                        Vec::new()
++                    };
++
++                    let handle = self.next_handle;
++                    self.next_handle += 1;
++                    
++                    self.files.insert(handle, FileHandle::new(content, mode_str.to_string(), Some(path_str.to_string())));
++                    machine.set_register(A0, Mac::REG::from_u64(handle));
++                }
++                _ => {
++                    return Ok(false);
++                }
++            }
++            Ok(true)
+         }
+     }
+ }
+-- 
+2.39.5 (Apple Git-154)
+

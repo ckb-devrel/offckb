@@ -10,7 +10,7 @@ import { TransferOptions, transfer } from './cmd/transfer';
 import { BalanceOption, balanceOf } from './cmd/balance';
 import { createScriptProject, CreateScriptProjectOptions } from './cmd/create';
 import { Config, ConfigItem } from './cmd/config';
-import { debugSingleScript, debugTransaction, parseSingleScriptOption } from './cmd/debug';
+import { debugSingleScript, debugTransaction, parseSingleScriptOption, buildContract } from './cmd/debug';
 import { printSystemScripts } from './cmd/system-scripts';
 import { transferAll } from './cmd/transfer-all';
 import { genSystemScriptsJsonFile } from './scripts/gen';
@@ -62,6 +62,9 @@ program
   .option('--bin <bin>', 'Specify a binary to replace the script to debug with')
   .option('--network <network>', 'Specify the network to debug', 'devnet')
   .option('--install', 'Install CKB debugger only')
+  .option('--build <jsFile>', 'Build a JavaScript file to bytecode')
+  .option('--output <outputFile>', 'Output file for build mode (required with --build)')
+  .option('--js-vm <jsVmPath>', 'Path to ckb-js-vm binary (for build mode)')
   .description('CKB Debugger for development')
   .action(async (option) => {
     // If --install flag is provided, only install CKB debugger
@@ -69,8 +72,17 @@ program
       return installCKBDebuggerOnly();
     }
 
-    // For debugging, tx-hash is required
-    if (!option.txHash) {
+    // Build mode: compile JavaScript to bytecode
+    if (option.build) {
+      if (!option.output) {
+        console.error('Error: --output is required when using --build');
+        process.exit(1);
+      }
+      return buildContract(option.build, option.output, option.jsVm);
+    }
+
+    // For debugging, tx-hash is required (except in build mode)
+    if (!option.txHash && !option.build) {
       console.error('Error: --tx-hash is required for debugging operations');
       process.exit(1);
     }
