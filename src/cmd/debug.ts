@@ -6,6 +6,7 @@ import path from 'path';
 import { cccA } from '@ckb-ccc/core/advanced';
 import { Network } from '../type/base';
 import { encodeBinPathForTerminal } from '../util/encoding';
+import chalk from 'chalk';
 
 export function debugTransaction(txHash: string, network: Network) {
   const txFile = buildTxFileOptionBy(txHash, network);
@@ -119,8 +120,27 @@ export function buildDebugFullTransactionFilePath(network: Network, txHash: stri
 }
 
 export function debugRaw(options: string) {
-  if (!CKBDebugger.isBinaryInstalled() || !CKBDebugger.isBinaryVersionValid()) {
-    CKBDebugger.installCKBDebugger();
-  }
   return CKBDebugger.runRaw(options);
+}
+
+export function installCKBDebuggerOnly() {
+  console.log(chalk.blue('🔧 Installing CKB debugger...'));
+
+  // Check if already installed and valid
+  if (CKBDebugger.isBinaryInstalled() && CKBDebugger.isBinaryVersionValid()) {
+    console.log(chalk.green('✅ CKB debugger is already installed and up to date.'));
+    return;
+  }
+
+  try {
+    CKBDebugger.installCKBDebugger();
+    console.log(chalk.green('✅ CKB debugger installation completed successfully.'));
+  } catch (error) {
+    console.error(chalk.red('❌ Failed to install CKB debugger:'), error);
+    console.log(chalk.yellow('💡 You can install it manually by running:'));
+    console.log(
+      chalk.gray('   cargo install --git https://github.com/nervosnetwork/ckb-standalone-debugger ckb-debugger'),
+    );
+    process.exit(1);
+  }
 }

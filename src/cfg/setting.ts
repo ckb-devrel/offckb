@@ -8,7 +8,7 @@ export const configPath = path.join(paths.config, 'settings.json');
 export const dataPath = paths.data;
 export const cachePath = paths.cache;
 
-export const packageSrcPath = path.dirname(require.main!.filename);
+export const packageSrcPath = path.dirname(require.main?.filename || __filename);
 export const packageRootPath = path.resolve(packageSrcPath, '../');
 
 export interface ProxyBasicCredentials {

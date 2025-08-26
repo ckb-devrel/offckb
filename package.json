@@ -29,9 +29,9 @@
     ]
   },
   "scripts": {
-    "build": "tsc && ncc build dist/cli.js -o build --external cpu-features",
+    "build": "node scripts/build.js",
     "start": "ts-node-dev --transpile-only src/cli.ts",
-    "clean": "rm -rf ./target",
+    "clean": "node scripts/clean.js",
     "lint": "eslint \"src/**/*.ts\" --ignore-pattern 'node_modules/'",
     "lint:fix": "eslint \"src/**/*.ts\" --ignore-pattern 'node_modules/' --fix",
     "fmt": "prettier --write '{src,templates,account}/**/*.{js,jsx,ts,tsx,md,json}'"
@@ -53,7 +53,7 @@
   "devDependencies": {
     "@types/adm-zip": "^0.5.5",
     "@types/cpu-features": "^0.0.3",
-    "@types/node": "^20.11.19",
+    "@types/node": "^20.17.24",
     "@types/node-fetch": "^2.6.11",
     "@types/semver": "^7.5.7",
     "@types/tar": "^6.1.11",

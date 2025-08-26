@@ -194,7 +194,7 @@ describe("${contractName} contract", () => {
   });
 
   test("should execute successfully", async () => {
-    const ckbJsVmScript = systemScripts.devnet["ckb-js-vm"];
+    const ckbJsVmScript = systemScripts.devnet["ckb_js_vm"];
     const contractScript = scripts.devnet["${contractName}.bc"];
 
     const mainScript = {
@@ -250,7 +250,7 @@ describe("${contractName} contract", () => {
   });
 
   test("should execute successfully", async () => {
-    const ckbJsVmScript = systemScripts.devnet["ckb-js-vm"];
+    const ckbJsVmScript = systemScripts.devnet["ckb_js_vm"];
     const contractScript = scripts.devnet["${contractName}.bc"];
 
     const mainScript = {
