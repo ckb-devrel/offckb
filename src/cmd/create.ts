@@ -5,6 +5,7 @@ import { TemplateProcessor } from '../templates/processor';
 import { PackageManagerDetector } from '../templates/package-manager';
 import { InteractivePrompts } from '../templates/prompts';
 import { genSystemScriptsJsonFile } from '../scripts/gen';
+import { CKBDebugger } from '../tools/ckb-debugger';
 
 export interface CreateScriptProjectOptions {
   manager?: 'pnpm' | 'yarn' | 'npm';
@@ -12,6 +13,7 @@ export interface CreateScriptProjectOptions {
   interactive?: boolean;
   install?: boolean; // Note: --no-install sets this to false
   git?: boolean; // Note: --no-git sets this to false
+  contractName?: string; // Custom contract name for the first contract
 }
 
 export async function createScriptProject(name?: string, options: CreateScriptProjectOptions = {}) {
@@ -32,17 +34,22 @@ export async function createScriptProject(name?: string, options: CreateScriptPr
         noInstall: options.install === false, // --no-install sets install to false
         noGit: options.git === false, // --no-git sets git to false
       },
+      options.contractName, // Pass the provided contract name
     );
 
     // Parse project name and path from the collected project info
     const { projectName, projectPath } = parseProjectNameAndPath(projectInfo.projectName);
 
+    // Determine the contract name: CLI option or default
+    const contractName = options.contractName || 'hello-world';
+
     // Override install/git options if provided
     if (options.install === false) projectInfo.installDeps = false;
     if (options.git === false) projectInfo.initGit = false;
 
-    // Update the project info with the correct project name (without path)
+    // Update the project info with the correct project name (without path) and contract name
     projectInfo.projectName = projectName;
+    projectInfo.contractName = contractName;
 
     // Use the parsed project path instead of just the name
     const fullProjectPath = path.resolve(projectPath);
@@ -55,6 +62,7 @@ export async function createScriptProject(name?: string, options: CreateScriptPr
 
     console.log(chalk.gray(`📝 Project details:`));
     console.log(chalk.gray(`   Name: ${projectInfo.projectName}`));
+    console.log(chalk.gray(`   Contract Name: ${contractName}`));
     console.log(chalk.gray(`   Language: ${projectInfo.language}`));
     console.log(chalk.gray(`   Package Manager: ${projectInfo.packageManager}`));
     console.log(chalk.gray(`   Path: ${fullProjectPath}\n`));
@@ -134,14 +142,22 @@ export async function createScriptProject(name?: string, options: CreateScriptPr
     if (!projectInfo.installDeps) {
       console.log(chalk.gray(`   2. ${projectInfo.packageManager} install`));
       console.log(chalk.gray(`   3. ${projectInfo.packageManager} run build`));
-      console.log(chalk.gray(`   4. ${projectInfo.packageManager} test`));
+      console.log(chalk.gray(`   4. ${projectInfo.packageManager} run deploy`));
+      console.log(chalk.gray(`   5. ${projectInfo.packageManager} run test`));
     } else {
       console.log(chalk.gray(`   2. ${projectInfo.packageManager} run build`));
-      console.log(chalk.gray(`   3. ${projectInfo.packageManager} test`));
+      console.log(chalk.gray(`   3. ${projectInfo.packageManager} run deploy`));
+      console.log(chalk.gray(`   4. ${projectInfo.packageManager} run test`));
     }
 
     console.log(chalk.gray(`\n💡 To add a new contract:`));
     console.log(chalk.gray(`   ${projectInfo.packageManager} run add-contract <contract-name>`));
+
+    // check if ckb-debugger is installed
+    if (!CKBDebugger.isBinaryInstalled() || !CKBDebugger.isBinaryVersionValid()) {
+      console.log(`Oho! You don't have ckb-debugger installed, let me create a fallback binary for you...`);
+      CKBDebugger.createCkbDebuggerFallback();
+    }
   } catch (error: unknown) {
     console.error(chalk.red('\n❌ Failed to create project:'), (error as Error).message);
     process.exit(1);

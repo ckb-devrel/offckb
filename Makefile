@@ -1,6 +1,6 @@
-.PHONY: all omnilock anyone-can-pay xudt spore ckb-js-vm nostr-lock
+.PHONY: all omnilock anyone-can-pay xudt spore ckb-js-vm nostr-lock ckb-debugger apply-debugger-patches clean-debugger-patches
 
-all: omnilock anyone-can-pay xudt spore ckb-js-vm nostr-lock
+all: omnilock anyone-can-pay xudt spore ckb-js-vm nostr-lock ckb-debugger
 
 omnilock:
 	@echo "Building omnilock via submodule"
@@ -38,3 +38,26 @@ nostr-lock:
 	@echo "Building nostr-lock via submodule"
 	cd ckb/nostr-binding && make build
 	cp ckb/nostr-binding/build/release/nostr-lock ckb/devnet/specs/nostr_lock
+
+
+ckb-debugger:
+	@echo "Building ckb-debugger via submodule"
+	@echo "Applying patches to ckb-standalone-debugger..."
+	$(MAKE) apply-debugger-patches
+	cd ckb/ckb-standalone-debugger/ckb-debugger && cargo build --target wasm32-wasip1 --release
+	cp -r ckb/ckb-standalone-debugger/target/wasm32-wasip1/release/ckb-debugger.wasm src/tools/ckb-debugger.wasm
+
+apply-debugger-patches:
+	@echo "Checking if patches need to be applied..."
+	@cd ckb/ckb-standalone-debugger && \
+	if ! git diff --quiet HEAD -- ckb-debugger/src/syscall_file_operation.rs 2>/dev/null; then \
+		echo "Patches already applied."; \
+	else \
+		echo "Applying WASM FileOperation patches..."; \
+		git apply ../../patches/0001-Add-WASM-FileOperation-syscalls-implementation.patch; \
+	fi
+
+clean-debugger-patches:
+	@echo "Reverting ckb-debugger patches..."
+	@cd ckb/ckb-standalone-debugger && git reset --hard origin/develop && git clean -fd
+	

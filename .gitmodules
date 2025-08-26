@@ -16,3 +16,6 @@
 [submodule "ckb/nostr-binding"]
 	path = ckb/nostr-binding
 	url = https://github.com/cryptape/nostr-binding.git
+[submodule "ckb/ckb-standalone-debugger"]
+	path = ckb/ckb-standalone-debugger
+	url = https://github.com/nervosnetwork/ckb-standalone-debugger.git

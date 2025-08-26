@@ -6,6 +6,7 @@ import path from 'path';
 import { cccA } from '@ckb-ccc/core/advanced';
 import { Network } from '../type/base';
 import { encodeBinPathForTerminal } from '../util/encoding';
+import chalk from 'chalk';
 
 export function debugTransaction(txHash: string, network: Network) {
   const txFile = buildTxFileOptionBy(txHash, network);
@@ -119,8 +120,50 @@ export function buildDebugFullTransactionFilePath(network: Network, txHash: stri
 }
 
 export function debugRaw(options: string) {
-  if (!CKBDebugger.isBinaryInstalled() || !CKBDebugger.isBinaryVersionValid()) {
-    CKBDebugger.installCKBDebugger();
-  }
   return CKBDebugger.runRaw(options);
+}
+
+export async function buildContract(jsFile: string, outputFile: string, jsVmPath?: string) {
+  console.log(chalk.blue(`🔧 Building contract from ${jsFile} to ${outputFile}...`));
+
+  try {
+    // Find the ckb-js-vm binary path
+    let ckbJsVmPath: string;
+
+    // Use provided jsVmPath if available
+    if (jsVmPath) {
+      if (fs.existsSync(jsVmPath)) {
+        ckbJsVmPath = jsVmPath;
+      } else {
+        throw new Error(`Provided ckb-js-vm path not found: ${jsVmPath}`);
+      }
+    } else {
+      // First try to find in node_modules (for generated projects)
+      const nodeModulesPath = 'node_modules/ckb-testtool/src/unittest/defaultScript/ckb-js-vm';
+      if (fs.existsSync(nodeModulesPath)) {
+        ckbJsVmPath = nodeModulesPath;
+      } else {
+        // Fallback to offckb's built-in ckb-js-vm (for development/testing)
+        const offckbBuiltinPath = path.join(__dirname, '../../ckb/ckb-js-vm/build/ckb-js-vm');
+        if (fs.existsSync(offckbBuiltinPath)) {
+          ckbJsVmPath = offckbBuiltinPath;
+        } else {
+          throw new Error(
+            'ckb-js-vm binary not found. Please ensure ckb-testtool is installed or build the offckb project.',
+          );
+        }
+      }
+    }
+
+    console.log(chalk.gray(`📍 Using ckb-js-vm from: ${ckbJsVmPath}`));
+
+    // Use the CKBDebugger to compile JavaScript to bytecode
+    const args = ['--read-file', jsFile, '--bin', ckbJsVmPath, '--', '-c', outputFile];
+
+    await CKBDebugger.runWithArgs(args);
+    console.log(chalk.green(`✅ Contract built successfully: ${outputFile}`));
+  } catch (error) {
+    console.error(chalk.red(`❌ Build failed: ${error}`));
+    process.exit(1);
+  }
 }
