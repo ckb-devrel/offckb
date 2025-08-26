@@ -37,6 +37,7 @@ program
   .description('Create a new CKB Smart Contract project in JavaScript.')
   .option('-m, --manager <manager>', 'Specify the package manager to use (npm, yarn, pnpm)')
   .option('-l, --language <language>', 'Specify the language to use (typescript, javascript)')
+  .option('-c, --contract-name <name>', 'Specify the name for the first contract (default: hello-world)')
   .option('--no-interactive', 'Disable interactive prompts')
   .option('--no-install', 'Skip dependency installation')
   .option('--no-git', 'Skip git repository initialization')
