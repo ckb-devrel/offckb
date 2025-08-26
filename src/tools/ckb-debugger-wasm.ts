@@ -62,40 +62,40 @@ export class CkbDebuggerWasi {
     }
   }
 
+  private extractFilePathPreopens(args: string[]): Record<string, string> {
+    const additionalPreopens: Record<string, string> = {};
+    for (let i = 0; i < args.length - 1; i++) {
+      if (args[i] === '--tx-file' || args[i] === '--bin') {
+        const filePath = args[i + 1].replace(/^["']|["']$/g, ''); // Remove quotes
+        const dir = path.dirname(filePath);
+        additionalPreopens[dir] = dir;
+      }
+    }
+    return additionalPreopens;
+  }
+
   async run(args: string[] = [], preopens: Record<string, string> = {}): Promise<CkbDebuggerResult> {
     await this.initialize();
 
     return new Promise((resolve, reject) => {
       try {
-        let output = '';
-        let error = '';
+        // Extract file paths from arguments to add to preopens
+        const additionalPreopens = this.extractFilePathPreopens(args);
 
         // Configure WASI options
         const wasiOptions: any = {
           version: 'preview1',
-          args: ['ckb-debugger', ...args],
+          args: ['ckb-debugger', ...args.map((arg) => arg.replace(/^["']|["']$/g, ''))], // Remove quotes from all args
           env: this.env,
           preopens: {
             '/': this.workingDirectory,
+            ...additionalPreopens,
             ...preopens,
           },
         };
 
-        // Add custom stdout/stderr if capturing output
-        if (this.captureOutput) {
-          wasiOptions.stdout = {
-            write: (data: Uint8Array) => {
-              output += new TextDecoder().decode(data);
-              return data.length;
-            },
-          };
-          wasiOptions.stderr = {
-            write: (data: Uint8Array) => {
-              error += new TextDecoder().decode(data);
-              return data.length;
-            },
-          };
-        }
+        // For output capture, we'll handle it differently since WASI expects file descriptors
+        // We'll use the default stdout/stderr and capture via different means if needed
 
         const wasihost = new wasi.WASI(wasiOptions);
 
@@ -106,16 +106,16 @@ export class CkbDebuggerWasi {
               wasihost.start(instance);
               resolve({
                 exitCode: 0,
-                output: this.captureOutput ? output : undefined,
-                error: this.captureOutput ? error : undefined,
+                output: undefined, // Output goes directly to stdout for now
+                error: undefined,
               });
             } catch (e: any) {
               // WASI programs exit with a specific exception
               if (e.code === 'WASI_EXIT') {
                 resolve({
                   exitCode: e.exitCode || 0,
-                  output: this.captureOutput ? output : undefined,
-                  error: this.captureOutput ? error : undefined,
+                  output: undefined, // Output goes directly to stdout for now
+                  error: undefined,
                 });
               } else {
                 reject(new Error(`WASI execution failed: ${e.message}`));

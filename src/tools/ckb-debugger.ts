@@ -12,41 +12,38 @@ export interface DebugOption {
 
 export class CKBDebugger {
   private static wasmDebugger: CkbDebuggerWasi | null = null;
-  private static useWasm: boolean | null = null;
 
   private static getWasmDebugger(): CkbDebuggerWasi {
     if (!this.wasmDebugger) {
       const wasmPath = path.join(__dirname, 'ckb-debugger.wasm');
       this.wasmDebugger = new CkbDebuggerWasi({
         wasmPath,
-        captureOutput: false, // Use stdio for consistency with CLI version
+        captureOutput: false, // Use stdio directly since custom capture doesn't work with WASI
       });
     }
     return this.wasmDebugger;
   }
 
   private static shouldUseWasm(): boolean {
-    if (this.useWasm !== null) {
-      return this.useWasm;
-    }
-
-    // Check if CLI version is available and valid
     if (this.isBinaryInstalled() && this.isBinaryVersionValid()) {
-      console.log('Using native ckb-debugger (better performance)');
-      this.useWasm = false;
+      console.debug('Using native ckb-debugger (better performance)');
+      return false;
     } else {
-      console.log('Native ckb-debugger not available, falling back to WASM version');
-      this.useWasm = true;
+      console.debug('Native ckb-debugger not available, falling back to WASM version');
+      return true;
     }
-
-    return this.useWasm;
   }
 
   private static async execute(args: string[]): Promise<void> {
     if (this.shouldUseWasm()) {
-      const result = await this.getWasmDebugger().run(args);
-      if (result.exitCode !== 0) {
-        process.exit(result.exitCode);
+      try {
+        const result = await this.getWasmDebugger().run(args);
+        if (result.exitCode !== 0) {
+          process.exit(result.exitCode);
+        }
+      } catch (error) {
+        console.error('WASM debugger execution failed:', error);
+        process.exit(1);
       }
     } else {
       const command = `ckb-debugger ${args.join(' ')}`;
@@ -101,8 +98,6 @@ export class CKBDebugger {
       console.log('Installing ckb-debugger...');
       execSync(command, { stdio: 'inherit' });
       console.log('ckb-debugger installed successfully. You can uninstall it by running: cargo uninstall ckb-debugger');
-      // Reset the use wasm flag so it re-evaluates next time
-      this.useWasm = null;
     } catch (error) {
       console.error('Failed to install ckb-debugger:', error);
       process.exit(1);

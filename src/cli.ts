@@ -14,6 +14,7 @@ import { debugSingleScript, debugTransaction, parseSingleScriptOption } from './
 import { printSystemScripts } from './cmd/system-scripts';
 import { transferAll } from './cmd/transfer-all';
 import { genSystemScriptsJsonFile } from './scripts/gen';
+import { installCKBDebuggerOnly } from './cmd/debug';
 
 const version = require('../package.json').version;
 const description = require('../package.json').description;
@@ -55,12 +56,24 @@ program
 
 program
   .command('debug')
-  .requiredOption('--tx-hash <txHash>', 'Specify the transaction hash to debug with')
+  .option('--tx-hash <txHash>', 'Specify the transaction hash to debug with')
   .option('--single-script <singleScript>', 'Specify the cell script to debug with')
   .option('--bin <bin>', 'Specify a binary to replace the script to debug with')
   .option('--network <network>', 'Specify the network to debug', 'devnet')
+  .option('--install', 'Install CKB debugger only')
   .description('CKB Debugger for development')
   .action(async (option) => {
+    // If --install flag is provided, only install CKB debugger
+    if (option.install) {
+      return installCKBDebuggerOnly();
+    }
+
+    // For debugging, tx-hash is required
+    if (!option.txHash) {
+      console.error('Error: --tx-hash is required for debugging operations');
+      process.exit(1);
+    }
+
     const txHash = option.txHash;
     if (option.singleScript) {
       const { cellType, cellIndex, scriptType } = parseSingleScriptOption(option.singleScript);

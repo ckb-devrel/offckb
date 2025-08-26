@@ -5,7 +5,6 @@ import { TemplateProcessor } from '../templates/processor';
 import { PackageManagerDetector } from '../templates/package-manager';
 import { InteractivePrompts } from '../templates/prompts';
 import { genSystemScriptsJsonFile } from '../scripts/gen';
-import { CKBDebugger } from '../tools/ckb-debugger';
 
 export interface CreateScriptProjectOptions {
   manager?: 'pnpm' | 'yarn' | 'npm';
@@ -143,22 +142,6 @@ export async function createScriptProject(name?: string, options: CreateScriptPr
 
     console.log(chalk.gray(`\n💡 To add a new contract:`));
     console.log(chalk.gray(`   ${projectInfo.packageManager} run add-contract <contract-name>`));
-
-    // check if ckb debugger is installed
-    if (!CKBDebugger.isBinaryInstalled() || !CKBDebugger.isBinaryVersionValid()) {
-      try {
-        console.log(
-          chalk.gray(`\n💡 In order to compile the Javascript Smart Contract, CKB debugger is required. Installing...`),
-        );
-        CKBDebugger.installCKBDebugger();
-      } catch (error) {
-        console.warn(
-          chalk.yellow(
-            '⚠️  Failed to install CKB debugger. You can install it manually later by running: cargo install --git https://github.com/nervosnetwork/ckb-standalone-debugger ckb-debugger',
-          ),
-        );
-      }
-    }
   } catch (error: unknown) {
     console.error(chalk.red('\n❌ Failed to create project:'), (error as Error).message);
     process.exit(1);
