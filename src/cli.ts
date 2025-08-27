@@ -62,7 +62,7 @@ program
   .option('--single-script <singleScript>', 'Specify the cell script to debug with')
   .option('--bin <bin>', 'Specify a binary to replace the script to debug with')
   .option('--network <network>', 'Specify the network to debug', 'devnet')
-  .description('CKB Debugger for development')
+  .description('Quickly debug transaction with tx-hash')
   .action(async (option) => {
     // For debugging, tx-hash is required
     if (!option.txHash) {
@@ -76,16 +76,6 @@ program
       return debugSingleScript(txHash, cellIndex, cellType, scriptType, option.network, option.bin);
     }
     return debugTransaction(txHash, option.network);
-  });
-
-program
-  .command('debugger')
-  .description('CKB Debugger for development')
-  .passThroughOptions()
-  .allowUnknownOption()
-  .helpOption(false) // Disable the default help option
-  .action(async () => {
-    return CKBDebugger.runWithArgs(process.argv.slice(2));
   });
 
 program
@@ -146,6 +136,16 @@ program
   .option('--network <network>', 'Specify the network to check', 'devnet')
   .action(async (toAddress: string, options: BalanceOption) => {
     return balanceOf(toAddress, options);
+  });
+
+program
+  .command('debugger')
+  .description('Port of the raw CKB Standalone Debugger')
+  .passThroughOptions()
+  .allowUnknownOption()
+  .helpOption(false) // Disable the default help option
+  .action(async () => {
+    return CKBDebugger.runWithArgs(process.argv.slice(2));
   });
 
 program
