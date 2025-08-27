@@ -16,6 +16,7 @@ export enum SystemScriptName {
   spore_extension_lua = 'spore_extension_lua',
   ckb_js_vm = 'ckb_js_vm',
   nostr_lock = 'nostr_lock',
+  type_id = 'type_id',
 }
 
 export interface ScriptInfo {

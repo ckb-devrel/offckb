@@ -6,6 +6,7 @@ import { ScriptInfo, SystemScript, SystemScriptName, SystemScriptsRecord } from 
 import { Network, NetworkOption } from '../type/base';
 import { MAINNET_SYSTEM_SCRIPTS, TESTNET_SYSTEM_SCRIPTS } from '../scripts/public';
 import { logger } from '../util/logger';
+import { TYPE_ID_SCRIPT } from '../scripts/const';
 
 export enum PrintStyle {
   system = 'system',
@@ -109,6 +110,9 @@ export function getDevnetSystemScriptsFromListHashes(): SystemScriptsRecord | nu
   // some special case fixes
   // eg: omnilock also requires the deps of secp256k1-sigHashAll
   systemScripts.omnilock?.script.cellDeps.push(systemScripts.secp256k1_blake160_sighash_all!.script.cellDeps[0]);
+
+  // add built-in type_id script
+  systemScripts.type_id = TYPE_ID_SCRIPT;
 
   return systemScripts;
 }
