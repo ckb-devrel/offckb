@@ -5,6 +5,7 @@ import { dirname } from 'path';
 import { getContractsPath } from './util';
 import { HashType } from '@ckb-ccc/core';
 import { HexString } from '../type/base';
+import { logger } from '../util/logger';
 
 export interface DeploymentOptions {
   name: string;
@@ -56,7 +57,7 @@ export function generateDeploymentTomlInPath(options: DeploymentOptions, outputF
       fs.mkdirSync(dirname(outputFilePath), { recursive: true });
     }
     fs.writeFileSync(outputFilePath, tomlString);
-    console.log(`${options.name} deployment.toml file ${outputFilePath} generated successfully.`);
+    logger.info(`${options.name} deployment.toml file ${outputFilePath} generated successfully.`);
   }
 }
 

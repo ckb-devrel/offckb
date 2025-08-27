@@ -1,6 +1,7 @@
 import path from 'path';
 import fs from 'fs';
 import { Network } from '../type/base';
+import { logger } from './logger';
 
 export function validateTypescriptWorkspace() {
   const cwd = process.cwd();
@@ -54,7 +55,7 @@ export function validateNetworkOpt(network: string) {
   }
 
   if (network === Network.mainnet) {
-    console.log(
+    logger.info(
       'Mainnet not support yet. Please use CKB-CLI to operate on mainnet for better security. Check https://github.com/nervosnetwork/ckb-cli',
     );
     process.exit(1);

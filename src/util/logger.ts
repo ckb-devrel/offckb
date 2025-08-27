@@ -15,18 +15,28 @@ type LogLevel = keyof typeof levelColors;
 interface LoggerOptions {
   level?: LogLevel;
   enableColors?: boolean;
+  showLevel?: boolean;
 }
 
 class UnifiedLogger {
   private logger: winston.Logger;
   private enableColors: boolean;
+  private showLevel: boolean;
 
   constructor(options: LoggerOptions = {}) {
     this.enableColors = options.enableColors !== false;
+    this.showLevel = options.showLevel !== false;
 
-    // Create Winston logger with custom format
+    // Create Winston logger with custom format and levels
     this.logger = winston.createLogger({
       level: options.level || 'info',
+      levels: {
+        error: 0,
+        warn: 1,
+        info: 2,
+        success: 3,
+        debug: 4,
+      },
       format: winston.format.combine(
         winston.format.timestamp(),
         winston.format.errors({ stack: true }),
@@ -46,6 +56,14 @@ class UnifiedLogger {
    * Format the message with appropriate colors and structure
    */
   private formatMessage(level: LogLevel, message: string, _timestamp?: string): string {
+    // If showLevel is false, return just the message
+    if (!this.showLevel) {
+      if (Array.isArray(message)) {
+        return message.join('\n');
+      }
+      return message;
+    }
+
     if (!this.enableColors) {
       return `[${level.toUpperCase()}] ${message}`;
     }
@@ -67,6 +85,29 @@ class UnifiedLogger {
   }
 
   /**
+   * Process multiple parameters and return the final message
+   */
+  private processParams(firstParam: string | string[], ...restParams: any[]): string | string[] {
+    // If first parameter is an array, handle it line by line
+    if (Array.isArray(firstParam)) {
+      if (restParams.length === 0) {
+        return firstParam;
+      }
+
+      // Convert rest parameters to string and append to each line
+      const restString = restParams
+        .map((param) => (typeof param === 'object' ? JSON.stringify(param) : String(param)))
+        .join(' ');
+
+      return firstParam.map((line) => `${line} ${restString}`);
+    }
+
+    // If first parameter is a string, concatenate with rest parameters
+    const allParams = [firstParam, ...restParams];
+    return allParams.map((param) => (typeof param === 'object' ? JSON.stringify(param) : String(param))).join(' ');
+  }
+
+  /**
    * Log a message with the specified level
    */
   private log(level: LogLevel, message: string | string[]) {
@@ -80,35 +121,40 @@ class UnifiedLogger {
   /**
    * Log error messages
    */
-  error(message: string | string[]) {
+  error(firstParam: string | string[], ...restParams: any[]) {
+    const message = this.processParams(firstParam, ...restParams);
     this.log('error', message);
   }
 
   /**
    * Log warning messages
    */
-  warn(message: string | string[]) {
+  warn(firstParam: string | string[], ...restParams: any[]) {
+    const message = this.processParams(firstParam, ...restParams);
     this.log('warn', message);
   }
 
   /**
    * Log info messages
    */
-  info(message: string | string[]) {
+  info(firstParam: string | string[], ...restParams: any[]) {
+    const message = this.processParams(firstParam, ...restParams);
     this.log('info', message);
   }
 
   /**
    * Log debug messages
    */
-  debug(message: string | string[]) {
+  debug(firstParam: string | string[], ...restParams: any[]) {
+    const message = this.processParams(firstParam, ...restParams);
     this.log('debug', message);
   }
 
   /**
    * Log success messages
    */
-  success(message: string | string[]) {
+  success(firstParam: string | string[], ...restParams: any[]) {
+    const message = this.processParams(firstParam, ...restParams);
     this.log('success', message);
   }
 
@@ -149,7 +195,7 @@ class UnifiedLogger {
 }
 
 // Create a default instance for global use
-const logger = UnifiedLogger.create();
+const logger = UnifiedLogger.create({ showLevel: false });
 
 export { logger, UnifiedLogger };
 export type { LoggerOptions, LogLevel };

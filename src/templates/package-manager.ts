@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
+import { logger } from '../util/logger';
 
 export type PackageManager = 'npm' | 'yarn' | 'pnpm';
 
@@ -73,7 +74,7 @@ export class PackageManagerDetector {
    * Install dependencies using detected package manager
    */
   installDependencies(projectDir: string, packageManager: PackageManager): void {
-    console.log(`Installing dependencies with ${packageManager}...`);
+    logger.info(`Installing dependencies with ${packageManager}...`);
 
     try {
       const installCommands = {
@@ -87,9 +88,9 @@ export class PackageManagerDetector {
         stdio: 'inherit',
       });
 
-      console.log('Dependencies installed successfully!');
+      logger.info('Dependencies installed successfully!');
     } catch (error) {
-      console.error(`Failed to install dependencies with ${packageManager}:`, (error as Error).message);
+      logger.error(`Failed to install dependencies with ${packageManager}:`, (error as Error).message);
       throw error;
     }
   }
@@ -103,9 +104,9 @@ export class PackageManagerDetector {
       execSync('git init', { cwd: projectDir, stdio: 'ignore' });
       execSync('git add .', { cwd: projectDir, stdio: 'ignore' });
       execSync('git commit -m "Initial commit"', { cwd: projectDir, stdio: 'ignore' });
-      console.log('Git repository initialized successfully!');
+      logger.info('Git repository initialized successfully!');
     } catch (error) {
-      console.warn('Git initialization failed or git is not available. Skipping git setup.');
+      logger.warn('Git initialization failed or git is not available. Skipping git setup.');
     }
   }
 }

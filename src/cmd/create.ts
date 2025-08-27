@@ -141,17 +141,17 @@ export async function createScriptProject(name?: string, options: CreateScriptPr
 
     const steps = !projectInfo.installDeps
       ? [
-          `   1. cd ${projectPath}`,
-          `   2. ${projectInfo.packageManager} install`,
-          `   3. ${projectInfo.packageManager} run build`,
-          `   4. ${projectInfo.packageManager} run deploy`,
-          `   5. ${projectInfo.packageManager} run test`,
+          `cd ${projectPath}`,
+          `${projectInfo.packageManager} install`,
+          `${projectInfo.packageManager} run build`,
+          `${projectInfo.packageManager} run deploy`,
+          `${projectInfo.packageManager} run test`,
         ]
       : [
-          `   1. cd ${projectPath}`,
-          `   2. ${projectInfo.packageManager} run build`,
-          `   3. ${projectInfo.packageManager} run deploy`,
-          `   4. ${projectInfo.packageManager} run test`,
+          `cd ${projectPath}`,
+          `${projectInfo.packageManager} run build`,
+          `${projectInfo.packageManager} run deploy`,
+          `${projectInfo.packageManager} run test`,
         ];
 
     logger.list('📖 Next steps', steps);
@@ -160,7 +160,7 @@ export async function createScriptProject(name?: string, options: CreateScriptPr
 
     // check if ckb-debugger is installed
     if (!CKBDebugger.isBinaryInstalled() || !CKBDebugger.isBinaryVersionValid()) {
-      console.log(`Oho! You don't have ckb-debugger installed, let me create a fallback binary for you...`);
+      logger.info(`Oho! You don't have ckb-debugger installed, let me create a fallback binary for you...`);
       CKBDebugger.createCkbDebuggerFallback();
     }
   } catch (error: unknown) {

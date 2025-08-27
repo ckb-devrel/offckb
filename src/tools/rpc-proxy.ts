@@ -41,7 +41,7 @@ export function createRPCProxy(network: Network, targetRpcUrl: string, port: num
           }
         }
       } catch (err) {
-        console.error('Error parsing JSON-RPC content:', err);
+        logger.error('Error parsing JSON-RPC content:', err);
       }
     });
   });
@@ -60,7 +60,7 @@ export function createRPCProxy(network: Network, targetRpcUrl: string, port: num
           console.debug('RPC Response: ', jsonRpcResponse);
         }
       } catch (err) {
-        console.error('Error parsing JSON-RPC content:', err);
+        logger.error('Error parsing JSON-RPC content:', err);
       }
     });
   });

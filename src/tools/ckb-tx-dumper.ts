@@ -1,6 +1,7 @@
 import path from 'path';
 import { execSync } from 'child_process';
 import { packageRootPath } from '../cfg/setting';
+import { logger } from '../util/logger';
 
 export interface DumpOption {
   rpc: string;
@@ -15,8 +16,8 @@ export function dumpTransaction({ rpc, txJsonFilePath, outputFilePath }: DumpOpt
 
   try {
     execSync(command, { stdio: 'inherit' });
-    console.debug('Dump transaction successfully');
+    logger.debug('Dump transaction successfully');
   } catch (error: unknown) {
-    console.error('Command failed:', (error as Error).message);
+    logger.error('Command failed:', (error as Error).message);
   }
 }
