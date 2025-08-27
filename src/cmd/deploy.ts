@@ -6,6 +6,7 @@ import { validateNetworkOpt } from '../util/validator';
 import { deployBinaries, saveArtifacts } from '../deploy';
 import { CKB } from '../sdk/ckb';
 import { confirm } from '@inquirer/prompts';
+import { logger } from '../util/logger';
 
 export interface DeployOptions extends NetworkOption {
   target?: string;
@@ -37,26 +38,29 @@ export async function deploy(
   binPaths = binPaths.filter((binPath) => {
     const size = getBinaryFileSizeInBytes(binPath);
     if (size > 500 * 1024) {
-      console.warn(`[warning]: ignore deploying the binary file ${binPath} since its size is too large: ${size} bytes`);
+      logger.warn(`[warning]: ignore deploying the binary file ${binPath} since its size is too large: ${size} bytes`);
       return false;
     }
     return true;
   });
 
   // ask user to confirm the deployment
-  console.log('You are about to deploy the following contracts:');
-  for (const binPath of binPaths) {
-    console.log(`- ${binPath}`);
-  }
-  console.log(`\nThe deployment will be saved to ${outputFolder}`);
-  console.log(`\nThe network is: ${network}`);
+  const contractsList = binPaths.map((binPath) => `- ${binPath}`);
+  logger.info([
+    'You are about to deploy the following contracts:',
+    ...contractsList,
+    '',
+    `The deployment will be saved to ${outputFolder}`,
+    '',
+    `The network is: ${network}`,
+  ]);
 
   const res = await confirm({
     message: 'Are you sure you want to deploy these contracts?',
   });
 
   if (!res) {
-    console.log('Deployment cancelled.');
+    logger.info('Deployment cancelled.');
     return;
   }
 

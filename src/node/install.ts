@@ -8,6 +8,7 @@ import * as tar from 'tar';
 import { Request } from '../util/request';
 import { getCKBBinaryInstallPath, getCKBBinaryPath, readSettings } from '../cfg/setting';
 import { encodeBinPathForTerminal } from '../util/encoding';
+import { logger } from '../util/logger';
 import CPUFeatures from 'cpu-features';
 
 export async function installCKBBinary(version: string) {
@@ -15,14 +16,14 @@ export async function installCKBBinary(version: string) {
   const outputVersion = getVersionFromBinary(ckbBinPath);
   if (outputVersion) {
     if (!semver.eq(version, outputVersion)) {
-      console.log(
+      logger.info(
         `CKB version ${outputVersion} is not equal to the ${version}, download and install the new version ${version}..`,
       );
     } else {
       return;
     }
   } else {
-    console.log(`CKB Binary not found, download and install the new version ${version}..`);
+    logger.info(`CKB Binary not found, download and install the new version ${version}..`);
   }
 
   await downloadCKBBinaryAndUnzip(version);
@@ -49,15 +50,15 @@ export async function downloadCKBBinaryAndUnzip(version: string) {
     fs.renameSync(sourcePath, targetPath); // Move binary to desired location
     fs.chmodSync(getCKBBinaryPath(version), '755'); // Make the binary executable
 
-    console.log(`CKB ${version} installed successfully.`);
+    logger.info(`CKB ${version} installed successfully.`);
   } catch (error) {
-    console.error('Error installing dependency binary:', error);
+    logger.error('Error installing dependency binary:', error);
   }
 }
 
 export async function downloadAndSaveCKBBinary(version: string, tempFilePath: string) {
   const downloadURL = buildDownloadUrl(version);
-  console.log(`downloading ${downloadURL} ..`);
+  logger.info(`downloading ${downloadURL} ..`);
   const response = await Request.send(downloadURL);
   const arrayBuffer = await response.arrayBuffer();
   fs.writeFileSync(tempFilePath, Buffer.from(arrayBuffer));
@@ -90,11 +91,11 @@ export async function decompressTarGzAsync(tarballPath: string, destinationDir: 
         }),
       )
       .on('error', (err) => {
-        console.error('Error extracting tarball:', err);
+        logger.error('Error extracting tarball:', err);
         reject(err); // Reject with error if extraction fails
       })
       .on('finish', () => {
-        console.log('Extraction complete.');
+        logger.info('Extraction complete.');
         resolve(); // Resolve when extraction completes
       });
   });

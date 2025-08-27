@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { isFolderExists, copyFilesWithExclusion } from '../util/fs';
 import { packageRootPath, readSettings } from '../cfg/setting';
+import { logger } from '../util/logger';
 
 export async function initChainIfNeeded() {
   const settings = readSettings();
@@ -10,7 +11,7 @@ export async function initChainIfNeeded() {
   if (!isFolderExists(devnetConfigPath)) {
     const devnetConfigPath = settings.devnet.configPath;
     await copyFilesWithExclusion(devnetSourcePath, devnetConfigPath, ['data']);
-    console.debug(`init devnet config folder: ${devnetConfigPath}`);
+    logger.debug(`init devnet config folder: ${devnetConfigPath}`);
 
     // copy and edit ckb-miner.toml
     const minerToml = path.join(devnetSourcePath, 'ckb-miner.toml');

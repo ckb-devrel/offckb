@@ -5,6 +5,7 @@ import { buildTestnetTxLink } from '../util/link';
 import { validateNetworkOpt } from '../util/validator';
 import { Request } from '../util/request';
 import { RequestInit } from 'node-fetch';
+import { logger } from '../util/logger';
 
 export interface DepositOptions extends NetworkOption {}
 
@@ -29,35 +30,35 @@ export async function deposit(
     privateKey,
     amountInCKB,
   });
-  console.log('tx hash: ', txHash);
+  logger.info('tx hash: ', txHash);
 }
 
 async function depositFromTestnetFaucet(ckbAddress: string, ckb: CKB) {
-  console.log('testnet faucet only supports fixed-amount claim: 10,000 CKB');
+  logger.info('testnet faucet only supports fixed-amount claim: 10,000 CKB');
 
   const randomAccountPrivateKey = '0x' + generateHex(64);
   const randomAccountAddress = await ckb.buildSecp256k1Address(randomAccountPrivateKey);
 
-  console.log(
+  logger.info(
     `use random account to claim from faucet: \n\nprivate key: ${randomAccountPrivateKey}\n\n address: ${randomAccountAddress}`,
   );
   try {
     const claimResponse = await sendClaimRequest(randomAccountAddress);
 
-    console.log('Wait for claim transaction confirmed to transfer all from random account to your account..');
-    console.log('You can transfer by yourself if it ends up fails..');
+    logger.info('Wait for claim transaction confirmed to transfer all from random account to your account..');
+    logger.info('You can transfer by yourself if it ends up fails..');
     if (claimResponse.txHash != null) {
       await ckb.waitForTxConfirm(claimResponse.txHash);
     } else {
       await ckb.waitForBlocksBy(4); // wait 4 blocks
     }
   } catch (error) {
-    console.log(error);
+    logger.error('claim request failed.', error);
     throw new Error('claim request failed.');
   }
 
   const txHash = await ckb.transferAll({ privateKey: randomAccountPrivateKey, toAddress: ckbAddress });
-  console.log(`Done, check ${buildTestnetTxLink(txHash)} for details.`);
+  logger.info(`Done, check ${buildTestnetTxLink(txHash)} for details.`);
 }
 
 async function sendClaimRequest(toAddress: string) {
@@ -85,7 +86,7 @@ async function sendClaimRequest(toAddress: string) {
   };
 
   const response = await Request.send(url, config);
-  console.log('send claim request, status: ', response.status); // Handle the response data here
+  logger.info('send claim request, status: ', response.status); // Handle the response data here
   const jsonResponse = await response.json();
   return jsonResponse.data.attributes as {
     addressHash: string;

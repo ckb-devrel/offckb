@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import envPaths from './env-path';
+import { logger } from '../util/logger';
 
 const paths = envPaths('offckb');
 
@@ -114,7 +115,7 @@ export function readSettings(): Settings {
       return defaultSettings;
     }
   } catch (error) {
-    console.error('Error reading settings:', error);
+    logger.error('Error reading settings:', error);
     return defaultSettings;
   }
 }
@@ -123,9 +124,9 @@ export function writeSettings(settings: Settings): void {
   try {
     fs.mkdirSync(path.dirname(configPath), { recursive: true });
     fs.writeFileSync(configPath, JSON.stringify(settings, null, 2));
-    console.log('save new settings');
+    logger.info('save new settings');
   } catch (error) {
-    console.error('Error writing settings:', error);
+    logger.error('Error writing settings:', error);
   }
 }
 

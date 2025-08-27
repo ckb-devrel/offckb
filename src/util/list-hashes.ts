@@ -2,6 +2,7 @@ import { execSync } from 'child_process';
 import { getCKBBinaryPath, readSettings } from '../cfg/setting';
 import { encodeBinPathForTerminal } from './encoding';
 import { H256 } from '../type/base';
+import { logger } from './logger';
 
 export interface SystemCell {
   path: string;
@@ -41,7 +42,7 @@ export function getDevnetListHashes(version?: string): string | null {
     });
     return output;
   } catch (error) {
-    console.error('Error running dependency binary:', error);
+    logger.error('Error running dependency binary:', error as Error);
     return null;
   }
 }

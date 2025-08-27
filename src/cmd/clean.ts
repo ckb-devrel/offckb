@@ -1,6 +1,7 @@
 import fs from 'fs';
 import { isFolderExists } from '../util/fs';
 import { readSettings } from '../cfg/setting';
+import { logger } from '../util/logger';
 
 export function clean() {
   const settings = readSettings();
@@ -9,12 +10,12 @@ export function clean() {
   if (isFolderExists(allDevnetDataPath)) {
     try {
       fs.rmSync(allDevnetDataPath, { recursive: true });
-      console.log(`Chain data cleaned.`);
+      logger.info(`Chain data cleaned.`);
     } catch (error: unknown) {
-      console.log(`Did you stop running the chain first?`);
-      console.log((error as Error).message);
+      logger.info(`Did you stop running the chain first?`);
+      logger.error((error as Error).message);
     }
   } else {
-    console.log(`${allDevnetDataPath} not found, unable to clean it.`);
+    logger.info(`${allDevnetDataPath} not found, unable to clean it.`);
   }
 }

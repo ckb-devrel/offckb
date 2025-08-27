@@ -15,6 +15,7 @@ import { ccc } from '@ckb-ccc/core';
 import { MyScriptsRecord } from '../scripts/type';
 import { getScriptInfoFrom } from '../scripts/util';
 import { generateScriptInfoJsonFile } from './script';
+import { logger } from '../util/logger';
 
 export type DeployBinaryReturnType = ReturnType<typeof deployBinary>;
 export type UnwrapPromise<T> = T extends Promise<infer U> ? U : T;
@@ -33,21 +34,22 @@ export function getToDeployBinsPath(userOffCKBConfigPath: string) {
     const bins = getBinaryFilesFromPath(binFileOrFolderPath);
     return bins;
   } else {
-    console.log('contractBinFolder value not found in offckb.config.ts');
+    logger.info('contractBinFolder value not found in offckb.config.ts');
     return [];
   }
 }
 
 export async function saveArtifacts(artifactsPath: string, results: DeployedInterfaceType[], network: Network) {
   if (results.length === 0) {
-    return console.log('No artifacts to save.');
+    logger.info('No artifacts to save.');
+    return;
   }
   if (!fs.existsSync(artifactsPath)) {
     fs.mkdirSync(artifactsPath, { recursive: true });
   }
   const deployedScriptsInfo: MyScriptsRecord = {};
   for (const result of results) {
-    console.log(`Saving artifacts for ${result.deploymentOptions.name}...`);
+    logger.info(`Saving artifacts for ${result.deploymentOptions.name}...`);
     const tomlPath = path.join(artifactsPath, network, result.deploymentOptions.name, 'deployment.toml');
     generateDeploymentTomlInPath(result.deploymentOptions, tomlPath);
     const migrationPath = path.join(
@@ -64,12 +66,12 @@ export async function saveArtifacts(artifactsPath: string, results: DeployedInte
 
   const scriptInfoFilePath = path.join(artifactsPath, 'scripts.json');
   generateScriptInfoJsonFile(network, deployedScriptsInfo, scriptInfoFilePath);
-  console.log(`Script info file ${scriptInfoFilePath} generated successfully.`);
+  logger.info(`Script info file ${scriptInfoFilePath} generated successfully.`);
 }
 
 export async function deployBinaries(binPaths: string[], privateKey: HexString, enableTypeId: boolean, ckb: CKB) {
   if (binPaths.length === 0) {
-    console.log('No binary to deploy.');
+    logger.info('No binary to deploy.');
   }
   const results: DeployedInterfaceType[] = [];
   for (const bin of binPaths) {
@@ -97,10 +99,10 @@ export async function deployBinary(
       ? await ckb.upgradeTypeIdScript(contractName, bin, privateKey)
       : await ckb.deployNewTypeIDScript(bin, privateKey);
 
-  console.log(`contract ${contractName} deployed, tx hash:`, result.txHash);
-  console.log('wait for tx confirmed on-chain...');
+  logger.info(`contract ${contractName} deployed, tx hash:`, result.txHash);
+  logger.info('wait for tx confirmed on-chain...');
   await ckb.waitForTxConfirm(result.txHash);
-  console.log('tx committed.');
+  logger.info('tx committed.');
 
   const txHash = result.txHash;
   const typeIdScript = result.typeId;

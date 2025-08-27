@@ -2,6 +2,7 @@ import { spawnSync, execSync } from 'child_process';
 import * as path from 'path';
 import { readSettings } from '../cfg/setting';
 import { CkbDebuggerWasi } from './ckb-debugger-wasm';
+import { logger } from '../util/logger';
 
 export interface DebugOption {
   fullTxJsonFilePath: string;
@@ -31,13 +32,13 @@ export class CKBDebugger {
   private static isRecursiveCall(): boolean {
     // Check if we're already running as a ckb-debugger process
     if (process.argv[1] && process.argv[1].includes('ckb-debugger')) {
-      console.debug('Detected ckb-debugger process, using WASM to avoid recursion');
+      logger.debug('Detected ckb-debugger process, using WASM to avoid recursion');
       return true;
     }
 
     // Check if we're running the debugger command (which could be called from ckb-debugger binary)
     if (process.argv.includes('debugger')) {
-      console.debug('Detected debugger command, using WASM to avoid recursion');
+      logger.debug('Detected debugger command, using WASM to avoid recursion');
       return true;
     }
 
@@ -50,10 +51,10 @@ export class CKBDebugger {
     }
 
     if (this.isBinaryInstalled() && this.isBinaryVersionValid()) {
-      console.debug('Using native ckb-debugger (better performance)');
+      logger.debug('Using native ckb-debugger (better performance)');
       return false;
     } else {
-      console.debug('Native ckb-debugger not available, falling back to WASM version');
+      logger.debug('Native ckb-debugger not available, falling back to WASM version');
       return true;
     }
   }
@@ -66,7 +67,7 @@ export class CKBDebugger {
           process.exit(result.exitCode);
         }
       } catch (error) {
-        console.error('WASM debugger execution failed:', error);
+        logger.error('WASM debugger execution failed:', error as Error);
         process.exit(1);
       }
     } else {
@@ -119,11 +120,11 @@ export class CKBDebugger {
   static installCKBDebuggerBinary() {
     const command = `cargo install --git https://github.com/nervosnetwork/ckb-standalone-debugger ckb-debugger`;
     try {
-      console.log('Installing ckb-debugger...');
+      logger.info('Installing ckb-debugger...');
       execSync(command, { stdio: 'inherit' });
-      console.log('ckb-debugger installed successfully. You can uninstall it by running: cargo uninstall ckb-debugger');
+      logger.info('ckb-debugger installed successfully. You can uninstall it by running: cargo uninstall ckb-debugger');
     } catch (error) {
-      console.error('Failed to install ckb-debugger:', error);
+      logger.error('Failed to install ckb-debugger:', error as Error);
       process.exit(1);
     }
   }
@@ -151,7 +152,7 @@ export class CKBDebugger {
     }
 
     if (!offckbPath) {
-      console.error('❌ Could not find offckb binary. Please ensure offckb is installed and in your PATH.');
+      logger.error('❌ Could not find offckb binary. Please ensure offckb is installed and in your PATH.');
       process.exit(1);
     }
 
@@ -183,15 +184,15 @@ exec offckb debugger "$@"`;
         fs.chmodSync(targetPath, '755');
       }
 
-      console.log(`✅ Created ckb-debugger fallback at: ${targetPath}`);
-      console.log(`   This fallback uses WASM and calls: offckb debugger [args]`);
-      console.log(
+      logger.info(`✅ Created ckb-debugger fallback at: ${targetPath}`);
+      logger.info(`   This fallback uses WASM and calls: offckb debugger [args]`);
+      logger.info(
         `   For better performance, install the real binary: cargo install --git https://github.com/nervosnetwork/ckb-standalone-debugger ckb-debugger`,
       );
-      console.log(`   To uninstall the fallback binary: rm ${targetPath}`);
+      logger.info(`   To uninstall the fallback binary: rm ${targetPath}`);
     } catch (error: unknown) {
-      console.error(`❌ Failed to create ckb-debugger fallback: ${(error as Error).message}`);
-      console.error(`   Make sure you have write permissions to: ${path.dirname(targetPath)}`);
+      logger.error(`❌ Failed to create ckb-debugger fallback: ${(error as Error).message}`);
+      logger.error(`   Make sure you have write permissions to: ${path.dirname(targetPath)}`);
       process.exit(1);
     }
   }

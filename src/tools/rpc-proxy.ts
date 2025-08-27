@@ -4,6 +4,7 @@ import { Network } from '../type/base';
 import fs from 'fs';
 import { readSettings } from '../cfg/setting';
 import path from 'path';
+import { logger } from '../util/logger';
 
 // todo: if we use import this throws error in tsc building
 const { cccA } = require('@ckb-ccc/core/advanced');
@@ -41,7 +42,7 @@ export function createRPCProxy(network: Network, targetRpcUrl: string, port: num
           }
         }
       } catch (err) {
-        console.error('Error parsing JSON-RPC content:', err);
+        logger.error('Error parsing JSON-RPC content:', err);
       }
     });
   });
@@ -60,7 +61,7 @@ export function createRPCProxy(network: Network, targetRpcUrl: string, port: num
           console.debug('RPC Response: ', jsonRpcResponse);
         }
       } catch (err) {
-        console.error('Error parsing JSON-RPC content:', err);
+        logger.error('Error parsing JSON-RPC content:', err);
       }
     });
   });
