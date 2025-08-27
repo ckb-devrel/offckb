@@ -67,7 +67,7 @@ export class CKBDebugger {
           process.exit(result.exitCode);
         }
       } catch (error) {
-        logger.error('WASM debugger execution failed:', error);
+        logger.error('WASM debugger execution failed:', error as Error);
         process.exit(1);
       }
     } else {
@@ -124,7 +124,7 @@ export class CKBDebugger {
       execSync(command, { stdio: 'inherit' });
       logger.info('ckb-debugger installed successfully. You can uninstall it by running: cargo uninstall ckb-debugger');
     } catch (error) {
-      logger.error('Failed to install ckb-debugger:', error);
+      logger.error('Failed to install ckb-debugger:', error as Error);
       process.exit(1);
     }
   }

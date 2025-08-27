@@ -42,7 +42,7 @@ export function getDevnetListHashes(version?: string): string | null {
     });
     return output;
   } catch (error) {
-    logger.error('Error running dependency binary:', error);
+    logger.error('Error running dependency binary:', error as Error);
     return null;
   }
 }

@@ -53,7 +53,7 @@ async function depositFromTestnetFaucet(ckbAddress: string, ckb: CKB) {
       await ckb.waitForBlocksBy(4); // wait 4 blocks
     }
   } catch (error) {
-    logger.error(error);
+    logger.error('claim request failed.', error);
     throw new Error('claim request failed.');
   }
 

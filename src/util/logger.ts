@@ -87,7 +87,7 @@ class UnifiedLogger {
   /**
    * Process multiple parameters and return the final message
    */
-  private processParams(firstParam: string | string[], ...restParams: any[]): string | string[] {
+  private processParams(firstParam: string | string[], ...restParams: unknown[]): string | string[] {
     // If first parameter is an array, handle it line by line
     if (Array.isArray(firstParam)) {
       if (restParams.length === 0) {
@@ -95,16 +95,52 @@ class UnifiedLogger {
       }
 
       // Convert rest parameters to string and append to each line
-      const restString = restParams
-        .map((param) => (typeof param === 'object' ? JSON.stringify(param) : String(param)))
-        .join(' ');
+      const restString = restParams.map((param) => this.serializeParam(param)).join(' ');
 
       return firstParam.map((line) => `${line} ${restString}`);
     }
 
     // If first parameter is a string, concatenate with rest parameters
     const allParams = [firstParam, ...restParams];
-    return allParams.map((param) => (typeof param === 'object' ? JSON.stringify(param) : String(param))).join(' ');
+    return allParams.map((param) => this.serializeParam(param)).join(' ');
+  }
+
+  /**
+   * Safely serialize a parameter to string
+   */
+  private serializeParam(param: unknown): string {
+    if (param === null) {
+      return 'null';
+    }
+    if (param === undefined) {
+      return 'undefined';
+    }
+    if (typeof param === 'string') {
+      return param;
+    }
+    if (typeof param === 'number') {
+      return param.toString();
+    }
+    if (typeof param === 'boolean') {
+      return param.toString();
+    }
+    if (typeof param === 'object') {
+      try {
+        return JSON.stringify(param);
+      } catch {
+        return '[Object]';
+      }
+    }
+    if (typeof param === 'function') {
+      return '[Function]';
+    }
+    if (typeof param === 'symbol') {
+      return param.toString();
+    }
+    if (typeof param === 'bigint') {
+      return param.toString();
+    }
+    return String(param);
   }
 
   /**
@@ -121,7 +157,7 @@ class UnifiedLogger {
   /**
    * Log error messages
    */
-  error(firstParam: string | string[], ...restParams: any[]) {
+  error(firstParam: string | string[], ...restParams: unknown[]) {
     const message = this.processParams(firstParam, ...restParams);
     this.log('error', message);
   }
@@ -129,7 +165,7 @@ class UnifiedLogger {
   /**
    * Log warning messages
    */
-  warn(firstParam: string | string[], ...restParams: any[]) {
+  warn(firstParam: string | string[], ...restParams: unknown[]) {
     const message = this.processParams(firstParam, ...restParams);
     this.log('warn', message);
   }
@@ -137,7 +173,7 @@ class UnifiedLogger {
   /**
    * Log info messages
    */
-  info(firstParam: string | string[], ...restParams: any[]) {
+  info(firstParam: string | string[], ...restParams: unknown[]) {
     const message = this.processParams(firstParam, ...restParams);
     this.log('info', message);
   }
@@ -145,7 +181,7 @@ class UnifiedLogger {
   /**
    * Log debug messages
    */
-  debug(firstParam: string | string[], ...restParams: any[]) {
+  debug(firstParam: string | string[], ...restParams: unknown[]) {
     const message = this.processParams(firstParam, ...restParams);
     this.log('debug', message);
   }
@@ -153,7 +189,7 @@ class UnifiedLogger {
   /**
    * Log success messages
    */
-  success(firstParam: string | string[], ...restParams: any[]) {
+  success(firstParam: string | string[], ...restParams: unknown[]) {
     const message = this.processParams(firstParam, ...restParams);
     this.log('success', message);
   }

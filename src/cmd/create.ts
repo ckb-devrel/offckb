@@ -160,7 +160,7 @@ export async function createScriptProject(name?: string, options: CreateScriptPr
 
     // check if ckb-debugger is installed
     if (!CKBDebugger.isBinaryInstalled() || !CKBDebugger.isBinaryVersionValid()) {
-      logger.info(`Oho! You don't have ckb-debugger installed, let me create a fallback binary for you...`);
+      logger.info([`-----------`, `Oho! You don't have ckb-debugger installed, let me create a fallback binary for you...`]);
       CKBDebugger.createCkbDebuggerFallback();
     }
   } catch (error: unknown) {
