@@ -5,6 +5,8 @@ import { CellDepInfoLike, KnownScript, Script } from '@ckb-ccc/core';
 import { ScriptInfo, SystemScript, SystemScriptName, SystemScriptsRecord } from '../scripts/type';
 import { Network, NetworkOption } from '../type/base';
 import { MAINNET_SYSTEM_SCRIPTS, TESTNET_SYSTEM_SCRIPTS } from '../scripts/public';
+import { logger } from '../util/logger';
+import { TYPE_ID_SCRIPT } from '../scripts/const';
 
 export enum PrintStyle {
   system = 'system',
@@ -22,7 +24,7 @@ export async function printSystemScripts({ style = PrintStyle.system, network = 
       : network === Network.testnet
         ? TESTNET_SYSTEM_SCRIPTS
         : getDevnetSystemScriptsFromListHashes();
-  if (!systemScripts) return console.log(`SystemScripts is null, ${network}`);
+  if (!systemScripts) return logger.info(`SystemScripts is null, ${network}`);
 
   if (style === PrintStyle.system) {
     return printInSystemStyle(systemScripts, network);
@@ -38,36 +40,36 @@ export async function printSystemScripts({ style = PrintStyle.system, network = 
 }
 
 export function printInSystemStyle(systemScripts: SystemScriptsRecord, network: Network) {
-  console.log(`*** CKB ${network.toUpperCase()} System Scripts ***\n`);
+  logger.info(`*** CKB ${network.toUpperCase()} System Scripts ***\n`);
   for (const [name, script] of Object.entries(systemScripts)) {
-    console.log(`- name: ${name}`);
+    logger.info(`- name: ${name}`);
     if (script == null) {
-      return console.log(`  undefined\n`);
+      return logger.info(`  undefined\n`);
     }
-    console.log(`  file: ${script.file}`);
-    console.log(`  code_hash: ${script.script.codeHash}`);
-    console.log(`  hash_type: ${script.script.hashType}`);
-    console.log(`  cellDeps: ${JSON.stringify(script.script.cellDeps, null, 2)}\n`);
+    logger.info(`  file: ${script.file}`);
+    logger.info(`  code_hash: ${script.script.codeHash}`);
+    logger.info(`  hash_type: ${script.script.hashType}`);
+    logger.info(`  cellDeps: ${JSON.stringify(script.script.cellDeps, null, 2)}\n`);
   }
 }
 
 export function printInLumosConfigStyle(scripts: SystemScriptsRecord, network: Network) {
   const config = toLumosConfig(scripts, network === Network.mainnet ? 'ckb' : 'ckt');
-  console.log(`*** CKB ${network.toUpperCase()} System Scripts As LumosConfig ***\n`);
-  console.log(JSON.stringify(config, null, 2));
+  logger.info(`*** CKB ${network.toUpperCase()} System Scripts As LumosConfig ***\n`);
+  logger.info(JSON.stringify(config, null, 2));
 }
 
 export function printInCCCStyle(scripts: SystemScriptsRecord, network: Network) {
   const knownsScripts = toCCCKnownScripts(scripts);
-  console.log(`*** CKB ${network.toUpperCase()} System Scripts As CCC KnownScripts ***\n`);
-  console.log(JSON.stringify(knownsScripts, null, 2));
+  logger.info(`*** CKB ${network.toUpperCase()} System Scripts As CCC KnownScripts ***\n`);
+  logger.info(JSON.stringify(knownsScripts, null, 2));
 }
 
 export function getDevnetSystemScriptsFromListHashes(): SystemScriptsRecord | null {
   const settings = readSettings();
   const listHashesString = getDevnetListHashes(settings.bins.defaultCKBVersion);
   if (!listHashesString) {
-    console.log(`list-hashes not found!`);
+    logger.info(`list-hashes not found!`);
     return null;
   }
 
@@ -108,6 +110,9 @@ export function getDevnetSystemScriptsFromListHashes(): SystemScriptsRecord | nu
   // some special case fixes
   // eg: omnilock also requires the deps of secp256k1-sigHashAll
   systemScripts.omnilock?.script.cellDeps.push(systemScripts.secp256k1_blake160_sighash_all!.script.cellDeps[0]);
+
+  // add built-in type_id script
+  systemScripts.type_id = TYPE_ID_SCRIPT;
 
   return systemScripts;
 }

@@ -1,6 +1,7 @@
 import { ScriptInfo, SystemScriptsRecord } from './type';
 import { TESTNET_SCRIPTS } from '@ckb-ccc/core/advanced';
 import { MAINNET_SCRIPTS } from '@ckb-ccc/core/advanced';
+import { TYPE_ID_SCRIPT } from './const';
 
 // spore: https://github.com/sporeprotocol/spore-contract/blob/master/docs/VERSIONS.md
 
@@ -174,6 +175,7 @@ export const TESTNET_SYSTEM_SCRIPTS: SystemScriptsRecord = {
       ],
     },
   },
+  type_id: TYPE_ID_SCRIPT,
 };
 
 export const MAINNET_SYSTEM_SCRIPTS: SystemScriptsRecord = {
@@ -278,6 +280,7 @@ export const MAINNET_SYSTEM_SCRIPTS: SystemScriptsRecord = {
       ],
     },
   },
+  type_id: TYPE_ID_SCRIPT,
 };
 
 export default {

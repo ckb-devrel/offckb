@@ -15,6 +15,7 @@ import { printSystemScripts } from './cmd/system-scripts';
 import { transferAll } from './cmd/transfer-all';
 import { genSystemScriptsJsonFile } from './scripts/gen';
 import { CKBDebugger } from './tools/ckb-debugger';
+import { logger } from './util/logger';
 
 const version = require('../package.json').version;
 const description = require('../package.json').description;
@@ -61,11 +62,11 @@ program
   .option('--single-script <singleScript>', 'Specify the cell script to debug with')
   .option('--bin <bin>', 'Specify a binary to replace the script to debug with')
   .option('--network <network>', 'Specify the network to debug', 'devnet')
-  .description('CKB Debugger for development')
+  .description('Quickly debug transaction with tx-hash')
   .action(async (option) => {
     // For debugging, tx-hash is required
     if (!option.txHash) {
-      console.error('Error: --tx-hash is required for debugging operations');
+      logger.error('Error: --tx-hash is required for debugging operations');
       process.exit(1);
     }
 
@@ -75,16 +76,6 @@ program
       return debugSingleScript(txHash, cellIndex, cellType, scriptType, option.network, option.bin);
     }
     return debugTransaction(txHash, option.network);
-  });
-
-program
-  .command('debugger')
-  .description('CKB Debugger for development')
-  .passThroughOptions()
-  .allowUnknownOption()
-  .helpOption(false) // Disable the default help option
-  .action(async () => {
-    return CKBDebugger.runWithArgs(process.argv.slice(2));
   });
 
 program
@@ -101,7 +92,7 @@ program
     const exportStyle = option.exportStyle;
     if (option.output) {
       await genSystemScriptsJsonFile(option.output);
-      console.log(`File ${option.output} generated successfully.`);
+      logger.success(`File ${option.output} generated successfully.`);
       return;
     }
     return printSystemScripts({ style: exportStyle, network });
@@ -145,6 +136,16 @@ program
   .option('--network <network>', 'Specify the network to check', 'devnet')
   .action(async (toAddress: string, options: BalanceOption) => {
     return balanceOf(toAddress, options);
+  });
+
+program
+  .command('debugger')
+  .description('Port of the raw CKB Standalone Debugger')
+  .passThroughOptions()
+  .allowUnknownOption()
+  .helpOption(false) // Disable the default help option
+  .action(async () => {
+    return CKBDebugger.runWithArgs(process.argv.slice(2));
   });
 
 program

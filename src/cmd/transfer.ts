@@ -2,6 +2,7 @@ import { CKB } from '../sdk/ckb';
 import { NetworkOption, Network } from '../type/base';
 import { buildTestnetTxLink } from '../util/link';
 import { validateNetworkOpt } from '../util/validator';
+import { logger } from '../util/logger';
 
 export interface TransferOptions extends NetworkOption {
   privkey?: string | null;
@@ -28,9 +29,9 @@ export async function transfer(
     privateKey,
   });
   if (network === 'testnet') {
-    console.log(`Successfully transfer, check ${buildTestnetTxLink(txHash)} for details.`);
+    logger.info(`Successfully transfer, check ${buildTestnetTxLink(txHash)} for details.`);
     return;
   }
 
-  console.log('Successfully transfer, txHash:', txHash);
+  logger.info('Successfully transfer, txHash:', txHash);
 }

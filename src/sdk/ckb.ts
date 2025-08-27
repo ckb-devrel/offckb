@@ -7,6 +7,7 @@ import { networks } from './network';
 import { buildCCCDevnetKnownScripts } from '../scripts/private';
 import { Migration } from '../deploy/migration';
 import { Network, HexNumber, HexString } from '../type/base';
+import { logger } from '../util/logger';
 
 export class CKBProps {
   network?: Network;
@@ -258,7 +259,7 @@ async function waitFor(query: () => Promise<boolean>, timeout: number, interval:
       const result = await query();
       if (result) break;
     } catch (error: unknown) {
-      console.debug((error as Error).message);
+      logger.debug((error as Error).message);
     }
     await new Promise((resolve) => setTimeout(resolve, interval));
   }

@@ -1,6 +1,7 @@
 import { configPath, readSettings, writeSettings } from '../cfg/setting';
 import { Request } from '../util/request';
 import { isValidVersion } from '../util/validator';
+import { logger } from '../util/logger';
 
 export enum ConfigAction {
   list = 'list',
@@ -16,8 +17,8 @@ export enum ConfigItem {
 
 export async function Config(action: ConfigAction, item: ConfigItem, value?: string) {
   if (action === ConfigAction.list) {
-    console.log('config file: ', configPath);
-    return console.log(readSettings());
+    logger.info('config file: ', configPath);
+    return logger.info(JSON.stringify(readSettings(), null, 2));
   }
 
   if (action === ConfigAction.get) {
@@ -26,16 +27,16 @@ export async function Config(action: ConfigAction, item: ConfigItem, value?: str
         const settings = readSettings();
         const proxy = settings.proxy;
         if (proxy == null) {
-          console.log(`No Proxy.`);
+          logger.info(`No Proxy.`);
           process.exit(0);
         }
-        return console.log(`${Request.proxyConfigToUrl(proxy)}`);
+        return logger.info(`${Request.proxyConfigToUrl(proxy)}`);
       }
 
       case ConfigItem.ckbVersion: {
         const settings = readSettings();
         const version = settings.bins.defaultCKBVersion;
-        return console.log(`${version}`);
+        return logger.info(`${version}`);
       }
 
       default:
@@ -54,7 +55,7 @@ export async function Config(action: ConfigAction, item: ConfigItem, value?: str
           settings.proxy = proxy;
           return writeSettings(settings);
         } catch (error: unknown) {
-          return console.error(`invalid proxyURL, `, (error as Error).message);
+          return logger.error(`invalid proxyURL, `, (error as Error).message);
         }
       }
 
@@ -66,12 +67,12 @@ export async function Config(action: ConfigAction, item: ConfigItem, value?: str
             settings.bins.defaultCKBVersion = version;
             return writeSettings(settings);
           } else {
-            return console.error(
+            return logger.error(
               `invalid version value, ${value}. Check available versions on https://github.com/nervosnetwork/ckb/tags`,
             );
           }
         } catch (error: unknown) {
-          return console.error(`invalid version value, `, (error as Error).message);
+          return logger.error(`invalid version value, `, (error as Error).message);
         }
       }
 

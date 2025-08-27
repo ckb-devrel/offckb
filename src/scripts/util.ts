@@ -10,6 +10,7 @@ import { MyScriptsRecord, ScriptInfo } from '../scripts/type';
 import { getSubfolders } from '../util/fs';
 import { Network } from '../type/base';
 import path from 'path';
+import { logger } from '../util/logger';
 
 export function readDeployedScriptInfoFrom(contractDeploymentFolderPath: string) {
   const deployedScriptsInfo: MyScriptsRecord = {};
@@ -21,13 +22,13 @@ export function readDeployedScriptInfoFrom(contractDeploymentFolderPath: string)
 
   const migrationFolderPath = path.resolve(contractDeploymentFolderPath, 'migrations');
   if (!fs.existsSync(migrationFolderPath)) {
-    console.log(`No migrations folder found in ${migrationFolderPath}`);
+    logger.debug(`No migrations folder found in ${migrationFolderPath}`);
     return deployedScriptsInfo;
   }
 
   const newestFilePath = getNewestMigrationFile(migrationFolderPath);
   if (!newestFilePath) {
-    console.log(`No migration file found in ${migrationFolderPath}`);
+    logger.debug(`No migration file found in ${migrationFolderPath}`);
     return deployedScriptsInfo;
   }
 
@@ -37,7 +38,7 @@ export function readDeployedScriptInfoFrom(contractDeploymentFolderPath: string)
     const { name, scriptsInfo } = getScriptInfoFrom(recipe);
     deployedScriptsInfo[name] = scriptsInfo;
   } catch (error) {
-    console.error(`Error reading or parsing file '${newestFilePath}':`, error);
+    logger.error([`Error reading or parsing file '${newestFilePath}':`, (error as Error).toString()]);
   }
 
   return deployedScriptsInfo;
@@ -129,7 +130,7 @@ export function readUserDeployedScriptsInfo(network: Network) {
               }),
         };
       } catch (error) {
-        console.error(`Error reading or parsing file '${newestFilePath}':`, error);
+        logger.error([`Error reading or parsing file '${newestFilePath}':`, (error as Error).toString()]);
       }
     }
   }

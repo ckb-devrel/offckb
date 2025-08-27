@@ -3,6 +3,7 @@ import path, { dirname } from 'path';
 import fs from 'fs';
 import { getContractsPath } from './util';
 import { HexNumber } from '../type/base';
+import { logger } from '../util/logger';
 
 export interface CellRecipe {
   name: string;
@@ -80,7 +81,7 @@ export function generateDeploymentMigrationFileInPath(deploymentRecipe: Deployme
     fs.mkdirSync(dirname(outputFilePath), { recursive: true });
   }
   fs.writeFileSync(outputFilePath, jsonString);
-  console.log(`Migration json file ${outputFilePath} generated successfully.`);
+  logger.info(`Migration json file ${outputFilePath} generated successfully.`);
 }
 
 export function generateDeploymentMigrationFile(
@@ -139,7 +140,7 @@ export function deploymentRecipeToJson(recipe: DeploymentRecipe): MigrationJson 
     cell_recipes: recipe.cellRecipes.map((val) => {
       if (BigInt(val.occupiedCapacity) > BigInt(Number.MAX_SAFE_INTEGER)) {
         // CKB blocksize limit is 500k, so it should be impossible to have a cell occupied data larger than Number.MAX_SAFE_INTEGER which is 9007,1992,5474,0991
-        console.error(
+        logger.error(
           `invalid occupiedCapacity: ${val.occupiedCapacity}, the cell_recipes json might be incorrect for cell outpoint ${val.txHash}:${+val.index}`,
         );
       }
@@ -155,7 +156,7 @@ export function deploymentRecipeToJson(recipe: DeploymentRecipe): MigrationJson 
     dep_group_recipes: recipe.depGroupRecipes.map((val) => {
       if (BigInt(val.occupiedCapacity) > BigInt(Number.MAX_SAFE_INTEGER)) {
         // CKB blocksize limit is 500k, so it should be impossible to have a cell occupied data larger than Number.MAX_SAFE_INTEGER which is 9007,1992,5474,0991
-        console.error(
+        logger.error(
           `invalid occupiedCapacity: ${val.occupiedCapacity}, the dep_group_recipes json might be incorrect for cell outpoint ${val.txHash}:${+val.index}`,
         );
       }
