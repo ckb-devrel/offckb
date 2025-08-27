@@ -24,7 +24,7 @@ export function createRPCProxy(network: Network, targetRpcUrl: string, port: num
         const jsonRpcContent = JSON.parse(reqData);
         const method = jsonRpcContent.method;
         const params = jsonRpcContent.params;
-        console.debug('RPC Req: ', method);
+        logger.debug('RPC Req: ', method);
 
         if (method === 'send_transaction') {
           const tx = params[0];
@@ -38,7 +38,7 @@ export function createRPCProxy(network: Network, targetRpcUrl: string, port: num
             }
             const txFile = path.resolve(settings.devnet.transactionsPath, `${txHash}.json`);
             fs.writeFileSync(txFile, JSON.stringify(tx, null, 2));
-            console.debug(`RPC Req:  store tx ${txHash}`);
+            logger.debug(`RPC Req:  store tx ${txHash}`);
           }
         }
       } catch (err) {
@@ -58,7 +58,7 @@ export function createRPCProxy(network: Network, targetRpcUrl: string, port: num
         const jsonRpcResponse = JSON.parse(res);
         const error = jsonRpcResponse.error;
         if (error) {
-          console.debug('RPC Response: ', jsonRpcResponse);
+          logger.debug('RPC Response: ', jsonRpcResponse);
         }
       } catch (err) {
         logger.error('Error parsing JSON-RPC content:', err);
@@ -69,7 +69,7 @@ export function createRPCProxy(network: Network, targetRpcUrl: string, port: num
   const server = http.createServer((req, res) => {
     proxy.web(req, res, {}, (err) => {
       if (err) {
-        console.error('Proxy error:', err);
+        logger.error('Proxy error:', err);
         res.writeHead(500, { 'Content-Type': 'text/plain' });
         res.end('Proxy error');
       }
@@ -80,7 +80,7 @@ export function createRPCProxy(network: Network, targetRpcUrl: string, port: num
     network,
     start: () => {
       return server.listen(port, () => {
-        console.debug(`CKB ${network} RPC Proxy server running on http://localhost:${port}`);
+        logger.info(`CKB ${network} RPC Proxy server running on http://localhost:${port}`);
       });
     },
     stop: () => {

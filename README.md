@@ -10,12 +10,34 @@ CKB local development network for your first try.
 
 - One-line command to start a devnet, no docker required
 - Pre-funded test accounts
-- Built-in scripts like [Omnilock](https://github.com/cryptape/omnilock) and [Spore-contract](https://github.com/sporeprotocol/spore-contract)
-- Create boilerplate project to build your CKB dApp
+- Built-in scripts like [CKB-JS-VM](https://github.com/nervosnetwork/ckb-js-vm) and [Spore-contract](https://github.com/sporeprotocol/spore-contract)
+- Create boilerplate to build CKB Smart Contract in Typescript
 
 **Migrate from v0.3.x to v0.4.x:**
 
 There are BREAKING CHANGES between v0.3.x and v0.4.x, make sure to read the [migration guide](/docs/migration.md) before upgrading.
+
+----
+
+- [OffCKB](#offckb)
+- [Install](#install)
+- [Usage](#usage)
+- [Get started](#get-started)
+  - [Running CKB](#running-ckb)
+  - [List scripts info](#list-scripts-info)
+  - [Tweak Devnet Config](#tweak-devnet-config)
+  - [Create a CKB Smart Contract Project](#create-a-ckb-smart-contract-project)
+  - [Deploy a CKB Smart Contract](#deploy-a-ckb-smart-contract)
+  - [Debug a transaction](#debug-a-transaction)
+- [Config Setting](#config-setting)
+  - [List All Settings](#list-all-settings)
+  - [Set CKB version](#set-ckb-version)
+  - [Set Network Proxy](#set-network-proxy)
+- [Built-in scripts](#built-in-scripts)
+- [Accounts](#accounts)
+- [About CCC](#about-ccc)
+- [FAQ](#faq)
+- [Contributing](#contributing)
 
 ## Install
 
@@ -46,7 +68,7 @@ Commands:
   node [CKB-Version]                            Use the CKB to start devnet
   create [options] [project-name]               Create a new CKB Smart Contract project in JavaScript.
   deploy [options]                              Deploy contracts to different networks, only supports devnet and testnet
-  debug [options]                               CKB Debugger for development
+  debug [options]                               Quickly debug transaction with tx-hash
   system-scripts [options]                      Print/Output system scripts of the CKB blockchain
   clean                                         Clean the devnet data, need to stop running the chain first
   accounts                                      Print account list info
@@ -54,6 +76,7 @@ Commands:
   transfer [options] [toAddress] [amountInCKB]  Transfer CKB tokens to address, only devnet and testnet
   transfer-all [options] [toAddress]            Transfer All CKB tokens to address, only devnet and testnet
   balance [options] [toAddress]                 Check account balance, only devnet and testnet
+  debugger                                      Port of the raw CKB Standalone Debugger
   config <action> [item] [value]                do a configuration action
   help [command]                                display help for command
 ```
@@ -115,12 +138,9 @@ offckb system-scripts --output <output-file-path>
 
 By default, offckb use a fixed devnet config for the local blockchain. You can tweak the config to customize the devnet:
 
-First, start a default CKB devnet and locate your devnet folder
+You can locate your devnet folder by running:
 
 ```sh
-offckb node
-# after starting, press ctrl-c to kill the node
-# then get the config
 offckb config list
 ```
 
@@ -146,19 +166,17 @@ Done.
 
 ### Create a CKB Smart Contract Project
 
-You can create a new CKB Smart Contract project in JavaScript from our boilerplate.
+You can create a new CKB Smart Contract project in Typescript from our boilerplate.
 
 ```sh
-offckb create <your-project-name>
+offckb create <your-project-name> -c <your-contract-name>
 ```
 
-### Build and Deploy a CKB Smart Contract
+The `-c` option is optional, if you don't provide it, the contract name will be `hello-world`.
 
-After creating the project, you can build the CKB Smart Contract project by running:
+After create the project, you can follow the instructions on build, deploy and test the contract in README.md of the project.
 
-```sh
-cd <your-project-name> && npm/yarn/pnpm run build
-```
+### Deploy a CKB Smart Contract
 
 To deploy the script, use `offckb deploy` command:
 
@@ -172,21 +190,13 @@ Pass `--type-id` option if you want Scripts to be upgradable
 offckb deploy --type-id --network <devnet/testnet>
 ```
 
-Your deployed scripts will be be listed in the `output-folder-path` which you defined in the command.
-
-### Test CKB Smart Contract
-
-To test the CKB Smart Contract project, cd into the project folder and run:
-
-```sh
-npm/yarn/pnpm run test
-```
+Your deployed scripts info will be be listed in the `output-folder-path` which you defined in the command.
 
 ### Debug a transaction
 
-If you are using the proxy RPC server, all the failed transactions will be dumped and recorded so you can debug them later.
+If you are interacting the CKB devnet via the proxy RPC server(`localhost:28114`), all the failed transactions will be dumped and recorded so you can debug them later.
 
-Everytime you run a transaction, you can debug it with the transaction hash:
+Every time you run a transaction, you can debug it with the transaction hash:
 
 ```sh
 offckb debug <transaction-hash>
@@ -286,6 +296,7 @@ offckb config get proxy
   - version: 1.0.0
 - [x] Nostr-Lock https://github.com/cryptape/nostr-binding/tree/main/contracts/nostr-lock
   - version: 25dd59d
+- [x] Type ID built-in
 
 ## Accounts
 
