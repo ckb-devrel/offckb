@@ -22,6 +22,7 @@ export async function node({ version }: NodeProp) {
 
   const ckbCmd = `${ckbBinPath} run -C ${devnetConfigPath}`;
   const minerCmd = `${ckbBinPath} miner -C ${devnetConfigPath}`;
+  logger.info(`Launching CKB devnet Node...`);
   try {
     // Run first command
     const ckbProcess = exec(ckbCmd);
