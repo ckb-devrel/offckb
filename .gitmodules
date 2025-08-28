@@ -19,3 +19,6 @@
 [submodule "ckb/ckb-standalone-debugger"]
 	path = ckb/ckb-standalone-debugger
 	url = https://github.com/nervosnetwork/ckb-standalone-debugger.git
+[submodule "ckb/pw-lock"]
+	path = ckb/pw-lock
+	url = https://github.com/lay2dev/pw-lock.git

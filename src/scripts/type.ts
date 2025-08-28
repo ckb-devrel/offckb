@@ -17,6 +17,9 @@ export enum SystemScriptName {
   ckb_js_vm = 'ckb_js_vm',
   nostr_lock = 'nostr_lock',
   type_id = 'type_id',
+  ckb_cell_upgrade = 'ckb_cell_upgrade',
+  secp256k1_keccak256_sighash_all = 'secp256k1_keccak256_sighash_all',
+  secp256k1_keccak256_sighash_all_acpl = 'secp256k1_keccak256_sighash_all_acpl',
 }
 
 export interface ScriptInfo {
