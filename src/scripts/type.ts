@@ -20,6 +20,7 @@ export enum SystemScriptName {
   ckb_cell_upgrade = 'ckb_cell_upgrade',
   secp256k1_keccak256_sighash_all = 'secp256k1_keccak256_sighash_all',
   secp256k1_keccak256_sighash_all_acpl = 'secp256k1_keccak256_sighash_all_acpl',
+  secp256k1_blake160_multisig_all_v2 = 'secp256k1_blake160_multisig_all_v2',
 }
 
 export interface ScriptInfo {

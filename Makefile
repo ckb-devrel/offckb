@@ -1,6 +1,6 @@
 .PHONY: all omnilock anyone-can-pay xudt spore ckb-js-vm nostr-lock ckb-debugger apply-debugger-patches clean-debugger-patches
 
-all: omnilock anyone-can-pay xudt spore ckb-js-vm nostr-lock pw-lock ckb-debugger
+all: omnilock anyone-can-pay xudt spore ckb-js-vm nostr-lock pw-lock secp256k1_multisig_v2 ckb-debugger
 
 omnilock:
 	@echo "Building omnilock via submodule"
@@ -48,6 +48,11 @@ pw-lock:
 	cp ckb/pw-lock/specs/cells/ckb_cell_upgrade ckb/devnet/specs/pw-lock/
 	cp ckb/pw-lock/specs/cells/secp256k1_keccak256_sighash_all ckb/devnet/specs/pw-lock/
 	cp ckb/pw-lock/specs/cells/secp256k1_keccak256_sighash_all_acpl ckb/devnet/specs/pw-lock/
+
+secp256k1_multisig_v2:
+	@echo "Building secp256k1_multisig_v2 via submodule"
+	cd ckb/ckb-system-scripts/  && make all-via-docker
+	cp ckb/ckb-system-scripts/specs/cells/secp256k1_blake160_multisig_all ckb/devnet/specs/secp256k1_blake160_multisig_all_v2
 
 ckb-debugger:
 	@echo "Building ckb-debugger via submodule"
