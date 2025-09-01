@@ -45,7 +45,6 @@ pw-lock:
 	mkdir -p ckb/pw-lock/build
 	cd ckb/pw-lock && make all-via-docker
 	mkdir -p ckb/devnet/specs/pw-lock/
-	cp ckb/pw-lock/specs/cells/ckb_cell_upgrade ckb/devnet/specs/pw-lock/
 	cp ckb/pw-lock/specs/cells/secp256k1_keccak256_sighash_all ckb/devnet/specs/pw-lock/
 	cp ckb/pw-lock/specs/cells/secp256k1_keccak256_sighash_all_acpl ckb/devnet/specs/pw-lock/
 
