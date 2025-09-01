@@ -176,6 +176,9 @@ export const TESTNET_SYSTEM_SCRIPTS: SystemScriptsRecord = {
     },
   },
   type_id: TYPE_ID_SCRIPT,
+  secp256k1_keccak256_sighash_all: undefined,
+  secp256k1_keccak256_sighash_all_acpl: undefined,
+  secp256k1_blake160_multisig_all_v2: undefined,
 };
 
 export const MAINNET_SYSTEM_SCRIPTS: SystemScriptsRecord = {
@@ -281,6 +284,9 @@ export const MAINNET_SYSTEM_SCRIPTS: SystemScriptsRecord = {
     },
   },
   type_id: TYPE_ID_SCRIPT,
+  secp256k1_keccak256_sighash_all: undefined,
+  secp256k1_keccak256_sighash_all_acpl: undefined,
+  secp256k1_blake160_multisig_all_v2: undefined,
 };
 
 export default {
