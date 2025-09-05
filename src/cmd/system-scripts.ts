@@ -83,7 +83,7 @@ export function getDevnetSystemScriptsFromListHashes(): SystemScriptsRecord | nu
       // Extract the file name
       const name = cell.path.split('/').pop()?.replace(')', '') || 'unknown script';
       const depGroupIndex = chainSpecHashes.dep_groups.findIndex((depGroup) =>
-        depGroup.included_cells.includes(`Bundled(specs/cells/${name})`),
+        depGroup.included_cells.includes(cell.path),
       );
       const depType = depGroupIndex === -1 ? 'code' : 'depGroup';
       const depGroup =
