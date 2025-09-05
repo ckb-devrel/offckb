@@ -108,13 +108,13 @@ files = [
 name = "secp256k1_keccak256_sighash_all"
 files = [
     { bundled = "specs/cells/secp256k1_data" },
-    { file = "/pw-lock/secp256k1_keccak256_sighash_all"},
+    { file = "pw-lock/secp256k1_keccak256_sighash_all"},
 ]
 [[genesis.dep_groups]]
 name = "secp256k1_keccak256_sighash_all_acpl"
 files = [
     { bundled = "specs/cells/secp256k1_data" },
-    { file = "/pw-lock/secp256k1_keccak256_sighash_all_acpl"},
+    { file = "pw-lock/secp256k1_keccak256_sighash_all_acpl"},
 ]
 
 # For first 11 block
