@@ -70,6 +70,15 @@ create_type_id = true
 [[genesis.system_cells]]
 file = { file = "nostr_lock" }
 create_type_id = false
+[[genesis.system_cells]]
+file = { file = "pw-lock/secp256k1_keccak256_sighash_all" }
+create_type_id = false
+[[genesis.system_cells]]
+file = { file = "pw-lock/secp256k1_keccak256_sighash_all_acpl" }
+create_type_id = false
+[[genesis.system_cells]]
+file = { file = "secp256k1_blake160_multisig_all_v2" }
+create_type_id = false
 
 [genesis.system_cells_lock]
 code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
@@ -88,6 +97,24 @@ name = "secp256k1_blake160_multisig_all"
 files = [
     { bundled = "specs/cells/secp256k1_data" },
     { bundled = "specs/cells/secp256k1_blake160_multisig_all" },
+]
+[[genesis.dep_groups]]
+name = "secp256k1_blake160_multisig_all_v2"
+files = [
+    { bundled = "specs/cells/secp256k1_data" },
+    { file = "secp256k1_blake160_multisig_all_v2"},
+]
+[[genesis.dep_groups]]
+name = "secp256k1_keccak256_sighash_all"
+files = [
+    { bundled = "specs/cells/secp256k1_data" },
+    { file = "pw-lock/secp256k1_keccak256_sighash_all"},
+]
+[[genesis.dep_groups]]
+name = "secp256k1_keccak256_sighash_all_acpl"
+files = [
+    { bundled = "specs/cells/secp256k1_data" },
+    { file = "pw-lock/secp256k1_keccak256_sighash_all_acpl"},
 ]
 
 # For first 11 block
