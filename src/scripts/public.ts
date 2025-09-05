@@ -176,6 +176,26 @@ export const TESTNET_SYSTEM_SCRIPTS: SystemScriptsRecord = {
     },
   },
   type_id: TYPE_ID_SCRIPT,
+  secp256k1_keccak256_sighash_all: undefined,
+  secp256k1_keccak256_sighash_all_acpl: undefined,
+  secp256k1_blake160_multisig_all_v2: {
+    name: 'secp256k1_blake160_multisig_all_v2',
+    script: {
+      codeHash: '0x36c971b8d41fbd94aabca77dc75e826729ac98447b46f91e00796155dddb0d29',
+      hashType: 'data1',
+      cellDeps: [
+        {
+          cellDep: {
+            outPoint: {
+              txHash: '0x2eefdeb21f3a3edf697c28a52601b4419806ed60bb427420455cc29a090b26d5',
+              index: 0,
+            },
+            depType: 'depGroup',
+          },
+        },
+      ],
+    },
+  },
 };
 
 export const MAINNET_SYSTEM_SCRIPTS: SystemScriptsRecord = {
@@ -281,6 +301,26 @@ export const MAINNET_SYSTEM_SCRIPTS: SystemScriptsRecord = {
     },
   },
   type_id: TYPE_ID_SCRIPT,
+  secp256k1_keccak256_sighash_all: undefined,
+  secp256k1_keccak256_sighash_all_acpl: undefined,
+  secp256k1_blake160_multisig_all_v2: {
+    name: 'secp256k1_blake160_multisig_all_v2',
+    script: {
+      codeHash: '0x36c971b8d41fbd94aabca77dc75e826729ac98447b46f91e00796155dddb0d29',
+      hashType: 'data1',
+      cellDeps: [
+        {
+          cellDep: {
+            outPoint: {
+              txHash: '0x6888aa39ab30c570c2c30d9d5684d3769bf77265a7973211a3c087fe8efbf738',
+              index: 0,
+            },
+            depType: 'depGroup',
+          },
+        },
+      ],
+    },
+  },
 };
 
 export default {
