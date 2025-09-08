@@ -20,11 +20,13 @@ export function createRPCProxy(network: Network, targetRpcUrl: string, port: num
       reqData += chunk;
     });
     req.on('end', () => {
+      if (reqData.length === 0) return;
+
       try {
         const jsonRpcContent = JSON.parse(reqData);
         const method = jsonRpcContent.method;
         const params = jsonRpcContent.params;
-        logger.debug('RPC Req: ', method);
+        logger.info('RPC Req: ', method);
 
         if (method === 'send_transaction') {
           const tx = params[0];
@@ -42,7 +44,7 @@ export function createRPCProxy(network: Network, targetRpcUrl: string, port: num
           }
         }
       } catch (err) {
-        logger.error('Error parsing JSON-RPC content:', err);
+        logger.error('Error parsing JSON-RPC req content:', (err as Error).message);
       }
     });
   });
@@ -54,6 +56,7 @@ export function createRPCProxy(network: Network, targetRpcUrl: string, port: num
     });
     proxyRes.on('end', function () {
       const res = Buffer.concat(body).toString();
+      if (res.length === 0) return;
       try {
         const jsonRpcResponse = JSON.parse(res);
         const error = jsonRpcResponse.error;
@@ -61,7 +64,7 @@ export function createRPCProxy(network: Network, targetRpcUrl: string, port: num
           logger.debug('RPC Response: ', jsonRpcResponse);
         }
       } catch (err) {
-        logger.error('Error parsing JSON-RPC content:', err);
+        logger.error('Error parsing JSON-RPC res content:', (err as Error).message);
       }
     });
   });
