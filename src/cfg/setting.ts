@@ -72,7 +72,7 @@ export const defaultSettings: Settings = {
     downloadPath: path.resolve(cachePath, 'download'),
   },
   devnet: {
-    rpcUrl: 'http://localhost:8114',
+    rpcUrl: 'http://127.0.0.1:8114',
     rpcProxyPort: 28114,
     // todo: maybe add a root folder for all devnet data
     // so we can clean it easily
