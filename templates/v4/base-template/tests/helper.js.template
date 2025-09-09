@@ -18,7 +18,7 @@ const buildClient = (network) => {
   switch (network) {
     case "devnet":
       return new ccc.ClientPublicTestnet({
-        url: "http://localhost:28114", // the url from offckb devnet
+        url: "http://127.0.0.1:28114", // the url from offckb devnet
         scripts: DEVNET_SCRIPTS,
       });
     case "testnet":
