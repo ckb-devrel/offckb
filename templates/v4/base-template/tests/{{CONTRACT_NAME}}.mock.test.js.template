@@ -31,6 +31,6 @@ describe('{{CONTRACT_NAME}} contract', () => {
     const verifier = Verifier.from(resource, tx);
     // if you are using the native ckb-debugger, you can delete the following line.
     verifier.setWasmDebuggerEnabled(true);
-    verifier.verifySuccess(true);
+    await verifier.verifySuccess(true);
   });
 });
