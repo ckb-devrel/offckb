@@ -106,7 +106,7 @@ offckb config set ckb-version 0.201.0
 offckb node
 ```
 
-Once you start the devnet, there is a RPC server running at `http://localhost:8114`. There is also a RPC proxy server running at `http://localhost:28114` which will proxy all the requests to the RPC server. The meaning of using a proxy RPC server is to record request and automatically dump failed transactions so you can debug them easily later.
+Once you start the devnet, there is a RPC server running at `http://127.0.0.1:8114`. There is also a RPC proxy server running at `http://127.0.0.1:28114` which will proxy all the requests to the RPC server. The meaning of using a proxy RPC server is to record request and automatically dump failed transactions so you can debug them easily later.
 
 ### List scripts info
 
@@ -149,7 +149,7 @@ Result:
 ```json
 {
   "devnet": {
-    "rpcUrl": "http://localhost:8114",
+    "rpcUrl": "http://127.0.0.1:8114",
     "configPath": "~/Library/Application Support/offckb-nodejs/devnet",
     "dataPath": "~/Library/Application Support/offckb-nodejs/devnet/data"
   }

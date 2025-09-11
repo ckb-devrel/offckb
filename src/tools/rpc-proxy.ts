@@ -83,7 +83,7 @@ export function createRPCProxy(network: Network, targetRpcUrl: string, port: num
     network,
     start: () => {
       return server.listen(port, () => {
-        logger.info(`CKB ${network} RPC Proxy server running on http://localhost:${port}`);
+        logger.info(`CKB ${network} RPC Proxy server running on http://127.0.0.1:${port}`);
       });
     },
     stop: () => {

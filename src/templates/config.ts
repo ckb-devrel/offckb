@@ -14,12 +14,12 @@ export interface TemplateDependencies {
 
 export const TEMPLATE_CONFIG: TemplateDependencies = {
   dependencies: {
-    '@ckb-js-std/bindings': '~0.1.0',
-    '@ckb-js-std/core': '~0.1.1',
+    '@ckb-js-std/bindings': '~1.0.0',
+    '@ckb-js-std/core': '~1.0.0',
     dotenv: '^17.2.1',
   },
   devDependencies: {
-    'ckb-testtool': '~0.1.1',
+    'ckb-testtool': '~1.0.3',
     '@ckb-ccc/core': '~1.5.3', // Pin to version compatible with ckb-testtool
     esbuild: '~0.25.8',
     jest: '~29.7.0',
