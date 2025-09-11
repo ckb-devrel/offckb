@@ -29,6 +29,8 @@ describe('{{CONTRACT_NAME}} contract', () => {
     tx.outputsData.push(hexFrom('0x01000000000000000000000000000000'));
 
     const verifier = Verifier.from(resource, tx);
+    // if you are using the native ckb-debugger, you can delete the following line.
+    verifier.setWasmDebuggerEnabled(true);
     verifier.verifySuccess(true);
   });
 });
