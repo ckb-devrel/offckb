@@ -51,7 +51,7 @@ or use `pnpm` to install:
 pnpm install -g @offckb/cli
 ```
 
-_We recommend using [LTS](https://nodejs.org/en/download/package-manager) version of Node to run `offckb`_
+_Require Node version `>= v20.0.0`. We recommend using latest [LTS](https://nodejs.org/en/download/package-manager) version of Node to run `offckb`_
 
 ## Usage
 
@@ -136,31 +136,32 @@ offckb system-scripts --output <output-file-path>
 
 ### Tweak Devnet Config
 
-By default, offckb use a fixed devnet config for the local blockchain. You can tweak the config to customize the devnet:
+By default, offckb use a fixed devnet config for the local blockchain. You can tweak the config to customize the devnet, for example, modify the default log level for the devnet CKB Node `warn,ckb-script=debug`.
 
-You can locate your devnet folder by running:
+To tweak the devnet config, follow the steps below:
 
-```sh
-offckb config list
-```
+1. Locate your devnet config folder by running:
+  
+  ```sh
+  offckb config list
+  ```
+  
+  Result:
 
-Result:
-
-```json
-{
-  "devnet": {
-    "rpcUrl": "http://127.0.0.1:8114",
-    "configPath": "~/Library/Application Support/offckb-nodejs/devnet",
-    "dataPath": "~/Library/Application Support/offckb-nodejs/devnet/data"
+  ```json
+  {
+    "devnet": {
+      "rpcUrl": "http://127.0.0.1:8114",
+      "configPath": "~/Library/Application Support/offckb-nodejs/devnet",
+      "dataPath": "~/Library/Application Support/offckb-nodejs/devnet/data"
+    }
   }
-}
-```
+  ```
 
-Pay attention to the `devnet.configPath` and `devnet.dataPath`. They are the ones we need.
-
-1. `cd` into the `devnet.configPath`, this is the config folder for the local blockchain. Modify the config in the folder to better customize the devnet. For customization, see [Custom Devnet Setup](https://docs.nervos.org/docs/node/run-devnet-node#custom-devnet-setup) and [Configure CKB](https://github.com/nervosnetwork/ckb/blob/develop/docs/configure.md) for better explanation of the config files.
-2. After modifications, remove everything in the `devnet.dataPath` folder. This will clean the chain data.
-3. Restart local blockchain by running `offckb node`
+  Pay attention to the `devnet.configPath` and `devnet.dataPath`. They are  the ones we need.
+2. `cd` into the `devnet.configPath`, this is the config folder for the local blockchain. Modify the config in the folder to better customize the devnet. For customization, see [Custom Devnet Setup](https://docs.nervos.org/docs/node/run-devnet-node#custom-devnet-setup) and [Configure CKB](https://github.com/nervosnetwork/ckb/blob/develop/docs/configure.md) for better explanation of the config files.
+3. After modifications, remove everything in the `devnet.dataPath` folder. This will clean the chain data.
+4. Restart local blockchain by running `offckb node`
 
 Done.
 
@@ -175,6 +176,8 @@ offckb create <your-project-name> -c <your-contract-name>
 The `-c` option is optional, if you don't provide it, the contract name will be `hello-world`.
 
 After create the project, you can follow the instructions on build, deploy and test the contract in README.md of the project.
+
+The project includes both `mock` test and `devnet` test. For developing frontend interacting with the blockchain, you can refer to the `devnet` test and see how it works.
 
 ### Deploy a CKB Smart Contract
 
