@@ -20,7 +20,7 @@ export const buildClient = (network: "devnet" | "testnet" | "mainnet") => {
       return new ccc.ClientPublicTestnet({
         url: "http://127.0.0.1:28114", // the proxy RPC from offckb devnet
         scripts: DEVNET_SCRIPTS,
-        fallbacks: [http://127.0.0.1:8114], // use non-proxy RPC for fallbacks if proxy server has trouble
+        fallbacks: ["http://127.0.0.1:8114"], // use non-proxy RPC for fallbacks if proxy server has trouble
       });
     case "testnet":
       return new ccc.ClientPublicTestnet({

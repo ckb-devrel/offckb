@@ -31,18 +31,16 @@ export function createRPCProxy(network: Network, targetRpcUrl: string, port: num
 
         if (method === 'send_transaction') {
           const tx = params[0];
-          // todo: record tx
-          if (network === Network.devnet) {
-            const cccTx = cccA.JsonRpcTransformers.transactionTo(tx);
-            const txHash = cccTx.hash();
-            const settings = readSettings();
-            if (!fs.existsSync(settings.devnet.transactionsPath)) {
-              fs.mkdirSync(settings.devnet.transactionsPath);
-            }
-            const txFile = path.resolve(settings.devnet.transactionsPath, `${txHash}.json`);
-            fs.writeFileSync(txFile, JSON.stringify(tx, null, 2));
-            logger.debug(`RPC Req:  store tx ${txHash}`);
+
+          const cccTx = cccA.JsonRpcTransformers.transactionTo(tx);
+          const txHash = cccTx.hash();
+          const settings = readSettings();
+          if (!fs.existsSync(settings[network].transactionsPath)) {
+            fs.mkdirSync(settings[network].transactionsPath);
           }
+          const txFile = path.resolve(settings[network].transactionsPath, `${txHash}.json`);
+          fs.writeFileSync(txFile, JSON.stringify(tx, null, 2));
+          logger.debug(`RPC Req:  store tx ${txHash}`);
         }
       } catch (err) {
         logger.error('Error parsing JSON-RPC req content:', (err as Error).message);
@@ -59,8 +57,8 @@ export function createRPCProxy(network: Network, targetRpcUrl: string, port: num
       const res = Buffer.concat(body).toString();
       if (res.length === 0) return;
       try {
-        console.log('res:', res);
         const jsonRpcResponse = JSON.parse(res);
+        console.log(jsonRpcResponse);
         const error = jsonRpcResponse.error;
         if (error) {
           logger.debug('RPC Response: ', jsonRpcResponse);
