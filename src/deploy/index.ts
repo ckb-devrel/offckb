@@ -1,10 +1,10 @@
-import { DeploymentOptions, generateDeploymentTomlInPath } from '../deploy/toml';
+import { DeploymentOptions, generateDeploymentTomlInPath } from './toml';
 import {
   DeploymentRecipe,
   generateDeploymentMigrationFileInPath,
   getFormattedMigrationDate,
   Migration,
-} from '../deploy/migration';
+} from './migration';
 import { readFileToUint8Array, isAbsolutePath, getBinaryFilesFromPath } from '../util/fs';
 import path from 'path';
 import fs from 'fs';
@@ -41,15 +41,18 @@ export function getToDeployBinsPath(userOffCKBConfigPath: string) {
 
 export async function saveArtifacts(artifactsPath: string, results: DeployedInterfaceType[], network: Network) {
   if (results.length === 0) {
-    logger.info('No artifacts to save.');
+    logger.info('📦 No artifacts to save.');
     return;
   }
+
+  logger.info(`📦 Saving deployment artifacts for ${results.length} contract(s)...`);
+
   if (!fs.existsSync(artifactsPath)) {
     fs.mkdirSync(artifactsPath, { recursive: true });
   }
   const deployedScriptsInfo: MyScriptsRecord = {};
   for (const result of results) {
-    logger.info(`Saving artifacts for ${result.deploymentOptions.name}...`);
+    logger.info(`- 📄 Saving artifacts for ${result.deploymentOptions.name}...`);
     const tomlPath = path.join(artifactsPath, network, result.deploymentOptions.name, 'deployment.toml');
     generateDeploymentTomlInPath(result.deploymentOptions, tomlPath);
     const migrationPath = path.join(
@@ -62,11 +65,14 @@ export async function saveArtifacts(artifactsPath: string, results: DeployedInte
     generateDeploymentMigrationFileInPath(result.deploymentRecipe, migrationPath);
     const { name, scriptsInfo } = getScriptInfoFrom(result.deploymentRecipe);
     deployedScriptsInfo[name] = scriptsInfo;
+    logger.info(`- ✅ Successfully saved artifacts for ${result.deploymentOptions.name}`);
   }
 
   const scriptInfoFilePath = path.join(artifactsPath, 'scripts.json');
   generateScriptInfoJsonFile(network, deployedScriptsInfo, scriptInfoFilePath);
-  logger.info(`Script info file ${scriptInfoFilePath} generated successfully.`);
+  logger.info(`- 📄 Script info file generated: ${scriptInfoFilePath}`);
+  logger.info('');
+  logger.info('🎉 All deployment artifacts saved successfully!');
 }
 
 export async function deployBinaries(binPaths: string[], privateKey: HexString, enableTypeId: boolean, ckb: CKB) {

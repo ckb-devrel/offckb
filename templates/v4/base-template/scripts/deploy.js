@@ -77,7 +77,7 @@ function main() {
     process.exit(1);
   }
 
-  console.log('🚀 Deploying contracts...');
+  console.log(`🚀 Deploying ${bcFiles.length} contract(s): ${bcFiles.map((f) => f.replace('.bc', '')).join(', ')}`);
   console.log(`   📁 Target: ${TARGET}`);
   console.log(`   📄 Output: ${OUTPUT}`);
   console.log(`   🌐 Network: ${NETWORK}`);
@@ -104,7 +104,8 @@ function main() {
   const offckbCmd = 'offckb';
 
   // For now, use 'offckb' directly - users should have it installed
-  console.log(`💻 Running: ${offckbCmd} ${args.join(' ')}`);
+  console.log(`� Deploying contracts...`);
+  console.log(`�💻 Running: ${offckbCmd} ${args.join(' ')}`);
   console.log('');
 
   // Execute the deploy command
@@ -116,6 +117,7 @@ function main() {
   deployProcess.on('close', (code) => {
     if (code === 0) {
       console.log('');
+      console.log('✅ Successfully deployed all contracts!');
       console.log('🎉 Deployment completed successfully!');
       console.log(`📁 Deployment artifacts saved to: ${OUTPUT}/`);
       console.log('');

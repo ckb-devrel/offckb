@@ -34,7 +34,7 @@ This project uses the CKB JavaScript VM (ckb-js-vm) to write smart contracts in 
 
 ### Prerequisites
 
-- Node.js (v18 or later)
+- Node.js (v20 or later)
 - {{PACKAGE_MANAGER}} package manager
 
 ### Installation
