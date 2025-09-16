@@ -57,7 +57,7 @@ export function generateDeploymentTomlInPath(options: DeploymentOptions, outputF
       fs.mkdirSync(dirname(outputFilePath), { recursive: true });
     }
     fs.writeFileSync(outputFilePath, tomlString);
-    logger.info(`${options.name} deployment.toml file ${outputFilePath} generated successfully.`);
+    logger.info(`- ${options.name} deployment.toml file ${outputFilePath} generated successfully.`);
   }
 }
 

@@ -45,14 +45,15 @@ export async function deploy(
   });
 
   // ask user to confirm the deployment
-  const contractsList = binPaths.map((binPath) => `- ${binPath}`);
+  const contractsList = binPaths.map((binPath) => `   📄 ${path.basename(binPath)}`);
   logger.info([
-    'You are about to deploy the following contracts:',
+    `🚀 Preparing to deploy ${binPaths.length} contract(s):`,
     ...contractsList,
     '',
-    `The deployment will be saved to ${outputFolder}`,
-    '',
-    `The network is: ${network}`,
+    `   📁 Deployment artifacts will be saved to: ${outputFolder}`,
+    `   🌐 Network: ${network}`,
+    `   🔑 Using ${opt.privkey ? 'custom' : 'default'} private key`,
+    `   🔄 Type ID: ${enableTypeId ? 'enabled (upgradable)' : 'disabled'}`,
   ]);
 
   const res = await confirm({
@@ -66,6 +67,7 @@ export async function deploy(
 
   const results = await deployBinaries(binPaths, privateKey, enableTypeId, ckb);
 
+  logger.info('');
   // record the deployed contract infos
   saveArtifacts(outputFolder, results, network);
 }
