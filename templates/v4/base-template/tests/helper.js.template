@@ -18,14 +18,21 @@ const buildClient = (network) => {
   switch (network) {
     case "devnet":
       return new ccc.ClientPublicTestnet({
-        url: "http://127.0.0.1:28114", // the url from offckb devnet
+        url: "http://127.0.0.1:28114", // the proxy RPC from offckb devnet
         scripts: DEVNET_SCRIPTS,
-        fallbacks: [], // disable fallbacks to default testnet RPCs
+        fallbacks: [http://127.0.0.1:8114], // use non-proxy RPC for fallbacks if proxy server has trouble
       });
     case "testnet":
-      return new ccc.ClientPublicTestnet();
+      return new ccc.ClientPublicTestnet({
+        url: "http://127.0.0.1:38114", // proxy RPC from offckb, make sure you start the testnet node by running: `offckb node --network testnet` 
+        fallbacks: ["https://testnet.ckb.dev"],  // use non-proxy RPC for fallbacks if proxy server has trouble
+      });
     case "mainnet":
-      return new ccc.ClientPublicMainnet();
+      return new ccc.ClientPublicMainnet({
+        url: "http://127.0.0.1:48114", // proxy RPC from offckb, make sure you start the mainnet node by running: `offckb node --network mainnet` 
+        fallbacks: ["https://mainnet.ckb.dev"], // use non-proxy RPC for fallbacks if proxy server has trouble
+      });
+
 
     default:
       throw new Error(`Unsupported network: ${network}`);

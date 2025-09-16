@@ -21,8 +21,7 @@ export async function deploy(
   const network = opt.network as Network;
   validateNetworkOpt(network);
 
-  // todo: enable proxy rpc for testnet and mainnet
-  const ckb = new CKB({ network, isEnableProxyRpc: network === Network.devnet });
+  const ckb = new CKB({ network });
 
   // we use deployerAccount to deploy contract by default
   const privateKey = opt.privkey || deployerAccount.privkey;

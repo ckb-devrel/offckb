@@ -12,6 +12,7 @@ const { cccA } = require('@ckb-ccc/core/advanced');
 export function createRPCProxy(network: Network, targetRpcUrl: string, port: number) {
   const proxy = httpProxy.createProxyServer({
     target: targetRpcUrl, // Target RPC server
+    changeOrigin: true, // for https target to work
   });
 
   proxy.on('proxyReq', (_, req) => {
@@ -58,6 +59,7 @@ export function createRPCProxy(network: Network, targetRpcUrl: string, port: num
       const res = Buffer.concat(body).toString();
       if (res.length === 0) return;
       try {
+        console.log('res:', res);
         const jsonRpcResponse = JSON.parse(res);
         const error = jsonRpcResponse.error;
         if (error) {

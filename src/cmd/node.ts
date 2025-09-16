@@ -9,9 +9,23 @@ import { logger } from '../util/logger';
 
 export interface NodeProp {
   version?: string;
+  network?: Network;
 }
 
-export async function node({ version }: NodeProp) {
+export function startNode({ version, network = Network.devnet }: NodeProp) {
+  switch (network) {
+    case Network.devnet:
+      return nodeDevnet({ version });
+    case Network.testnet:
+      return nodeTestnet();
+    case Network.mainnet:
+      return nodeMainnet();
+    default:
+      break;
+  }
+}
+
+export async function nodeDevnet({ version }: NodeProp) {
   const settings = readSettings();
   const ckbVersion = version || settings.bins.defaultCKBVersion;
   await installCKBBinary(ckbVersion);
@@ -59,4 +73,24 @@ export async function node({ version }: NodeProp) {
   } catch (error) {
     logger.error('Error:', error);
   }
+}
+
+export async function nodeTestnet() {
+  // todo: maybe we can actually start a node for testnet later
+  // by default we start a proxy server for testnet
+  const settings = readSettings();
+  const ckbRpc = settings.testnet.rpcUrl;
+  const port = settings.testnet.rpcProxyPort;
+  const proxy = createRPCProxy(Network.testnet, ckbRpc, port);
+  proxy.start();
+}
+
+export async function nodeMainnet() {
+  // todo: maybe we can actually start a node for mainnet later
+  // by default we start a proxy server for mainnet
+  const settings = readSettings();
+  const ckbRpc = settings.mainnet.rpcUrl;
+  const port = settings.mainnet.rpcProxyPort;
+  const proxy = createRPCProxy(Network.mainnet, ckbRpc, port);
+  proxy.start();
 }

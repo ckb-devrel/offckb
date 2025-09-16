@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
-import { node } from './cmd/node';
+import { startNode } from './cmd/node';
 import { accounts } from './cmd/accounts';
 import { clean } from './cmd/clean';
 import { setUTF8EncodingForWindows } from './util/encoding';
@@ -16,6 +16,7 @@ import { transferAll } from './cmd/transfer-all';
 import { genSystemScriptsJsonFile } from './scripts/gen';
 import { CKBDebugger } from './tools/ckb-debugger';
 import { logger } from './util/logger';
+import { Network } from './type/base';
 
 const version = require('../package.json').version;
 const description = require('../package.json').description;
@@ -29,8 +30,9 @@ program.name('offckb').description(description).version(version).enablePositiona
 program
   .command('node [CKB-Version]')
   .description('Use the CKB to start devnet')
-  .action(async (version: string) => {
-    return node({ version });
+  .option('--network <network>', 'Specify the network to deploy to', 'devnet')
+  .action(async (version: string, options: { network: Network }) => {
+    return startNode({ version, network: options.network });
   });
 
 program
