@@ -20,6 +20,7 @@ export const buildClient = (network: "devnet" | "testnet" | "mainnet") => {
       return new ccc.ClientPublicTestnet({
         url: "http://127.0.0.1:28114", // the url from offckb devnet
         scripts: DEVNET_SCRIPTS,
+        fallbacks: [], // disable fallbacks to default testnet RPCs
       });
     case "testnet":
       return new ccc.ClientPublicTestnet();
