@@ -21,6 +21,7 @@ export async function printSystemScripts({ style = PrintStyle.system, network = 
       : network === Network.testnet
         ? TESTNET_SYSTEM_SCRIPTS
         : getDevnetSystemScriptsFromListHashes();
+
   if (!systemScripts) return logger.info(`SystemScripts is null, ${network}`);
 
   if (style === PrintStyle.system) {
@@ -41,7 +42,8 @@ export function printInSystemStyle(systemScripts: SystemScriptsRecord, network: 
   for (const [name, script] of Object.entries(systemScripts)) {
     logger.info(`- name: ${name}`);
     if (script == null) {
-      return logger.info(`  undefined\n`);
+      logger.info(`  undefined\n`);
+      continue;
     }
     logger.info(`  file: ${script.file}`);
     logger.info(`  code_hash: ${script.script.codeHash}`);
