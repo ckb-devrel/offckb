@@ -81,7 +81,7 @@ export function generateDeploymentMigrationFileInPath(deploymentRecipe: Deployme
     fs.mkdirSync(dirname(outputFilePath), { recursive: true });
   }
   fs.writeFileSync(outputFilePath, jsonString);
-  logger.info(`Migration json file ${outputFilePath} generated successfully.`);
+  logger.info(`- Migration json file ${outputFilePath} generated successfully.`);
 }
 
 export function generateDeploymentMigrationFile(
