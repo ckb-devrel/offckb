@@ -60,9 +60,15 @@ export class CKB {
     } else {
       this.client =
         network === 'mainnet'
-          ? new ccc.ClientPublicMainnet()
+          ? new ccc.ClientPublicMainnet({
+              url: networks.mainnet.rpc_url,
+              fallbacks: [],
+            }) // pass it to avoid using websocket and fallback RPCs
           : network === 'testnet'
-            ? new ccc.ClientPublicTestnet()
+            ? new ccc.ClientPublicTestnet({
+                url: networks.testnet.rpc_url,
+                fallbacks: [],
+              }) // pass it to avoid using websocket and fallback RPCs
             : new ccc.ClientPublicTestnet({
                 url: networks.devnet.rpc_url,
                 scripts: buildCCCDevnetKnownScripts(),
