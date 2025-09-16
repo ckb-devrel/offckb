@@ -55,6 +55,7 @@ export class CKB {
             : new ccc.ClientPublicTestnet({
                 url: networks.devnet.proxy_rpc_url,
                 scripts: buildCCCDevnetKnownScripts(),
+                fallbacks: [],
               });
     } else {
       this.client =
