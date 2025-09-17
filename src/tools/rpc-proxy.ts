@@ -61,7 +61,6 @@ export function createRPCProxy(network: Network, targetRpcUrl: string, port: num
 
       try {
         const jsonRpcResponse = JSON.parse(res);
-        console.log(jsonRpcResponse);
         const error = jsonRpcResponse.error;
         if (error) {
           logger.debug('RPC Response: ', jsonRpcResponse);
