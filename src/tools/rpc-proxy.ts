@@ -12,6 +12,7 @@ const { cccA } = require('@ckb-ccc/core/advanced');
 export function createRPCProxy(network: Network, targetRpcUrl: string, port: number) {
   const proxy = httpProxy.createProxyServer({
     target: targetRpcUrl, // Target RPC server
+    changeOrigin: true, // for https target to work
   });
 
   proxy.on('proxyReq', (_, req) => {
@@ -30,18 +31,16 @@ export function createRPCProxy(network: Network, targetRpcUrl: string, port: num
 
         if (method === 'send_transaction') {
           const tx = params[0];
-          // todo: record tx
-          if (network === Network.devnet) {
-            const cccTx = cccA.JsonRpcTransformers.transactionTo(tx);
-            const txHash = cccTx.hash();
-            const settings = readSettings();
-            if (!fs.existsSync(settings.devnet.transactionsPath)) {
-              fs.mkdirSync(settings.devnet.transactionsPath);
-            }
-            const txFile = path.resolve(settings.devnet.transactionsPath, `${txHash}.json`);
-            fs.writeFileSync(txFile, JSON.stringify(tx, null, 2));
-            logger.debug(`RPC Req:  store tx ${txHash}`);
+
+          const cccTx = cccA.JsonRpcTransformers.transactionTo(tx);
+          const txHash = cccTx.hash();
+          const settings = readSettings();
+          if (!fs.existsSync(settings[network].transactionsPath)) {
+            fs.mkdirSync(settings[network].transactionsPath);
           }
+          const txFile = path.resolve(settings[network].transactionsPath, `${txHash}.json`);
+          fs.writeFileSync(txFile, JSON.stringify(tx, null, 2));
+          logger.info(`RPC Req:  store tx ${txHash}`);
         }
       } catch (err) {
         logger.error('Error parsing JSON-RPC req content:', (err as Error).message);
@@ -55,8 +54,11 @@ export function createRPCProxy(network: Network, targetRpcUrl: string, port: num
       body.push(chunk);
     });
     proxyRes.on('end', function () {
-      const res = Buffer.concat(body).toString();
+      const res = Buffer.concat(body).toString('utf-8');
       if (res.length === 0) return;
+      if (proxyRes.headers['content-type'] !== 'application/json') return;
+      if (!res.trim().startsWith('{') && !res.trim().startsWith('[')) return;
+
       try {
         const jsonRpcResponse = JSON.parse(res);
         const error = jsonRpcResponse.error;

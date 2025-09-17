@@ -1,9 +1,7 @@
 import * as fs from 'fs';
 import publicScripts from './public';
-import { NetworkMyScripts, NetworkSystemScripts } from './type';
+import { NetworkSystemScripts } from './type';
 import path from 'path';
-import { Network } from '../type/base';
-import { readUserDeployedScriptsInfo } from './util';
 import { isAbsolutePath } from '../util/fs';
 import { getDevnetSystemScriptsFromListHashes } from './private';
 
@@ -28,19 +26,4 @@ export function genSystemScriptsJsonFile(filePath: string) {
   const scripts = genSystemScripts();
   fs.mkdirSync(path.dirname(outputFilePath), { recursive: true });
   fs.writeFileSync(outputFilePath, JSON.stringify(scripts, null, 2));
-}
-
-export function genMyScripts(): NetworkMyScripts {
-  const networkMyScripts: NetworkMyScripts = {
-    devnet: readUserDeployedScriptsInfo(Network.devnet),
-    testnet: readUserDeployedScriptsInfo(Network.testnet),
-    mainnet: readUserDeployedScriptsInfo(Network.mainnet),
-  };
-  return networkMyScripts;
-}
-
-export function genMyScriptsJsonFile(filePath: string) {
-  const scripts = genMyScripts();
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, JSON.stringify(scripts, null, 2));
 }

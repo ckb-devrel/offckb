@@ -108,6 +108,14 @@ offckb node
 
 Once you start the devnet, there is a RPC server running at `http://127.0.0.1:8114`. There is also a RPC proxy server running at `http://127.0.0.1:28114` which will proxy all the requests to the RPC server. The meaning of using a proxy RPC server is to record request and automatically dump failed transactions so you can debug them easily later.
 
+In the same way, you can also start proxy RPC server for `testnet` and `mainnet` by running:
+
+```sh
+offckb node --network <testnet or mainnet>
+```
+
+Using a local proxy RPC server for public testnet/mainnet is also very helpful for debugging the requests and the automatically recorded dump transactions.
+
 ### List scripts info
 
 Print all the predefined scripts for the local blockchain:

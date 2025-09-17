@@ -85,7 +85,7 @@ export function buildTxFileOptionBy(txHash: string, network: Network) {
   const settings = readSettings();
   const outputFilePath = buildDebugFullTransactionFilePath(network, txHash);
   if (!fs.existsSync(outputFilePath)) {
-    const rpc = settings.devnet.rpcUrl;
+    const rpc = settings[network].rpcUrl;
     const txJsonFilePath = buildTransactionJsonFilePath(network, txHash);
     if (!fs.existsSync(outputFilePath)) {
       fs.mkdirSync(path.dirname(outputFilePath), { recursive: true });
