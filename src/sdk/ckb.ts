@@ -49,13 +49,16 @@ export class CKB {
     if (isEnableProxyRpc === true) {
       this.client =
         network === 'mainnet'
-          ? new ccc.ClientPublicMainnet({ url: networks.mainnet.proxy_rpc_url })
+          ? new ccc.ClientPublicMainnet({ url: networks.mainnet.proxy_rpc_url, fallbacks: [networks.mainnet.rpc_url] }) // we keep the fallbacks in case the proxy rpc is not started
           : network === 'testnet'
-            ? new ccc.ClientPublicTestnet({ url: networks.testnet.proxy_rpc_url })
+            ? new ccc.ClientPublicTestnet({
+                url: networks.testnet.proxy_rpc_url,
+                fallbacks: [networks.testnet.rpc_url],
+              }) // we keep the fallbacks in case the proxy rpc is not started
             : new ccc.ClientPublicTestnet({
                 url: networks.devnet.proxy_rpc_url,
                 scripts: buildCCCDevnetKnownScripts(),
-                fallbacks: [],
+                fallbacks: [networks.devnet.rpc_url],
               });
     } else {
       this.client =
@@ -72,6 +75,7 @@ export class CKB {
             : new ccc.ClientPublicTestnet({
                 url: networks.devnet.rpc_url,
                 scripts: buildCCCDevnetKnownScripts(),
+                fallbacks: [], // pass it to avoid using websocket and fallback RPCs
               });
     }
   }

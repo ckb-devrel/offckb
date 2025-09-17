@@ -9,11 +9,12 @@
 3. The chain information of the devnet has changed due to the No.1 changes, meaning you need to re-generate the `system-scripts.json` file in your project if you're upgrading from v0.3.x to v0.4.x.
 4. The default log level in CKB devnet Node is changed to `warn,ckb-script=debug` from `info` to display the script debug output
 5. The devnet RPC proxy sever is now default running, and proxy port is changed to `28114` from `9000`. You need to update the devnet proxy port in your local config file if you have used v3 offckb before.
-6. The `create` command is now focusing on creating a CKB Smart Contract project in JavaScript, instead of a full dApp project.
-7. `offckb.config.ts` file is removed, and the `deploy` command now requires `--target` and `--output` options to specify the contract binary file or folder path and the output folder path.
-8. `system-scripts` command has a new option called `-o, --output` to specify the output json file path for the system scripts.
-9. The CLI build system is changed from `npm-shrinkwrap.json` to `ncc` toolchain.
-10. The CLI now requires no `ckb-debugger` installed to run `offckb debug` command, it will use the WASM debugger built-in.
+6. The `offckb node` command now accepts a `network` option, when passing `--network testnet` or `--network mainnet`, it will start a proxy RPC for the public network instead of starting a local devnet.
+7. The `create` command is now focusing on creating a CKB Smart Contract project in JavaScript, instead of a full dApp project.
+8. `offckb.config.ts` file is removed, and the `deploy` command now requires `--target` and `--output` options to specify the contract binary file or folder path and the output folder path.
+9. `system-scripts` command has a new option called `-o, --output` to specify the output json file path for the system scripts.
+10. The CLI build system is changed from `npm-shrinkwrap.json` to `ncc` toolchain.
+11. The CLI now requires no `ckb-debugger` installed to run `offckb debug` command, it will use the WASM debugger built-in.
 
 ## Removed commands
 
