@@ -40,7 +40,7 @@ export function createRPCProxy(network: Network, targetRpcUrl: string, port: num
           }
           const txFile = path.resolve(settings[network].transactionsPath, `${txHash}.json`);
           fs.writeFileSync(txFile, JSON.stringify(tx, null, 2));
-          logger.debug(`RPC Req:  store tx ${txHash}`);
+          logger.info(`RPC Req:  store tx ${txHash}`);
         }
       } catch (err) {
         logger.error('Error parsing JSON-RPC req content:', (err as Error).message);
@@ -54,8 +54,11 @@ export function createRPCProxy(network: Network, targetRpcUrl: string, port: num
       body.push(chunk);
     });
     proxyRes.on('end', function () {
-      const res = Buffer.concat(body).toString();
+      const res = Buffer.concat(body).toString('utf-8');
       if (res.length === 0) return;
+      if (proxyRes.headers['content-type'] !== 'application/json') return;
+      if (!res.trim().startsWith('{') && !res.trim().startsWith('[')) return;
+
       try {
         const jsonRpcResponse = JSON.parse(res);
         console.log(jsonRpcResponse);
