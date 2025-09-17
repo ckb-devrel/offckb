@@ -38,24 +38,18 @@ export interface Settings {
     dataPath: string;
     debugFullTransactionsPath: string;
     transactionsPath: string;
-    failedTransactionsPath: string;
-    contractsPath: string;
   };
   testnet: {
     rpcUrl: string;
     rpcProxyPort: number;
     debugFullTransactionsPath: string;
     transactionsPath: string;
-    failedTransactionsPath: string;
-    contractsPath: string;
   };
   mainnet: {
     rpcUrl: string;
     rpcProxyPort: number;
     debugFullTransactionsPath: string;
     transactionsPath: string;
-    failedTransactionsPath: string;
-    contractsPath: string;
   };
   tools: {
     ckbDebugger: {
@@ -80,24 +74,18 @@ export const defaultSettings: Settings = {
     dataPath: path.resolve(dataPath, 'devnet/data'),
     debugFullTransactionsPath: path.resolve(dataPath, 'devnet/full-transactions'),
     transactionsPath: path.resolve(dataPath, 'devnet/transactions'),
-    failedTransactionsPath: path.resolve(dataPath, 'devnet/failed-transactions'),
-    contractsPath: path.resolve(dataPath, 'devnet/contracts'),
   },
   testnet: {
     rpcUrl: 'https://testnet.ckb.dev',
     rpcProxyPort: 38114,
     debugFullTransactionsPath: path.resolve(dataPath, 'testnet/full-transactions'),
     transactionsPath: path.resolve(dataPath, 'testnet/transactions'),
-    failedTransactionsPath: path.resolve(dataPath, 'testnet/failed-transactions'),
-    contractsPath: path.resolve(dataPath, 'testnet/contracts'),
   },
   mainnet: {
     rpcUrl: 'https://mainnet.ckb.dev',
     rpcProxyPort: 48114,
     debugFullTransactionsPath: path.resolve(dataPath, 'mainnet/full-transactions'),
     transactionsPath: path.resolve(dataPath, 'mainnet/transactions'),
-    failedTransactionsPath: path.resolve(dataPath, 'mainnet/failed-transactions'),
-    contractsPath: path.resolve(dataPath, 'mainnet/contracts'),
   },
   tools: {
     ckbDebugger: {

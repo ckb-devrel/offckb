@@ -64,7 +64,7 @@ export async function deploy(
     return;
   }
 
-  const results = await deployBinaries(binPaths, privateKey, enableTypeId, ckb);
+  const results = await deployBinaries(outputFolder, binPaths, privateKey, enableTypeId, ckb);
 
   logger.info('');
   // record the deployed contract infos

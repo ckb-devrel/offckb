@@ -1,8 +1,6 @@
 import fs from 'fs';
 import toml, { JsonMap } from '@iarna/toml';
-import { Network } from '../type/base';
 import { dirname } from 'path';
-import { getContractsPath } from './util';
 import { HashType } from '@ckb-ccc/core';
 import { HexString } from '../type/base';
 import { logger } from '../util/logger';
@@ -61,11 +59,6 @@ export function generateDeploymentTomlInPath(options: DeploymentOptions, outputF
   }
 }
 
-export function generateDeploymentToml(options: DeploymentOptions, network: Network) {
-  const outputFilePath: string = `${getContractsPath(network)}/${options.name}/deployment.toml`;
-  return generateDeploymentTomlInPath(options, outputFilePath);
-}
-
 export function readDeploymentTomlInPath(filePath: string) {
   const file = fs.readFileSync(filePath, 'utf-8');
   const data = toml.parse(file) as unknown as DeploymentToml;
@@ -85,9 +78,4 @@ export function readDeploymentTomlInPath(filePath: string) {
       hashType: data.lock.hash_type as string,
     },
   };
-}
-
-export function readDeploymentToml(scriptName: string, network: Network) {
-  const filePath = `${getContractsPath(network)}/${scriptName}/deployment.toml`;
-  return readDeploymentTomlInPath(filePath);
 }

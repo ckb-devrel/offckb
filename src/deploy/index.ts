@@ -75,19 +75,26 @@ export async function saveArtifacts(artifactsPath: string, results: DeployedInte
   logger.info('🎉 All deployment artifacts saved successfully!');
 }
 
-export async function deployBinaries(binPaths: string[], privateKey: HexString, enableTypeId: boolean, ckb: CKB) {
+export async function deployBinaries(
+  outputFolder: string,
+  binPaths: string[],
+  privateKey: HexString,
+  enableTypeId: boolean,
+  ckb: CKB,
+) {
   if (binPaths.length === 0) {
     logger.info('No binary to deploy.');
   }
   const results: DeployedInterfaceType[] = [];
   for (const bin of binPaths) {
-    const result = await deployBinary(bin, privateKey, enableTypeId, ckb);
+    const result = await deployBinary(outputFolder, bin, privateKey, enableTypeId, ckb);
     results.push(result);
   }
   return results;
 }
 
 export async function deployBinary(
+  outputFolder: string,
   binPath: string,
   privateKey: HexString,
   enableTypeId: boolean,
@@ -101,8 +108,8 @@ export async function deployBinary(
 
   const result = !enableTypeId
     ? await ckb.deployScript(bin, privateKey)
-    : Migration.isDeployedWithTypeId(contractName, ckb.network)
-      ? await ckb.upgradeTypeIdScript(contractName, bin, privateKey)
+    : Migration.isDeployedWithTypeId(outputFolder, contractName, ckb.network)
+      ? await ckb.upgradeTypeIdScript(outputFolder, contractName, bin, privateKey)
       : await ckb.deployNewTypeIDScript(bin, privateKey);
 
   logger.info(`contract ${contractName} deployed, tx hash:`, result.txHash);
