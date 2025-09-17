@@ -204,11 +204,12 @@ export class CKB {
   }
 
   async upgradeTypeIdScript(
+    baseFolder: string,
     scriptName: string,
     newScriptBinBytes: Uint8Array,
     privateKey: HexString,
   ): Promise<DeploymentResult> {
-    const deploymentReceipt = Migration.find(scriptName, this.network);
+    const deploymentReceipt = Migration.find(baseFolder, scriptName, this.network);
     if (deploymentReceipt == null) throw new Error("no migration file, can't be updated.");
     const outpoint: OutPointLike = {
       txHash: deploymentReceipt.cellRecipes[0].txHash,
