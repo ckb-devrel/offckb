@@ -28,6 +28,7 @@ export function createRPCProxy(network: Network, targetRpcUrl: string, port: num
         const method = jsonRpcContent.method;
         const params = jsonRpcContent.params;
         logger.info('RPC Req: ', method);
+        logger.debug('RPC Params: ', params);
 
         if (method === 'send_transaction') {
           const tx = params[0];
@@ -61,10 +62,7 @@ export function createRPCProxy(network: Network, targetRpcUrl: string, port: num
 
       try {
         const jsonRpcResponse = JSON.parse(res);
-        const error = jsonRpcResponse.error;
-        if (error) {
-          logger.debug('RPC Response: ', jsonRpcResponse);
-        }
+        logger.debug('RPC Response: ', jsonRpcResponse);
       } catch (err) {
         logger.error('Error parsing JSON-RPC res content:', (err as Error).message);
       }

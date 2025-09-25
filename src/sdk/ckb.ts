@@ -218,6 +218,10 @@ export class CKB {
     const typeId = deploymentReceipt.cellRecipes[0].typeId;
     if (typeId == null) throw new Error("type id in migration file is null, can't be updated.");
 
+    logger.info(`Existing Type-ID found:
+- Type ID: ${typeId}
+(Upgrade keeps the same type-id by consuming the old code Cell and creating a new one.)
+`);
     const cell = await this.client.getCell(outpoint);
     if (cell == null) {
       throw new Error('type id cell not found!');

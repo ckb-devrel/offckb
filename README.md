@@ -33,6 +33,7 @@ There are BREAKING CHANGES between v0.3.x and v0.4.x, make sure to read the [mig
   - [List All Settings](#list-all-settings)
   - [Set CKB version](#set-ckb-version)
   - [Set Network Proxy](#set-network-proxy)
+- [Log-Level](#log-level)
 - [Built-in scripts](#built-in-scripts)
 - [Accounts](#accounts)
 - [About CCC](#about-ccc)
@@ -203,6 +204,8 @@ offckb deploy --type-id --network <devnet/testnet>
 
 Your deployed scripts info will be be listed in the `output-folder-path` which you defined in the command.
 
+Note that upgrades are keyed by the contract‘s artifact name. If you plan to upgrade with `--type-id`, do not rename your contract artifact (e.g. keep `hello-world.bc`). Renaming it makes the offckb unable to find the previous Type ID info from the `output-folder-path` and will create a new Type ID.
+
 ### Debug a transaction
 
 If you are interacting the CKB devnet via the proxy RPC server(`localhost:28114`), all the failed transactions will be dumped and recorded so you can debug them later.
@@ -289,6 +292,16 @@ offckb config rm proxy
 > save new settings
 offckb config get proxy
 > No Proxy.
+```
+
+## Log-Level
+
+You can tweak env `LOG_LEVEL` to control the `offckb` log level.
+
+For example, set `LOG_LEVEL=debug` gives you more outputs of offckb proxy RPC.
+
+```sh
+LOG_LEVEL offckb node
 ```
 
 ## Built-in scripts

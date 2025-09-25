@@ -52,7 +52,7 @@ export async function deploy(
     `   📁 Deployment artifacts will be saved to: ${outputFolder}`,
     `   🌐 Network: ${network}`,
     `   🔑 Using ${opt.privkey ? 'custom' : 'default'} private key`,
-    `   🔄 Type ID: ${enableTypeId ? 'enabled (upgradable)' : 'disabled'}`,
+    `   🔄 Type ID: ${enableTypeId ? 'enabled (upgradable)' : 'disabled (immutable)'}`,
   ]);
 
   const res = await confirm({
