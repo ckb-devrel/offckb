@@ -1,5 +1,6 @@
 import winston from 'winston';
 import chalk from 'chalk';
+import process from 'node:process';
 
 // Define log levels with corresponding chalk colors
 const levelColors = {
@@ -29,7 +30,7 @@ class UnifiedLogger {
 
     // Create Winston logger with custom format and levels
     this.logger = winston.createLogger({
-      level: options.level || 'info',
+      level: options.level || process.env.LOG_LEVEL || 'info',
       levels: {
         error: 0,
         warn: 1,
