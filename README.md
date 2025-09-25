@@ -203,6 +203,8 @@ offckb deploy --type-id --network <devnet/testnet>
 
 Your deployed scripts info will be be listed in the `output-folder-path` which you defined in the command.
 
+Note that upgrades are keyed by the contract‘s artifact name. If you plan to upgrade with `--type-id`, do not rename your contract artifact (e.g. keep `hello-world.bc`). Renaming it makes the offckb unable to find the previous Type ID info from the `output-folder-path` and will create a new Type ID.
+
 ### Debug a transaction
 
 If you are interacting the CKB devnet via the proxy RPC server(`localhost:28114`), all the failed transactions will be dumped and recorded so you can debug them later.
