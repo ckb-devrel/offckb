@@ -33,6 +33,7 @@ There are BREAKING CHANGES between v0.3.x and v0.4.x, make sure to read the [mig
   - [List All Settings](#list-all-settings)
   - [Set CKB version](#set-ckb-version)
   - [Set Network Proxy](#set-network-proxy)
+- [Log-Level](#log-level)
 - [Built-in scripts](#built-in-scripts)
 - [Accounts](#accounts)
 - [About CCC](#about-ccc)
@@ -291,6 +292,16 @@ offckb config rm proxy
 > save new settings
 offckb config get proxy
 > No Proxy.
+```
+
+## Log-Level
+
+You can tweak env `LOG_LEVEL` to control the `offckb` log level.
+
+For example, set `LOG_LEVEL=debug` gives you more outputs of offckb proxy RPC.
+
+```sh
+LOG_LEVEL offckb node
 ```
 
 ## Built-in scripts
