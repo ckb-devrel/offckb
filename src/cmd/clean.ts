@@ -16,6 +16,6 @@ export function clean() {
       logger.error((error as Error).message);
     }
   } else {
-    logger.info(`${allDevnetDataPath} not found, unable to clean it.`);
+    logger.info(`Nothing to clean. Devnet data directory ${allDevnetDataPath} not found.`);
   }
 }
