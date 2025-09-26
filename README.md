@@ -301,7 +301,7 @@ You can tweak env `LOG_LEVEL` to control the `offckb` log level.
 For example, set `LOG_LEVEL=debug` gives you more outputs of offckb proxy RPC.
 
 ```sh
-LOG_LEVEL offckb node
+LOG_LEVEL=debug offckb node
 ```
 
 ## Built-in scripts

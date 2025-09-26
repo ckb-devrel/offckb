@@ -1,6 +1,6 @@
 {
   "name": "@offckb/cli",
-  "version": "0.4.0-rc6",
+  "version": "0.4.0",
   "description": "ckb development network for your first try",
   "author": "CKB EcoFund",
   "license": "MIT",
@@ -73,7 +73,7 @@
   "dependencies": {
     "@ckb-ccc/core": "1.5.3",
     "@iarna/toml": "^2.2.5",
-    "@inquirer/prompts": "^4.1.0",
+    "@inquirer/prompts": "^7.8.6",
     "@types/http-proxy": "^1.17.15",
     "adm-zip": "^0.5.10",
     "chalk": "4.1.2",
