@@ -10,3 +10,18 @@
 [submodule "ckb/spore-contract"]
 	path = ckb/spore-contract
 	url = https://github.com/sporeprotocol/spore-contract.git
+[submodule "ckb/ckb-js-vm"]
+	path = ckb/ckb-js-vm
+	url = https://github.com/nervosnetwork/ckb-js-vm.git
+[submodule "ckb/nostr-binding"]
+	path = ckb/nostr-binding
+	url = https://github.com/cryptape/nostr-binding.git
+[submodule "ckb/ckb-standalone-debugger"]
+	path = ckb/ckb-standalone-debugger
+	url = https://github.com/nervosnetwork/ckb-standalone-debugger.git
+[submodule "ckb/pw-lock"]
+	path = ckb/pw-lock
+	url = https://github.com/nervosnetwork/pw-lock.git
+[submodule "ckb/ckb-system-scripts"]
+	path = ckb/ckb-system-scripts
+	url = https://github.com/nervosnetwork/ckb-system-scripts.git

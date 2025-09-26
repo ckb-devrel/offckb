@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import envPaths from './env-path';
+import { logger } from '../util/logger';
 
 const paths = envPaths('offckb');
 
@@ -8,7 +9,7 @@ export const configPath = path.join(paths.config, 'settings.json');
 export const dataPath = paths.data;
 export const cachePath = paths.cache;
 
-export const packageSrcPath = path.dirname(require.main!.filename);
+export const packageSrcPath = path.dirname(require.main?.filename || __filename);
 export const packageRootPath = path.resolve(packageSrcPath, '../');
 
 export interface ProxyBasicCredentials {
@@ -25,9 +26,6 @@ export interface ProxyConfig {
 
 export interface Settings {
   proxy?: ProxyConfig;
-  rpc: {
-    proxyPort: number;
-  };
   bins: {
     rootFolder: string;
     defaultCKBVersion: string;
@@ -35,39 +33,25 @@ export interface Settings {
   };
   devnet: {
     rpcUrl: string;
+    rpcProxyPort: number;
     configPath: string;
     dataPath: string;
     debugFullTransactionsPath: string;
     transactionsPath: string;
-    failedTransactionsPath: string;
-    contractsPath: string;
   };
   testnet: {
     rpcUrl: string;
+    rpcProxyPort: number;
     debugFullTransactionsPath: string;
     transactionsPath: string;
-    failedTransactionsPath: string;
-    contractsPath: string;
   };
   mainnet: {
     rpcUrl: string;
+    rpcProxyPort: number;
     debugFullTransactionsPath: string;
     transactionsPath: string;
-    failedTransactionsPath: string;
-    contractsPath: string;
-  };
-  dappTemplate: {
-    gitRepoUrl: string;
-    gitBranch: string;
-    gitFolder: string;
-    downloadPath: string;
   };
   tools: {
-    moleculeES: {
-      downloadPath: string;
-      cachePath: string;
-      binFolder: string;
-    };
     ckbDebugger: {
       minVersion: string;
     };
@@ -76,51 +60,34 @@ export interface Settings {
 
 export const defaultSettings: Settings = {
   proxy: undefined,
-  rpc: {
-    proxyPort: 9000,
-  },
   bins: {
     rootFolder: path.resolve(dataPath, 'bins'),
     defaultCKBVersion: '0.201.0',
     downloadPath: path.resolve(cachePath, 'download'),
   },
   devnet: {
-    rpcUrl: 'http://localhost:8114',
+    rpcUrl: 'http://127.0.0.1:8114',
+    rpcProxyPort: 28114,
     // todo: maybe add a root folder for all devnet data
     // so we can clean it easily
     configPath: path.resolve(dataPath, 'devnet'),
     dataPath: path.resolve(dataPath, 'devnet/data'),
     debugFullTransactionsPath: path.resolve(dataPath, 'devnet/full-transactions'),
     transactionsPath: path.resolve(dataPath, 'devnet/transactions'),
-    failedTransactionsPath: path.resolve(dataPath, 'devnet/failed-transactions'),
-    contractsPath: path.resolve(dataPath, 'devnet/contracts'),
   },
   testnet: {
     rpcUrl: 'https://testnet.ckb.dev',
+    rpcProxyPort: 38114,
     debugFullTransactionsPath: path.resolve(dataPath, 'testnet/full-transactions'),
     transactionsPath: path.resolve(dataPath, 'testnet/transactions'),
-    failedTransactionsPath: path.resolve(dataPath, 'testnet/failed-transactions'),
-    contractsPath: path.resolve(dataPath, 'testnet/contracts'),
   },
   mainnet: {
     rpcUrl: 'https://mainnet.ckb.dev',
+    rpcProxyPort: 48114,
     debugFullTransactionsPath: path.resolve(dataPath, 'mainnet/full-transactions'),
     transactionsPath: path.resolve(dataPath, 'mainnet/transactions'),
-    failedTransactionsPath: path.resolve(dataPath, 'mainnet/failed-transactions'),
-    contractsPath: path.resolve(dataPath, 'mainnet/contracts'),
-  },
-  dappTemplate: {
-    gitRepoUrl: `https://github.com/ckb-devrel/offckb`,
-    gitBranch: 'master',
-    gitFolder: 'templates/v3',
-    downloadPath: path.resolve(cachePath, 'download', 'dapp-template'),
   },
   tools: {
-    moleculeES: {
-      downloadPath: path.resolve(cachePath, 'download', 'molecule-es'),
-      cachePath: path.resolve(cachePath, 'tools', 'moleculec-es'),
-      binFolder: path.resolve(dataPath, 'tools', 'moleculec-es'),
-    },
     ckbDebugger: {
       minVersion: '0.200.0',
     },
@@ -136,7 +103,7 @@ export function readSettings(): Settings {
       return defaultSettings;
     }
   } catch (error) {
-    console.error('Error reading settings:', error);
+    logger.error('Error reading settings:', error);
     return defaultSettings;
   }
 }
@@ -145,9 +112,9 @@ export function writeSettings(settings: Settings): void {
   try {
     fs.mkdirSync(path.dirname(configPath), { recursive: true });
     fs.writeFileSync(configPath, JSON.stringify(settings, null, 2));
-    console.log('save new settings');
+    logger.info('save new settings');
   } catch (error) {
-    console.error('Error writing settings:', error);
+    logger.error('Error writing settings:', error);
   }
 }
 

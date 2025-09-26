@@ -8,41 +8,32 @@
 
 CKB local development network for your first try.
 
-- One-line command to start a devnet
-- No docker required
+- One-line command to start a devnet, no docker required
 - Pre-funded test accounts
-- Built-in scripts like [Omnilock](https://github.com/cryptape/omnilock) and [Spore-contract](https://github.com/sporeprotocol/spore-contract)
-- Multiple minimal dApp templates to learn and get your hands dirty
+- Built-in scripts like [CKB-JS-VM](https://github.com/nervosnetwork/ckb-js-vm) and [Spore-contract](https://github.com/sporeprotocol/spore-contract)
+- Create boilerplate to build CKB Smart Contract in Typescript
 
-**Migrate from v0.2.x to v0.3.x:**
+**Migrate from v0.3.x to v0.4.x:**
 
-There are BREAKING CHANGES between v0.2.x and v0.3.x, make sure to read the [migration guide](/docs/migration.md) before upgrading.
+There are BREAKING CHANGES between v0.3.x and v0.4.x, make sure to read the [migration guide](/docs/migration.md) before upgrading.
 
-## Table of Contents
+----
 
 - [OffCKB](#offckb)
-- [Table of Contents](#table-of-contents)
 - [Install](#install)
 - [Usage](#usage)
 - [Get started](#get-started)
   - [Running CKB](#running-ckb)
   - [List scripts info](#list-scripts-info)
   - [Tweak Devnet Config](#tweak-devnet-config)
-  - [Create a full-stack Project](#create-a-full-stack-project)
-  - [Create a script-only Project](#create-a-script-only-project)
-  - [Create a dApp-only Project](#create-a-dapp-only-project)
-  - [Build and Deploy a script](#build-and-deploy-a-script)
-  - [Start the frontend project](#start-the-frontend-project)
+  - [Create a CKB Smart Contract Project](#create-a-ckb-smart-contract-project)
+  - [Deploy a CKB Smart Contract](#deploy-a-ckb-smart-contract)
   - [Debug a transaction](#debug-a-transaction)
-  - [Generate Moleculec bindings](#generate-moleculec-bindings)
-- [REPL Mode](#repl-mode)
-  - [Start the OffCKB REPL](#start-the-offckb-repl)
-  - [Build CKB transaction in REPL](#build-ckb-transaction-in-repl)
-  - [Get balance in REPL](#get-balance-in-repl)
 - [Config Setting](#config-setting)
   - [List All Settings](#list-all-settings)
   - [Set CKB version](#set-ckb-version)
   - [Set Network Proxy](#set-network-proxy)
+- [Log-Level](#log-level)
 - [Built-in scripts](#built-in-scripts)
 - [Accounts](#accounts)
 - [About CCC](#about-ccc)
@@ -61,7 +52,7 @@ or use `pnpm` to install:
 pnpm install -g @offckb/cli
 ```
 
-_We recommend using [LTS](https://nodejs.org/en/download/package-manager) version of Node to run `offckb`_
+_Require Node version `>= v20.0.0`. We recommend using latest [LTS](https://nodejs.org/en/download/package-manager) version of Node to run `offckb`_
 
 ## Usage
 
@@ -75,25 +66,19 @@ Options:
   -h, --help                                    display help for command
 
 Commands:
-  create [options] [your-project-name]          Create a new dApp from bare templates
-  node [options] [CKB-Version]                  Use the CKB to start devnet
-  proxy-rpc [options]                           Start the rpc proxy server
+  node [CKB-Version]                            Use the CKB to start devnet
+  create [options] [project-name]               Create a new CKB Smart Contract project in JavaScript.
+  deploy [options]                              Deploy contracts to different networks, only supports devnet and testnet
+  debug [options]                               Quickly debug transaction with tx-hash
+  system-scripts [options]                      Print/Output system scripts of the CKB blockchain
   clean                                         Clean the devnet data, need to stop running the chain first
   accounts                                      Print account list info
-  list-hashes [CKB-Version]                     Use the CKB to list blockchain scripts hashes
-  inject-config                                 Add offckb.config.ts to your frontend workspace
-  sync-scripts                                  Sync scripts json files in your frontend workspace
   deposit [options] [toAddress] [amountInCKB]   Deposit CKB tokens to address, only devnet and testnet
   transfer [options] [toAddress] [amountInCKB]  Transfer CKB tokens to address, only devnet and testnet
   transfer-all [options] [toAddress]            Transfer All CKB tokens to address, only devnet and testnet
   balance [options] [toAddress]                 Check account balance, only devnet and testnet
-  deploy [options]                              Deploy contracts to different networks, only supports devnet and testnet
-  my-scripts [options]                          Show deployed contracts info on different networks, only supports devnet and testnet
+  debugger                                      Port of the raw CKB Standalone Debugger
   config <action> [item] [value]                do a configuration action
-  debug [options]                               CKB Debugger for development
-  system-scripts [options]                      Output system scripts of the local devnet
-  mol [options]                                 Generate CKB Moleculec binding code for development
-  repl [options]                                A custom Nodejs REPL environment bundle for CKB.
   help [command]                                display help for command
 ```
 
@@ -112,39 +97,35 @@ offckb node
 Or specify a CKB version:
 
 ```sh
-offckb node 0.117.0
+offckb node 0.201.0
 ```
 
 Or set the default CKB version:
 
 ```sh
-offckb config set ckb-version 0.117.0
+offckb config set ckb-version 0.201.0
 offckb node
 ```
 
-Once you start the devnet, there is a RPC server running at `http://localhost:8114`. There is also a RPC proxy server running at `http://localhost:9000` which will proxy all the requests to the RPC server. The meaning of using a proxy RPC server is to record request and automatically dump failed transactions so you can debug them easily later.
+Once you start the devnet, there is a RPC server running at `http://127.0.0.1:8114`. There is also a RPC proxy server running at `http://127.0.0.1:28114` which will proxy all the requests to the RPC server. The meaning of using a proxy RPC server is to record request and automatically dump failed transactions so you can debug them easily later.
 
-The proxy server is optional, you can use the RPC server directly if you don't need a proxy:
-
-```sh
-offckb node --no-proxy
-```
-
-Or start the proxy server in a standalone terminal to better monitor the logs:
+In the same way, you can also start proxy RPC server for `testnet` and `mainnet` by running:
 
 ```sh
-offckb proxy-rpc --ckb-rpc http://localhost:8114 --port 9000 --network devnet
+offckb node --network <testnet or mainnet>
 ```
+
+Using a local proxy RPC server for public testnet/mainnet is also very helpful for debugging the requests and the automatically recorded dump transactions.
 
 ### List scripts info
 
-List all the predefined scripts for the local blockchain:
+Print all the predefined scripts for the local blockchain:
 
 ```sh
 offckb system-scripts
 ```
 
-Or export the scripts info to a lumos JSON file:
+Or print the scripts info to a lumos JSON file:
 
 ```sh
 offckb system-scripts --export-style lumos
@@ -156,116 +137,80 @@ Or print the scripts info in a CCC style:
 offckb system-scripts --export-style ccc
 ```
 
-### Tweak Devnet Config
-
-By default, offckb use a fixed devnet config for the local blockchain. You can tweak the config to customize the devnet:
-
-First, start a default CKB devnet and locate your devnet folder
+You can also export the scripts info to a JSON file:
 
 ```sh
-offckb node
-# after starting, press ctrl-c to kill the node
-# then get the config
-offckb config list
+offckb system-scripts --output <output-file-path>
 ```
 
-Result:
+### Tweak Devnet Config
 
-```json
-{
-  "devnet": {
-    "rpcUrl": "http://localhost:8114",
-    "configPath": "~/Library/Application Support/offckb-nodejs/devnet",
-    "dataPath": "~/Library/Application Support/offckb-nodejs/devnet/data"
+By default, offckb use a fixed devnet config for the local blockchain. You can tweak the config to customize the devnet, for example, modify the default log level for the devnet CKB Node `warn,ckb-script=debug`.
+
+To tweak the devnet config, follow the steps below:
+
+1. Locate your devnet config folder by running:
+  
+  ```sh
+  offckb config list
+  ```
+  
+  Result:
+
+  ```json
+  {
+    "devnet": {
+      "rpcUrl": "http://127.0.0.1:8114",
+      "configPath": "~/Library/Application Support/offckb-nodejs/devnet",
+      "dataPath": "~/Library/Application Support/offckb-nodejs/devnet/data"
+    }
   }
-}
-```
+  ```
 
-Pay attention to the `devnet.configPath` and `devnet.dataPath`. They are the ones we need.
-
-1. `cd` into the `devnet.configPath`, this is the config folder for the local blockchain. Modify the config in the folder to better customize the devnet. For customization, see [Custom Devnet Setup](https://docs.nervos.org/docs/node/run-devnet-node#custom-devnet-setup) and [Configure CKB](https://github.com/nervosnetwork/ckb/blob/develop/docs/configure.md) for better explanation of the config files.
-2. After modifications, remove everything in the `devnet.dataPath` folder. This will clean the chain data.
-3. Restart local blockchain by running `offckb node`
+  Pay attention to the `devnet.configPath` and `devnet.dataPath`. They are  the ones we need.
+2. `cd` into the `devnet.configPath`, this is the config folder for the local blockchain. Modify the config in the folder to better customize the devnet. For customization, see [Custom Devnet Setup](https://docs.nervos.org/docs/node/run-devnet-node#custom-devnet-setup) and [Configure CKB](https://github.com/nervosnetwork/ckb/blob/develop/docs/configure.md) for better explanation of the config files.
+3. After modifications, remove everything in the `devnet.dataPath` folder. This will clean the chain data.
+4. Restart local blockchain by running `offckb node`
 
 Done.
 
-### Create a full-stack Project
+### Create a CKB Smart Contract Project
 
-Create a new project from predefined boilerplates.
+You can create a new CKB Smart Contract project in Typescript from our boilerplate.
 
 ```sh
-offckb create <your-project-name, eg:my-first-ckb-project>
+offckb create <your-project-name> -c <your-contract-name>
 ```
 
-The boilerplate can be targeting on different CKB networks. Check [README.md](https://github.com/nervosnetwork/docs.nervos.org/blob/develop/examples/remix-vite-template/readme.md) in the project to get started.
+The `-c` option is optional, if you don't provide it, the contract name will be `hello-world`.
 
-### Create a script-only Project
+After create the project, you can follow the instructions on build, deploy and test the contract in README.md of the project.
 
-You can create a new script project without a frontend. This is useful when you only want to develop smart contracts for CKB.
+The project includes both `mock` test and `devnet` test. For developing frontend interacting with the blockchain, you can refer to the `devnet` test and see how it works.
 
-```sh
-offckb create <your-project-name> --script
-```
+### Deploy a CKB Smart Contract
 
-Note: you need to have rust/cargo/cargo-generate/clang 16+ installed in your environment to use this command. offckb doesn't do anything really, it just call [ckb-script-template](https://github.com/cryptape/ckb-script-templates) to do all the magic.
-
-### Create a dApp-only Project
-
-You can create a new dApp project without the script(CKB Smart Contract). This is useful when you don't need to create your own on-chain script logic.
+To deploy the script, use `offckb deploy` command:
 
 ```sh
-offckb create <your-project-name> --dapp # or -d
-```
-
-### Build and Deploy a script
-
-The fullstack boilerplate project is a monorepo, which contains a script project and a frontend project.
-
-To build the script, in the root of the project, run:
-
-```sh
-make build
-```
-
-To deploy the script, cd into the frontend folder where the default `offckb.config.ts` file is located and run:
-
-```sh
-cd frontend && offckb deploy --network <devnet/testnet>
-```
-
-Or specific the `offckb.config.ts` file path for deploy command to locate:
-
-```sh
-offckb deploy --network <devnet/testnet> --config <file-path-to-your-offckb.config.ts-file>
+offckb deploy --network <devnet/testnet> --target <path-to-your-contract-binary-file-or-folder> --output <output-folder-path>
 ```
 
 Pass `--type-id` option if you want Scripts to be upgradable
 
 ```sh
-cd frontend && offckb deploy --type-id --network <devnet/testnet>
+offckb deploy --type-id --network <devnet/testnet>
 ```
 
-Once the deployment is done, you can use the following command to check the deployed scripts:
+Your deployed scripts info will be be listed in the `output-folder-path` which you defined in the command.
 
-```sh
-offckb my-scripts --network <devnet/testnet>
-```
-
-Your deployed scripts will be also be listed in the `frontend/offckb/my-scripts` folder in your frontend project.
-
-### Start the frontend project
-
-To start the frontend project, cd into the frontend folder and run:
-
-```sh
-npm i & npm run dev
-```
+Note that upgrades are keyed by the contract‘s artifact name. If you plan to upgrade with `--type-id`, do not rename your contract artifact (e.g. keep `hello-world.bc`). Renaming it makes the offckb unable to find the previous Type ID info from the `output-folder-path` and will create a new Type ID.
 
 ### Debug a transaction
 
-If you are using the proxy RPC server, all the failed transactions will be dumped and recorded so you can debug them later.
+If you are interacting the CKB devnet via the proxy RPC server(`localhost:28114`), all the failed transactions will be dumped and recorded so you can debug them later.
 
-Everytime you run a transaction, you can debug it with the transaction hash:
+Every time you run a transaction, you can debug it with the transaction hash:
 
 ```sh
 offckb debug <transaction-hash>
@@ -318,88 +263,6 @@ offckb debug <transaction-hash> --single-script <single-cell-script-option> --bi
 
 All the debug utils are borrowed from [ckb-debugger](https://github.com/nervosnetwork/ckb-standalone-debugger/tree/develop/ckb-debugger).
 
-### Generate Moleculec bindings
-
-[Moleculec](https://github.com/nervosnetwork/molecule) is the official Serialization/Deserialization system for CKB smart contracts.
-
-You will define your data structure in `.mol` file(schema), and generate the bindings for different programming languages to use in your development.
-
-```sh
-offckb mol --schema <path/to/mol/file> --output <path/to/output/file> --lang <lang>
-```
-
-The `lang` could be `ts`, `js`, `c`, `rs` and `go`.
-
-If you have multiple `.mol` files, you can use a folder as the input and specify an output folder:
-
-```sh
-offckb mol --schema <path/to/mol/folder> --output-folder <path/to/output/folder> --lang <lang>
-```
-
-## REPL Mode
-
-OffCKB pack a custom Nodejs REPL with built-in variables and functions to help you develop CKB right in the terminal with minimal effort. This is suitable for simple script testing task when you don't want to write long and serious codes.
-
-### Start the OffCKB REPL
-
-```sh
-offckb repl --network <devnet/testnet/mainnet, default: devnet>
-
-Welcome to OffCKB REPL!
-[[ Default Network: devnet, enableProxyRPC: false ]]
-Type 'help()' to learn how to use.
-OffCKB > 
-```
-
-Type `help()` to learn about the built-in variables and functions:
-
-```sh
-OffCKB > help()
-
-OffCKB Repl, a Nodejs REPL with CKB bundles.
-
-Global Variables to use:
-  - ccc, cccA, imported from CKB Javascript SDK CCC
-  - client, a CCC client instance bundle with current network
-  - Client, a Wrap of CCC client class, you can build new client with
-     const myClient = Client.new('devnet' | 'testnet' | 'mainnet');
-     // or
-     const myClient = Client.fromUrl('<your rpc url>', 'devnet' | 'testnet' | 'mainnet');
-  - accounts, test accounts array from OffCKB
-  - networks, network information configs
-  - help, print this help message
-```
-
-### Build CKB transaction in REPL
-
-```sh
-OffCKB > let amountInCKB = ccc.fixedPointFrom(63);
-OffCKB > let tx = ccc.Transaction.from({
-...   outputs: [
-...     {
-...       capacity: ccc.fixedPointFrom(amountInCKB),
-...       lock: accounts[0].lockScript,
-...     },
-...   ],
-... });
-OffCKB > let signer = new ccc.SignerCkbPrivateKey(client, accounts[0].privkey);
-OffCKB > await tx.completeInputsByCapacity(signer);
-2
-OffCKB > await tx.completeFeeBy(signer, 1000);
-[ 0, true ]
-OffCKB > await mySigner.sendTransaction(tx)
-'0x50fbfa8c47907d6842a325e85e48d5da6917e16ca7e2253ec3bd5bcdf8da99ce'
-```
-
-### Get balance in REPL
-
-```sh
-OffCKB > let myClient = Client.fromUrl(networks.testnet.rpc_url, 'testnet');
-OffCKB > await myClient.getBalanceSingle(accounts[0].lockScript);
-60838485293944n
-OffCKB > 
-```
-
 ## Config Setting
 
 ### List All Settings
@@ -431,6 +294,16 @@ offckb config get proxy
 > No Proxy.
 ```
 
+## Log-Level
+
+You can tweak env `LOG_LEVEL` to control the `offckb` log level.
+
+For example, set `LOG_LEVEL=debug` gives you more outputs of offckb proxy RPC.
+
+```sh
+LOG_LEVEL=debug offckb node
+```
+
 ## Built-in scripts
 
 - [x] xUDT https://github.com/nervosnetwork/rfcs/pull/428
@@ -443,6 +316,11 @@ offckb config get proxy
   - commit id: 410b16c
 - [x] Spore https://github.com/sporeprotocol/spore-contract
   - version: 0.2.2-beta.1
+- [x] CKB-JS-VM https://github.com/nervosnetwork/ckb-js-vm
+  - version: 1.0.0
+- [x] Nostr-Lock https://github.com/cryptape/nostr-binding/tree/main/contracts/nostr-lock
+  - version: 25dd59d
+- [x] Type ID built-in
 
 ## Accounts
 
@@ -469,3 +347,4 @@ npm install -g @offckb/cli
 ## Contributing
 
 check [development doc](/docs/develop.md)
+

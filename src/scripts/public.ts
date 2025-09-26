@@ -1,6 +1,7 @@
 import { ScriptInfo, SystemScriptsRecord } from './type';
 import { TESTNET_SCRIPTS } from '@ckb-ccc/core/advanced';
 import { MAINNET_SCRIPTS } from '@ckb-ccc/core/advanced';
+import { TYPE_ID_SCRIPT } from './const';
 
 // spore: https://github.com/sporeprotocol/spore-contract/blob/master/docs/VERSIONS.md
 
@@ -138,6 +139,63 @@ export const TESTNET_SYSTEM_SCRIPTS: SystemScriptsRecord = {
       ],
     },
   },
+  ckb_js_vm: {
+    name: 'ckb_js_vm',
+    script: {
+      codeHash: '0x3e9b6bead927bef62fcb56f0c79f4fbd1b739f32dd222beac10d346f2918bed7',
+      hashType: 'type',
+      cellDeps: [
+        {
+          cellDep: {
+            outPoint: {
+              txHash: '0x9f6558e91efa7580bfe97830d11cd94ca5d614bbf4a10b36f3a5b9d092749353',
+              index: 0,
+            },
+            depType: 'code',
+          },
+        },
+      ],
+    },
+  },
+  nostr_lock: {
+    name: 'nostr_lock',
+    script: {
+      codeHash: '0x6ae5ee0cb887b2df5a9a18137315b9bdc55be8d52637b2de0624092d5f0c91d5',
+      hashType: 'type',
+      cellDeps: [
+        {
+          cellDep: {
+            outPoint: {
+              txHash: '0xa2a434dcdbe280b9ed75bb7d6c7d68186a842456aba0fc506657dc5ed7c01d68',
+              index: 0,
+            },
+            depType: 'code',
+          },
+        },
+      ],
+    },
+  },
+  type_id: TYPE_ID_SCRIPT,
+  secp256k1_keccak256_sighash_all: undefined,
+  secp256k1_keccak256_sighash_all_acpl: undefined,
+  secp256k1_blake160_multisig_all_v2: {
+    name: 'secp256k1_blake160_multisig_all_v2',
+    script: {
+      codeHash: '0x36c971b8d41fbd94aabca77dc75e826729ac98447b46f91e00796155dddb0d29',
+      hashType: 'data1',
+      cellDeps: [
+        {
+          cellDep: {
+            outPoint: {
+              txHash: '0x2eefdeb21f3a3edf697c28a52601b4419806ed60bb427420455cc29a090b26d5',
+              index: 0,
+            },
+            depType: 'depGroup',
+          },
+        },
+      ],
+    },
+  },
 };
 
 export const MAINNET_SYSTEM_SCRIPTS: SystemScriptsRecord = {
@@ -223,6 +281,46 @@ export const MAINNET_SYSTEM_SCRIPTS: SystemScriptsRecord = {
   spore_cluster_agent: undefined,
   spore_cluster_proxy: undefined,
   spore_extension_lua: undefined,
+  ckb_js_vm: undefined,
+  nostr_lock: {
+    name: 'nostr_lock',
+    script: {
+      codeHash: '0x641a89ad2f77721b803cd50d01351c1f308444072d5fa20088567196c0574c68',
+      hashType: 'type',
+      cellDeps: [
+        {
+          cellDep: {
+            outPoint: {
+              txHash: '0x1911208b136957d5f7c1708a8835edfe8ae1d02700d5cb2c3a6aacf4d5906306',
+              index: 0,
+            },
+            depType: 'code',
+          },
+        },
+      ],
+    },
+  },
+  type_id: TYPE_ID_SCRIPT,
+  secp256k1_keccak256_sighash_all: undefined,
+  secp256k1_keccak256_sighash_all_acpl: undefined,
+  secp256k1_blake160_multisig_all_v2: {
+    name: 'secp256k1_blake160_multisig_all_v2',
+    script: {
+      codeHash: '0x36c971b8d41fbd94aabca77dc75e826729ac98447b46f91e00796155dddb0d29',
+      hashType: 'data1',
+      cellDeps: [
+        {
+          cellDep: {
+            outPoint: {
+              txHash: '0x6888aa39ab30c570c2c30d9d5684d3769bf77265a7973211a3c087fe8efbf738',
+              index: 0,
+            },
+            depType: 'depGroup',
+          },
+        },
+      ],
+    },
+  },
 };
 
 export default {

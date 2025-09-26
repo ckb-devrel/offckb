@@ -14,6 +14,12 @@ export enum SystemScriptName {
   spore_cluster_agent = 'spore_cluster_agent',
   spore_cluster_proxy = 'spore_cluster_proxy',
   spore_extension_lua = 'spore_extension_lua',
+  ckb_js_vm = 'ckb_js_vm',
+  nostr_lock = 'nostr_lock',
+  type_id = 'type_id',
+  secp256k1_keccak256_sighash_all = 'secp256k1_keccak256_sighash_all',
+  secp256k1_keccak256_sighash_all_acpl = 'secp256k1_keccak256_sighash_all_acpl',
+  secp256k1_blake160_multisig_all_v2 = 'secp256k1_blake160_multisig_all_v2',
 }
 
 export interface ScriptInfo {

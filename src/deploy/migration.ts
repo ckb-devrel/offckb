@@ -1,8 +1,8 @@
 import { Network } from '../type/base';
 import path, { dirname } from 'path';
 import fs from 'fs';
-import { getContractsPath } from './util';
 import { HexNumber } from '../type/base';
+import { logger } from '../util/logger';
 
 export interface CellRecipe {
   name: string;
@@ -45,26 +45,26 @@ export interface MigrationJson {
 }
 
 export class Migration {
-  static find(scriptName: string, network: Network = Network.devnet) {
-    const filePath = getMigrationFolderPath(scriptName, network);
+  static find(baseFolder: string, scriptName: string, network: Network = Network.devnet) {
+    const filePath = getMigrationFolderPath(baseFolder, scriptName, network);
     const migrationFile = getNewestMigrationFile(filePath);
     if (migrationFile == null) return null;
 
     return readDeploymentMigrationFile(migrationFile);
   }
 
-  static isDeployed(scriptName: string, network: Network = Network.devnet) {
-    const deploymentReceipt = Migration.find(scriptName, network);
+  static isDeployed(baseFolder: string, scriptName: string, network: Network = Network.devnet) {
+    const deploymentReceipt = Migration.find(baseFolder, scriptName, network);
     if (deploymentReceipt == null) return false;
 
     return true;
   }
 
-  static isDeployedWithTypeId(scriptName: string, network: Network = Network.devnet) {
-    const isDeployed = this.isDeployed(scriptName, network);
+  static isDeployedWithTypeId(baseFolder: string, scriptName: string, network: Network = Network.devnet) {
+    const isDeployed = this.isDeployed(baseFolder, scriptName, network);
     if (isDeployed === false) return false;
 
-    const deploymentReceipt = Migration.find(scriptName, network)!;
+    const deploymentReceipt = Migration.find(baseFolder, scriptName, network)!;
     const typeId = deploymentReceipt.cellRecipes[0].typeId;
     if (typeId == null) return false;
 
@@ -72,22 +72,15 @@ export class Migration {
   }
 }
 
-export function generateDeploymentMigrationFile(
-  name: string,
-  deploymentRecipe: DeploymentRecipe,
-  network = Network.devnet,
-) {
+export function generateDeploymentMigrationFileInPath(deploymentRecipe: DeploymentRecipe, outputFilePath: string) {
   const cellRecipes = deploymentRecipe.cellRecipes;
   const depGroupRecipes = deploymentRecipe.depGroupRecipes;
   const jsonString = JSON.stringify(deploymentRecipeToJson({ cellRecipes, depGroupRecipes }), null, 2);
-  const outputFilePath: string = `${getContractsPath(network)}/${name}/migrations/${getFormattedMigrationDate()}.json`;
-  if (outputFilePath) {
-    if (!fs.existsSync(dirname(outputFilePath))) {
-      fs.mkdirSync(dirname(outputFilePath), { recursive: true });
-    }
-    fs.writeFileSync(outputFilePath, jsonString);
-    console.log(`${name} migration json file ${outputFilePath} generated successfully.`);
+  if (!fs.existsSync(dirname(outputFilePath))) {
+    fs.mkdirSync(dirname(outputFilePath), { recursive: true });
   }
+  fs.writeFileSync(outputFilePath, jsonString);
+  logger.info(`- Migration json file ${outputFilePath} generated successfully.`);
 }
 
 export function readDeploymentMigrationFile(filePath: string): DeploymentRecipe {
@@ -109,9 +102,8 @@ export function getFormattedMigrationDate(): string {
   return `${year}-${month}-${day}-${hours}${minutes}${seconds}`;
 }
 
-export function getMigrationFolderPath(scriptName: string, network: Network) {
-  const contractsPath = getContractsPath(network);
-  return path.resolve(contractsPath, `${scriptName}/migrations`);
+export function getMigrationFolderPath(baseFolder: string, scriptName: string, network: Network) {
+  return path.resolve(baseFolder, `${network}/${scriptName}/migrations`);
 }
 
 export function getNewestMigrationFile(folderPath: string): string | null {
@@ -137,7 +129,7 @@ export function deploymentRecipeToJson(recipe: DeploymentRecipe): MigrationJson 
     cell_recipes: recipe.cellRecipes.map((val) => {
       if (BigInt(val.occupiedCapacity) > BigInt(Number.MAX_SAFE_INTEGER)) {
         // CKB blocksize limit is 500k, so it should be impossible to have a cell occupied data larger than Number.MAX_SAFE_INTEGER which is 9007,1992,5474,0991
-        console.error(
+        logger.error(
           `invalid occupiedCapacity: ${val.occupiedCapacity}, the cell_recipes json might be incorrect for cell outpoint ${val.txHash}:${+val.index}`,
         );
       }
@@ -153,7 +145,7 @@ export function deploymentRecipeToJson(recipe: DeploymentRecipe): MigrationJson 
     dep_group_recipes: recipe.depGroupRecipes.map((val) => {
       if (BigInt(val.occupiedCapacity) > BigInt(Number.MAX_SAFE_INTEGER)) {
         // CKB blocksize limit is 500k, so it should be impossible to have a cell occupied data larger than Number.MAX_SAFE_INTEGER which is 9007,1992,5474,0991
-        console.error(
+        logger.error(
           `invalid occupiedCapacity: ${val.occupiedCapacity}, the dep_group_recipes json might be incorrect for cell outpoint ${val.txHash}:${+val.index}`,
         );
       }

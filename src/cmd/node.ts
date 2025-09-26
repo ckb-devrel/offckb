@@ -5,13 +5,27 @@ import { getCKBBinaryPath, readSettings } from '../cfg/setting';
 import { encodeBinPathForTerminal } from '../util/encoding';
 import { createRPCProxy } from '../tools/rpc-proxy';
 import { Network } from '../type/base';
+import { logger } from '../util/logger';
 
 export interface NodeProp {
   version?: string;
-  noProxyServer?: boolean;
+  network?: Network;
 }
 
-export async function node({ version, noProxyServer }: NodeProp) {
+export function startNode({ version, network = Network.devnet }: NodeProp) {
+  switch (network) {
+    case Network.devnet:
+      return nodeDevnet({ version });
+    case Network.testnet:
+      return nodeTestnet();
+    case Network.mainnet:
+      return nodeMainnet();
+    default:
+      break;
+  }
+}
+
+export async function nodeDevnet({ version }: NodeProp) {
   const settings = readSettings();
   const ckbVersion = version || settings.bins.defaultCKBVersion;
   await installCKBBinary(ckbVersion);
@@ -22,16 +36,17 @@ export async function node({ version, noProxyServer }: NodeProp) {
 
   const ckbCmd = `${ckbBinPath} run -C ${devnetConfigPath}`;
   const minerCmd = `${ckbBinPath} miner -C ${devnetConfigPath}`;
+  logger.info(`Launching CKB devnet Node...`);
   try {
     // Run first command
     const ckbProcess = exec(ckbCmd);
     // Log first command's output
     ckbProcess.stdout?.on('data', (data) => {
-      console.log('CKB:', data.toString());
+      logger.info(['CKB:', data.toString()]);
     });
 
     ckbProcess.stderr?.on('data', (data) => {
-      console.error('CKB error:', data.toString());
+      logger.error(['CKB error:', data.toString()]);
     });
 
     // Start the second command after 3 seconds
@@ -40,24 +55,42 @@ export async function node({ version, noProxyServer }: NodeProp) {
         // Run second command
         const minerProcess = exec(minerCmd);
         minerProcess.stdout?.on('data', (data) => {
-          console.log('CKB-Miner:', data.toString());
+          logger.info(['CKB-Miner:', data.toString()]);
         });
         minerProcess.stderr?.on('data', (data) => {
-          console.error('CKB-Miner error:', data.toString());
+          logger.error(['CKB-Miner error:', data.toString()]);
         });
 
-        console.log('noProxyServer: ', noProxyServer);
-        if (!noProxyServer) {
-          const ckbRpc = settings.devnet.rpcUrl;
-          const port = settings.rpc.proxyPort;
-          const proxy = createRPCProxy(Network.devnet, ckbRpc, port);
-          proxy.start();
-        }
+        // by default we start the proxy server
+        const ckbRpc = settings.devnet.rpcUrl;
+        const port = settings.devnet.rpcProxyPort;
+        const proxy = createRPCProxy(Network.devnet, ckbRpc, port);
+        proxy.start();
       } catch (error) {
-        console.error('Error running CKB-Miner:', error);
+        logger.error('Error running CKB-Miner:', error);
       }
     }, 3000);
   } catch (error) {
-    console.error('Error:', error);
+    logger.error('Error:', error);
   }
+}
+
+export async function nodeTestnet() {
+  // todo: maybe we can actually start a node for testnet later
+  // by default we start a proxy server for testnet
+  const settings = readSettings();
+  const ckbRpc = settings.testnet.rpcUrl;
+  const port = settings.testnet.rpcProxyPort;
+  const proxy = createRPCProxy(Network.testnet, ckbRpc, port);
+  proxy.start();
+}
+
+export async function nodeMainnet() {
+  // todo: maybe we can actually start a node for mainnet later
+  // by default we start a proxy server for mainnet
+  const settings = readSettings();
+  const ckbRpc = settings.mainnet.rpcUrl;
+  const port = settings.mainnet.rpcProxyPort;
+  const proxy = createRPCProxy(Network.mainnet, ckbRpc, port);
+  proxy.start();
 }

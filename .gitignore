@@ -6,3 +6,4 @@ data/
 dist/
 .vscode
 templates/temp-clone-folder
+build/

@@ -2,16 +2,16 @@ import { CKB } from '../sdk/ckb';
 import { NetworkOption, Network } from '../type/base';
 import { buildTestnetTxLink } from '../util/link';
 import { validateNetworkOpt } from '../util/validator';
+import { logger } from '../util/logger';
 
 export interface TransferOptions extends NetworkOption {
   privkey?: string | null;
-  proxyRpc?: boolean;
 }
 
 export async function transfer(
   toAddress: string,
   amountInCKB: string,
-  opt: TransferOptions = { network: Network.devnet, proxyRpc: false },
+  opt: TransferOptions = { network: Network.devnet },
 ) {
   const network = opt.network;
   validateNetworkOpt(network);
@@ -20,9 +20,8 @@ export async function transfer(
     throw new Error('--privkey is required!');
   }
 
-  const isEnableProxyRpc = opt.proxyRpc;
   const privateKey = opt.privkey;
-  const ckb = new CKB({ network, isEnableProxyRpc });
+  const ckb = new CKB({ network });
 
   const txHash = await ckb.transfer({
     toAddress,
@@ -30,9 +29,9 @@ export async function transfer(
     privateKey,
   });
   if (network === 'testnet') {
-    console.log(`Successfully transfer, check ${buildTestnetTxLink(txHash)} for details.`);
+    logger.info(`Successfully transfer, check ${buildTestnetTxLink(txHash)} for details.`);
     return;
   }
 
-  console.log('Successfully transfer, txHash:', txHash);
+  logger.info('Successfully transfer, txHash:', txHash);
 }

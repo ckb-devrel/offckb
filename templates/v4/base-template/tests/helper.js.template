@@ -1,0 +1,59 @@
+const { ccc, KnownScript } = require("@ckb-ccc/core");
+const systemScripts = require("../deployment/system-scripts.json");
+const dotenv = require("dotenv");
+dotenv.config({ quiet: true });
+
+const buildSigner = (client) => {
+  const privateKey = process.env.PRIVATE_KEY;
+  if (!privateKey) {
+    throw new Error(
+      "PRIVATE_KEY is not set in environment variables or .env file",
+    );
+  }
+  const signer = new ccc.SignerCkbPrivateKey(client, privateKey);
+  return signer;
+};
+
+const buildClient = (network) => {
+  switch (network) {
+    case "devnet":
+      return new ccc.ClientPublicTestnet({
+        url: "http://127.0.0.1:28114", // the proxy RPC from offckb devnet
+        scripts: DEVNET_SCRIPTS,
+        fallbacks: ["http://127.0.0.1:8114"], // use non-proxy RPC for fallbacks if proxy server has trouble
+      });
+    case "testnet":
+      return new ccc.ClientPublicTestnet({
+        url: "http://127.0.0.1:38114", // proxy RPC from offckb, make sure you start the testnet node by running: `offckb node --network testnet` 
+        fallbacks: ["https://testnet.ckb.dev"],  // use non-proxy RPC for fallbacks if proxy server has trouble
+      });
+    case "mainnet":
+      return new ccc.ClientPublicMainnet({
+        url: "http://127.0.0.1:48114", // proxy RPC from offckb, make sure you start the mainnet node by running: `offckb node --network mainnet` 
+        fallbacks: ["https://mainnet.ckb.dev"], // use non-proxy RPC for fallbacks if proxy server has trouble
+      });
+
+
+    default:
+      throw new Error(`Unsupported network: ${network}`);
+  }
+};
+
+const DEVNET_SCRIPTS = {
+  [KnownScript.Secp256k1Blake160]: systemScripts.devnet
+    .secp256k1_blake160_sighash_all.script,
+  [KnownScript.Secp256k1Multisig]: systemScripts.devnet
+    .secp256k1_blake160_multisig_all.script,
+  [KnownScript.NervosDao]: systemScripts.devnet.dao.script,
+  [KnownScript.AnyoneCanPay]: systemScripts.devnet.anyone_can_pay
+    .script,
+  [KnownScript.OmniLock]: systemScripts.devnet.omnilock
+    .script,
+  [KnownScript.XUdt]: systemScripts.devnet.xudt.script,
+};
+
+module.exports = {
+  buildSigner,
+  buildClient,
+  DEVNET_SCRIPTS,
+};

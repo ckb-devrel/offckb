@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { logger } from './logger';
 
 export function isFolderExists(folderPath: string): boolean {
   try {
@@ -55,7 +56,7 @@ export async function copyFilesWithExclusion(sourceDir: string, destinationDir: 
     // Start copying recursively from the source directory
     await copyRecursive(sourceDir, destinationDir, excludedFolders);
   } catch (error) {
-    console.error('An error occurred during copying files:', error);
+    logger.error('An error occurred during copying files:', error);
   }
 }
 
