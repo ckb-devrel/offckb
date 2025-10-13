@@ -12,6 +12,7 @@ CKB local development network for your first try.
 - Pre-funded test accounts
 - Built-in scripts like [CKB-JS-VM](https://github.com/nervosnetwork/ckb-js-vm) and [Spore-contract](https://github.com/sporeprotocol/spore-contract)
 - Create boilerplate to build CKB Smart Contract in Typescript
+- Proxy RPC that automatically dumps failed transactions for easier debugging
 
 **Migrate from v0.3.x to v0.4.x:**
 
@@ -23,12 +24,12 @@ There are BREAKING CHANGES between v0.3.x and v0.4.x, make sure to read the [mig
 - [Install](#install)
 - [Usage](#usage)
 - [Get started](#get-started)
-  - [Running CKB](#running-ckb)
-  - [List scripts info](#list-scripts-info)
+  - [Run a Local CKB Devnet](#running-ckb)
+  - [Create a CKB Smart Contract Project](#create-project)
+  - [Deploy a CKB Smart Contract](#deploy-contract)
+  - [Debug a CKB Smart Contract](#debug-contract)
+  - [Explore built-in Scripts info](#explore-scripts)
   - [Tweak Devnet Config](#tweak-devnet-config)
-  - [Create a CKB Smart Contract Project](#create-a-ckb-smart-contract-project)
-  - [Deploy a CKB Smart Contract](#deploy-a-ckb-smart-contract)
-  - [Debug a transaction](#debug-a-transaction)
 - [Config Setting](#config-setting)
   - [List All Settings](#list-all-settings)
   - [Set CKB version](#set-ckb-version)
@@ -86,137 +87,79 @@ _Use `offckb [command] -h` to learn more about a specific command._
 
 ## Get started
 
-### Running CKB
-
-Start a local blockchain with the default CKB version:
+### 1. Run a Local CKB Devnet {#running-ckb}
+    
+Start a local blockchain with one command:
 
 ```sh
 offckb node
 ```
 
-Or specify a CKB version:
+Specify a CKB version:
 
 ```sh
 offckb node 0.201.0
 ```
 
-Or set the default CKB version:
+Or set a default version globally:
 
 ```sh
 offckb config set ckb-version 0.201.0
 offckb node
 ```
+**RPC & Proxy RPC**
 
-Once you start the devnet, there is a RPC server running at `http://127.0.0.1:8114`. There is also a RPC proxy server running at `http://127.0.0.1:28114` which will proxy all the requests to the RPC server. The meaning of using a proxy RPC server is to record request and automatically dump failed transactions so you can debug them easily later.
+When the Devnet starts:
 
-In the same way, you can also start proxy RPC server for `testnet` and `mainnet` by running:
+- The RPC server runs at [http://127.0.0.1:8114](http://127.0.0.1:8114/)
+- The proxy RPC server runs at [http://127.0.0.1:28114](http://127.0.0.1:28114/)
+
+The proxy RPC server forwards all requests to the RPC server and record every requests while automatically dumping failed transactions for easier debugging.
+
+You can also start a proxy RPC server for public networks: 
 
 ```sh
 offckb node --network <testnet or mainnet>
 ```
+Using a proxy RPC server for Testnet/Mainnet is especially helpful for debugging transactions, since failed transactions are dumped automatically.
 
-Using a local proxy RPC server for public testnet/mainnet is also very helpful for debugging the requests and the automatically recorded dump transactions.
-
-### List scripts info
-
-Print all the predefined scripts for the local blockchain:
-
-```sh
-offckb system-scripts
-```
-
-Or print the scripts info to a lumos JSON file:
-
-```sh
-offckb system-scripts --export-style lumos
-```
-
-Or print the scripts info in a CCC style:
-
-```sh
-offckb system-scripts --export-style ccc
-```
-
-You can also export the scripts info to a JSON file:
-
-```sh
-offckb system-scripts --output <output-file-path>
-```
-
-### Tweak Devnet Config
-
-By default, offckb use a fixed devnet config for the local blockchain. You can tweak the config to customize the devnet, for example, modify the default log level for the devnet CKB Node `warn,ckb-script=debug`.
-
-To tweak the devnet config, follow the steps below:
-
-1. Locate your devnet config folder by running:
-  
-  ```sh
-  offckb config list
-  ```
-  
-  Result:
-
-  ```json
-  {
-    "devnet": {
-      "rpcUrl": "http://127.0.0.1:8114",
-      "configPath": "~/Library/Application Support/offckb-nodejs/devnet",
-      "dataPath": "~/Library/Application Support/offckb-nodejs/devnet/data"
-    }
-  }
-  ```
-
-  Pay attention to the `devnet.configPath` and `devnet.dataPath`. They are  the ones we need.
-2. `cd` into the `devnet.configPath`, this is the config folder for the local blockchain. Modify the config in the folder to better customize the devnet. For customization, see [Custom Devnet Setup](https://docs.nervos.org/docs/node/run-devnet-node#custom-devnet-setup) and [Configure CKB](https://github.com/nervosnetwork/ckb/blob/develop/docs/configure.md) for better explanation of the config files.
-3. After modifications, remove everything in the `devnet.dataPath` folder. This will clean the chain data.
-4. Restart local blockchain by running `offckb node`
-
-Done.
-
-### Create a CKB Smart Contract Project
-
-You can create a new CKB Smart Contract project in Typescript from our boilerplate.
-
+### 2. Create a New Contract Project {#create-project}
+    
+Generate a ready-to-use project in JS/TS using templates:
 ```sh
 offckb create <your-project-name> -c <your-contract-name>
 ```
+- The `-c` option is optional, if not provided, the contract name defaults to `hello-world`.
 
-The `-c` option is optional, if you don't provide it, the contract name will be `hello-world`.
-
-After create the project, you can follow the instructions on build, deploy and test the contract in README.md of the project.
-
-The project includes both `mock` test and `devnet` test. For developing frontend interacting with the blockchain, you can refer to the `devnet` test and see how it works.
-
-### Deploy a CKB Smart Contract
-
-To deploy the script, use `offckb deploy` command:
-
+### 3. Deploy Your Contract {#deploy-contract}
+    
 ```sh
 offckb deploy --network <devnet/testnet> --target <path-to-your-contract-binary-file-or-folder> --output <output-folder-path>
 ```
+- Deployment info is written to the `output-folder-path` you specify.
 
-Pass `--type-id` option if you want Scripts to be upgradable
+**Upgradable Scripts with `--type-id`**
+Pass the `--type-id` option if you want your Scripts to be upgradable:
 
 ```sh
 offckb deploy --type-id --network <devnet/testnet>
 ```
 
-Your deployed scripts info will be be listed in the `output-folder-path` which you defined in the command.
+- **Important**: Upgrades are keyed by the contract‘s artifact name.
+    - If you plan to upgrade with `--type-id`, do not rename your contract artifact (e.g. keep `hello-world.bc`).
+    - Renaming it makes the offckb unable to find the previous Type ID info from the `output-folder-path` and will create a new Type ID.
 
-Note that upgrades are keyed by the contract‘s artifact name. If you plan to upgrade with `--type-id`, do not rename your contract artifact (e.g. keep `hello-world.bc`). Renaming it makes the offckb unable to find the previous Type ID info from the `output-folder-path` and will create a new Type ID.
-
-### Debug a transaction
-
-If you are interacting the CKB devnet via the proxy RPC server(`localhost:28114`), all the failed transactions will be dumped and recorded so you can debug them later.
-
-Every time you run a transaction, you can debug it with the transaction hash:
+### 4. Debug Your Contract {#debug-contract}
+    
+When you interact with the CKB Devnet through the Proxy RPC server (localhost:28114), any failed transactions are automatically dumped and recorded for debugging. 
+    
+**Debug a Transaction:** 
 
 ```sh
-offckb debug <transaction-hash>
+offckb debug --tx-hash <transaction-hash> --network <devnet/testnet>
 ```
 
-It will verify all the scripts in the transaction and print the detailed info in the terminal.
+output example:
 
 ```sh
 offckb debug --tx-hash 0x64c936ee78107450d49e57b7453dce9031ce68b056b2f1cdad5c2218ab7232ad
@@ -243,25 +186,81 @@ Total cycles consumed: 3916670(3.7M)
 Transfer cycles: 43162(42.2K), running cycles: 3873508(3.7M)
 ```
 
-If you want to debug a single cell script in the transaction, you can use the following command:
+Debug a Single Cell Script:
 
 ```sh
 offckb debug <transaction-hash> --single-script <single-cell-script-option>
 ```
 
-The `single-cell-script-option` format is `<cell-type>[<cell-index>].<script-type>`, eg: `"input[0].lock"`
+The `single-cell-script-option` format is `<cell-type>[<cell-index>].<script-type>`
 
-- `cell-type` could be `input` or `output`, refers to the cell type
-- `cell-index` is the index of the cell in the transaction
-- `script-type` could be `lock` or `type`, refers to the script type
+- `cell-type` → `input` or `output`
+- `cell-index` → index of the Cell in the transaction
+- `script-type` → `lock` or `type`
 
-Or you can replace the script with a binary file in your single cell script debug session:
+Example:
 
 ```sh
-offckb debug <transaction-hash> --single-script <single-cell-script-option> --bin <path/to/binary/file>
+offckb debug --tx-hash <tx-hash> --single-script input[0].lock
 ```
 
-All the debug utils are borrowed from [ckb-debugger](https://github.com/nervosnetwork/ckb-standalone-debugger/tree/develop/ckb-debugger).
+All debug utilities are powered by [ckb-debugger](https://github.com/nervosnetwork/ckb-standalone-debugger/tree/develop/ckb-debugger).
+    
+### 5. Explore Built-in Scripts {#explore-scripts}
+    
+Print all the predefined Scripts for the local blockchain:
+
+```sh
+offckb system-scripts --list
+```
+
+Export options:
+
+- Lumos format
+
+```sh
+offckb system-scripts --export-style lumos
+```
+
+- CCC format:
+
+```sh
+offckb system-scripts --export-style ccc
+```
+
+- Save to a JSON file:
+
+```sh
+offckb system-scripts --output <output-file-path>
+```
+    
+### 6. Tweak Devnet Config {#tweak-devnet-config}
+    
+By default, OffCKB use a fixed Devnet config. You can customize it, for example by modifying the default log level (`warn,ckb-script=debug`).
+
+1. Locate your Devnet config folder:
+    
+```sh
+offckb config list
+```
+
+Example result:
+
+```json
+{
+  "devnet": {
+    "rpcUrl": "http://127.0.0.1:8114",
+    "configPath": "~/Library/Application Support/offckb-nodejs/devnet",
+    "dataPath": "~/Library/Application Support/offckb-nodejs/devnet/data"
+  }
+}
+```
+Pay attention to the `devnet.configPath` and `devnet.dataPath`.
+    
+2. `cd` into the `devnet.configPath` . Modify the config files as needed. See [Custom Devnet Setup](https://docs.nervos.org/docs/node/run-devnet-node#custom-devnet-setup) and [Configure CKB](https://github.com/nervosnetwork/ckb/blob/develop/docs/configure.md) for details.
+3. After modifications, remove everything in the `devnet.dataPath` folder to reset chain data.
+4. Restart local blockchain by running `offckb node`
+
 
 ## Config Setting
 
@@ -324,12 +323,13 @@ LOG_LEVEL=debug offckb node
 
 ## Accounts
 
-`offckb` comes with 20 accounts, each account is funded with 42_000_000_00000000 capacity in the genesis block.
+OffCKB comes with 20 pre-funded accounts, each initialized with `42_000_000_00000000` capacity in the genesis block.
 
-all the private keys are recorded in the `account/keys` file.
-detail informations about each account are recorded in the `account/account.json` file.
+- All private keys are stored in the `account/keys` file.
+- Detailed information for each account is recorded in `account/account.json`.
+- When deploying contracts, the deployment cost are automatically deducted from these pre-funded accounts. This allows you to test deployments without faucets or manual funding.
 
-:warning: **DO NOT SEND REAL ASSETS INTO ALL THESE ACCOUNTS, YOU CAN LOOSE YOUR MONEY** :warning:
+:warning: **DO NOT SEND REAL ASSETS TO THESE ACCOUNTS. THE KEYS ARE PUBLIC, AND YOU MAY LOSE YOUR MONEY** :warning:
 
 ## About CCC
 
