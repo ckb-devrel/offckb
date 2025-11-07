@@ -19,8 +19,8 @@ export const TEMPLATE_CONFIG: TemplateDependencies = {
     dotenv: '^17.2.1',
   },
   devDependencies: {
-    'ckb-testtool': '~1.0.3',
-    '@ckb-ccc/core': '~1.5.3', // Pin to version compatible with ckb-testtool
+    'ckb-testtool': '1.0.3',
+    '@ckb-ccc/core': '1.5.3', // lock to version compatible with ckb-testtool
     esbuild: '~0.25.8',
     jest: '~29.7.0',
     prettier: '^3.5.3',
