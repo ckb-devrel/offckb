@@ -98,7 +98,7 @@ export function systemCellToScriptInfo({
     }
     return {
       codeHash: (cell.type_hash || cell.data_hash) as `0x${string}`,
-      hashType: cell.type_hash ? 'type' : 'data1',
+      hashType: cell.type_hash ? 'type' : 'data2',
       cellDeps,
     };
   }
@@ -125,7 +125,7 @@ export function systemCellToScriptInfo({
 
     return {
       codeHash: (cell.type_hash || cell.data_hash) as `0x${string}`,
-      hashType: cell.type_hash ? 'type' : 'data1',
+      hashType: cell.type_hash ? 'type' : 'data2',
       cellDeps,
     };
   }
