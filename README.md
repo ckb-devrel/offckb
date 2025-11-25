@@ -24,12 +24,12 @@ There are BREAKING CHANGES between v0.3.x and v0.4.x, make sure to read the [mig
 - [Install](#install)
 - [Usage](#usage)
 - [Get started](#get-started)
-  - [Run a Local CKB Devnet](#running-ckb)
-  - [Create a CKB Smart Contract Project](#create-project)
-  - [Deploy a CKB Smart Contract](#deploy-contract)
-  - [Debug a CKB Smart Contract](#debug-contract)
-  - [Explore built-in Scripts info](#explore-scripts)
-  - [Tweak Devnet Config](#tweak-devnet-config)
+  - [1. Run a Local CKB Devnet {#running-ckb}](#1-run-a-local-ckb-devnet-running-ckb)
+  - [2. Create a New Contract Project {#create-project}](#2-create-a-new-contract-project-create-project)
+  - [3. Deploy Your Contract {#deploy-contract}](#3-deploy-your-contract-deploy-contract)
+  - [4. Debug Your Contract {#debug-contract}](#4-debug-your-contract-debug-contract)
+  - [5. Explore Built-in Scripts {#explore-scripts}](#5-explore-built-in-scripts-explore-scripts)
+  - [6. Tweak Devnet Config {#tweak-devnet-config}](#6-tweak-devnet-config-tweak-devnet-config)
 - [Config Setting](#config-setting)
   - [List All Settings](#list-all-settings)
   - [Set CKB version](#set-ckb-version)
@@ -107,6 +107,15 @@ Or set a default version globally:
 offckb config set ckb-version 0.201.0
 offckb node
 ```
+
+Or specify the path to your locally compiled CKB binary:
+
+```sh
+offckb node --binary-path /path/to/your/ckb/binary
+```
+
+When using `--binary-path`, it will ignore the specified version and network, and only work for devnet.
+
 **RPC & Proxy RPC**
 
 When the Devnet starts:

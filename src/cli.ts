@@ -31,8 +31,12 @@ program
   .command('node [CKB-Version]')
   .description('Use the CKB to start devnet')
   .option('--network <network>', 'Specify the network to deploy to', 'devnet')
-  .action(async (version: string, options: { network: Network }) => {
-    return startNode({ version, network: options.network });
+  .option(
+    '-b, --binary-path <binaryPath>',
+    'Specify the CKB binary path to use, only for devnet, when set, will ignore version and network',
+  )
+  .action(async (version: string, options: { network: Network; binaryPath?: string }) => {
+    return startNode({ version, network: options.network, binaryPath: options.binaryPath });
   });
 
 program

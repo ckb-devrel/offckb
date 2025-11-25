@@ -10,12 +10,13 @@ import { logger } from '../util/logger';
 export interface NodeProp {
   version?: string;
   network?: Network;
+  binaryPath?: string;
 }
 
-export function startNode({ version, network = Network.devnet }: NodeProp) {
+export function startNode({ version, network = Network.devnet, binaryPath }: NodeProp) {
   switch (network) {
     case Network.devnet:
-      return nodeDevnet({ version });
+      return nodeDevnet({ version, binaryPath });
     case Network.testnet:
       return nodeTestnet();
     case Network.mainnet:
@@ -25,13 +26,19 @@ export function startNode({ version, network = Network.devnet }: NodeProp) {
   }
 }
 
-export async function nodeDevnet({ version }: NodeProp) {
+export async function nodeDevnet({ version, binaryPath }: NodeProp) {
   const settings = readSettings();
   const ckbVersion = version || settings.bins.defaultCKBVersion;
-  await installCKBBinary(ckbVersion);
-  await initChainIfNeeded();
+  let ckbBinPath = '';
 
-  const ckbBinPath = encodeBinPathForTerminal(getCKBBinaryPath(ckbVersion));
+  if (binaryPath) {
+    ckbBinPath = encodeBinPathForTerminal(binaryPath);
+    logger.info(`Using custom CKB binary path: ${ckbBinPath}`);
+  } else {
+    await installCKBBinary(ckbVersion);
+    ckbBinPath = encodeBinPathForTerminal(getCKBBinaryPath(ckbVersion));
+  }
+  await initChainIfNeeded();
   const devnetConfigPath = encodeBinPathForTerminal(settings.devnet.configPath);
 
   const ckbCmd = `${ckbBinPath} run -C ${devnetConfigPath}`;
