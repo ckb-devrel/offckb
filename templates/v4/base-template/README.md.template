@@ -115,7 +115,7 @@ Tests use the `ckb-testtool` framework to simulate CKB blockchain execution. Eac
 
 - `build` - Build all contracts
 - `build:contract <name>` - Build a specific contract
-- `build:debug` - Build all contracts with debug version 
+- `build:debug` - Build all contracts with debug version
 - `build:contract:debug <name>` - Build a specific contract with debug version
 - `test` - Run all tests
 - `add-contract <name>` - Add a new contract
