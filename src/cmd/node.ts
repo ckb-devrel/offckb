@@ -14,6 +14,10 @@ export interface NodeProp {
 }
 
 export function startNode({ version, network = Network.devnet, binaryPath }: NodeProp) {
+  if (binaryPath && network !== Network.devnet) {
+    logger.warn('Custom binaryPath is only supported for devnet. The provided binaryPath will be ignored.');
+  }
+
   switch (network) {
     case Network.devnet:
       return nodeDevnet({ version, binaryPath });
