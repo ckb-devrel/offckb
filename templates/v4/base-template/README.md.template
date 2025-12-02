@@ -56,7 +56,7 @@ Build a specific contract:
 {{PACKAGE_MANAGER}} run build:contract hello-world
 ```
 
-Build with Debug version:
+Build with debug version:
 ```bash
 {{PACKAGE_MANAGER}} run build:debug
 ```
@@ -120,7 +120,7 @@ Tests use the `ckb-testtool` framework to simulate CKB blockchain execution. Eac
 - `test` - Run all tests
 - `add-contract <name>` - Add a new contract
 - `deploy` - Deploy contracts to CKB network
-- `deploy:debug` - Deploy contracts with debug version to CKB network 
+- `deploy:debug` - Deploy contracts with debug version to CKB network
 - `clean` - Remove all build outputs
 - `format` - Format code with Prettier
 

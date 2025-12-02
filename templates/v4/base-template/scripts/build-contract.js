@@ -97,5 +97,6 @@ function buildContract(contractName, isDebug = false) {
 
 // Get contract name from command line arguments
 const isDebug = process.argv.includes('--debug');
-const contractName = process.argv.filter((arg) => arg !== '--debug')[2];
+const args = process.argv.slice(2).filter((arg) => arg !== '--debug');
+const contractName = args[0];
 buildContract(contractName, isDebug);
