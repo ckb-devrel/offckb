@@ -1,18 +1,31 @@
-export interface TemplateContext {
-  projectName: string;
-  projectPath?: string;
-  language: 'typescript' | 'javascript';
-  packageManager: 'npm' | 'yarn' | 'pnpm';
-  contractName?: string;
-}
-
-export interface TemplateDependencies {
+export interface PackageJsonConfig {
+  version: string;
+  description: string;
+  private: boolean;
+  type: string;
+  scripts: Record<string, string>;
   dependencies: Record<string, string>;
   devDependencies: Record<string, string>;
   typescriptDevDeps: Record<string, string>;
 }
 
-export const TEMPLATE_CONFIG: TemplateDependencies = {
+export const PACKAGE_JSON_CONFIG: PackageJsonConfig = {
+  version: '0.1.0',
+  description: 'CKB JavaScript Smart Contract project',
+  private: true,
+  type: 'module',
+  scripts: {
+    'build:contract': 'node scripts/build-contract.js',
+    'build:contract:debug': 'node scripts/build-contract.js --debug',
+    build: 'node scripts/build-all.js',
+    'build:debug': 'node scripts/build-all.js --debug',
+    deploy: 'node scripts/build-all.js && node scripts/deploy.js',
+    'deploy:debug': 'node scripts/build-all.js --debug && node scripts/deploy.js',
+    test: 'node scripts/build-all.js && jest',
+    'add-contract': 'node scripts/add-contract.js',
+    clean: 'rimraf dist',
+    format: 'prettier --write .',
+  },
   dependencies: {
     '@ckb-js-std/bindings': '~1.0.0',
     '@ckb-js-std/core': '~1.0.0',
@@ -34,33 +47,13 @@ export const TEMPLATE_CONFIG: TemplateDependencies = {
   },
 };
 
-export interface TemplateMetadata {
-  name: string;
-  description: string;
-  supportedLanguages: ('typescript' | 'javascript')[];
-  requiredFiles: string[];
-  conditionalFiles: {
-    typescript: string[];
-    javascript: string[];
-  };
-}
-
-export const BASE_TEMPLATE_METADATA: TemplateMetadata = {
-  name: 'ckb-js-vm-base',
-  description: 'Base template for CKB JavaScript VM projects',
-  supportedLanguages: ['typescript', 'javascript'],
-  requiredFiles: [
-    'package.json.template',
-    'jest.config.cjs.template',
-    'gitignore.template',
-    'README.md.template',
-    'deployment/scripts.json.template',
-    'deployment/README.md.template',
-    'env.example.template',
-    'env.template',
-  ],
-  conditionalFiles: {
-    typescript: ['tsconfig.json.template', 'tsconfig.base.json.template'],
-    javascript: [],
-  },
-};
+export const REQUIRED_FILES = [
+  'package.json.template',
+  'jest.config.cjs.template',
+  'gitignore.template',
+  'README.md.template',
+  'deployment/scripts.json.template',
+  'deployment/README.md.template',
+  'env.example.template',
+  'env.template',
+];

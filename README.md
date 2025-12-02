@@ -134,7 +134,7 @@ Using a proxy RPC server for Testnet/Mainnet is especially helpful for debugging
 
 ### 2. Create a New Contract Project {#create-project}
     
-Generate a ready-to-use project in JS/TS using templates:
+Generate a ready-to-use smart-contract project in JS/TS using templates:
 ```sh
 offckb create <your-project-name> -c <your-contract-name>
 ```
