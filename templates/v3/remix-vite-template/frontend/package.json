@@ -11,7 +11,7 @@
     "typecheck": "tsc"
   },
   "dependencies": {
-    "@ckb-ccc/connector-react": "^v1.0.14",
+    "@ckb-ccc/connector-react": "^v1.0.30",
     "@ckb-ccc/lumos-patches": "^1.0.14",
     "@remix-run/node": "^2.8.1",
     "@remix-run/react": "^2.8.1",
@@ -22,7 +22,7 @@
     "remix-utils": "^7.6.0"
   },
   "devDependencies": {
-    "@remix-run/dev": "^2.8.1",
+    "@remix-run/dev": "^2.16.5",
     "@types/react": "^18.2.20",
     "@types/react-dom": "^18.2.7",
     "@typescript-eslint/eslint-plugin": "^6.7.4",

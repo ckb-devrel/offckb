@@ -56,6 +56,15 @@ Build a specific contract:
 {{PACKAGE_MANAGER}} run build:contract hello-world
 ```
 
+Build with debug version:
+```bash
+{{PACKAGE_MANAGER}} run build:debug
+```
+or for specific contract with debug enabled:
+```bash
+{{PACKAGE_MANAGER}} run build:contract:debug hello-world
+```
+
 ### Running Tests
 
 Run all tests:
@@ -106,9 +115,12 @@ Tests use the `ckb-testtool` framework to simulate CKB blockchain execution. Eac
 
 - `build` - Build all contracts
 - `build:contract <name>` - Build a specific contract
+- `build:debug` - Build all contracts with debug version
+- `build:contract:debug <name>` - Build a specific contract with debug version
 - `test` - Run all tests
 - `add-contract <name>` - Add a new contract
 - `deploy` - Deploy contracts to CKB network
+- `deploy:debug` - Deploy contracts with debug version to CKB network
 - `clean` - Remove all build outputs
 - `format` - Format code with Prettier
 
@@ -128,6 +140,8 @@ Deploy your contracts to CKB networks using the built-in deploy script:
 # Deploy to mainnet
 {{PACKAGE_MANAGER}} run deploy -- --network mainnet
 ```
+
+Note that you can change the `run deploy` to `run deploy:debug` to deploy the debug version of your smart contracts.
 
 ### Advanced Options
 

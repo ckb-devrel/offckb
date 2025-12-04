@@ -4,7 +4,7 @@ import { execSync } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 
-function buildContract(contractName) {
+function buildContract(contractName, isDebug = false) {
   if (!contractName) {
     console.error('Usage: node build-contract.js <contract-name>');
     process.exit(1);
@@ -50,14 +50,23 @@ function buildContract(contractName) {
     // }
 
     // Step 2: Bundle with esbuild
-    console.log('  📦 Bundling with esbuild...');
+    console.log(`  📦 Bundling with esbuild with ${isDebug ? 'debug' : 'release'} settings...`);
+    const debugParams = [
+      '--sourcemap=external',
+      '--sources-content',
+      '--keep-names',
+      '--minify=false',
+      '--define:DEBUG=true',
+      '--loader:.map=json',
+    ];
+    const releaseParams = ['--minify'];
     const esbuildCmd = [
       './node_modules/.bin/esbuild',
       '--platform=neutral',
-      '--minify',
       '--bundle',
       '--external:@ckb-js-std/bindings',
       '--target=es2022',
+      ...(isDebug ? debugParams : releaseParams),
       srcFile,
       `--outfile=${outputJsFile}`,
     ].join(' ');
@@ -87,5 +96,7 @@ function buildContract(contractName) {
 }
 
 // Get contract name from command line arguments
-const contractName = process.argv[2];
-buildContract(contractName);
+const isDebug = process.argv.includes('--debug');
+const args = process.argv.slice(2).filter((arg) => arg !== '--debug');
+const contractName = args[0];
+buildContract(contractName, isDebug);

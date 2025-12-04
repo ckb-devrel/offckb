@@ -4,7 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { execSync } from 'child_process';
 
-function buildAllContracts() {
+function buildAllContracts(isDebug = false) {
   const contractsDir = path.join(process.cwd(), 'contracts');
 
   if (!fs.existsSync(contractsDir)) {
@@ -27,8 +27,8 @@ function buildAllContracts() {
   for (const contractName of contracts) {
     console.log(`\n📦 Building contract: ${contractName}`);
     try {
-      execSync(`node scripts/build-contract.js ${contractName}`, { stdio: 'inherit' });
-      console.log(`✅ Successfully built: ${contractName}`);
+      execSync(`node scripts/build-contract.js ${contractName} ${isDebug ? '--debug' : ''}`, { stdio: 'inherit' });
+      console.log(`✅ Successfully built: ${contractName} with ${isDebug ? 'debug' : 'release'} version`);
     } catch (error) {
       console.error(`❌ Failed to build: ${contractName}`);
       console.error(error.message);
@@ -39,4 +39,4 @@ function buildAllContracts() {
   console.log(`\n🎉 All contracts built successfully!`);
 }
 
-buildAllContracts();
+buildAllContracts(process.argv.includes('--debug'));
