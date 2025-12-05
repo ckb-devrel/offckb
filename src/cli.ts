@@ -17,6 +17,7 @@ import { genSystemScriptsJsonFile } from './scripts/gen';
 import { CKBDebugger } from './tools/ckb-debugger';
 import { logger } from './util/logger';
 import { Network } from './type/base';
+import { status } from './cmd/status';
 
 const version = require('../package.json').version;
 const description = require('../package.json').description;
@@ -152,6 +153,14 @@ program
   .helpOption(false) // Disable the default help option
   .action(async () => {
     return CKBDebugger.runWithArgs(process.argv.slice(2));
+  });
+
+program
+  .command('status')
+  .description('Show ckb-tui status interface')
+  .option('--network <network>', 'Specify the network to deploy to', 'devnet')
+  .action(async (option) => {
+    status({ network: option.network });
   });
 
 program
