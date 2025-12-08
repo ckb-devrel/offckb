@@ -13,9 +13,9 @@ This project uses the CKB JavaScript VM (ckb-js-vm) to write smart contracts in 
 ├── contracts/           # Smart contract source code
 │   └── hello-world/
 │       └── src/
-│           └── index.{{LANGUAGE}} # Contract implementation
+│           └── index.{{LANGUAGE_EXT}} # Contract implementation
 ├── tests/              # Contract tests
-│   └── hello-world.test.{{LANGUAGE}}
+│   └── hello-world.test.{{LANGUAGE_EXT}}
 ├── scripts/            # Build and utility scripts
 │   ├── build-all.js
 │   ├── build-contract.js
@@ -93,7 +93,7 @@ This will:
 
 ### Contract Development
 
-1. Edit your contract in `contracts/<contract-name>/src/index.{{LANGUAGE}}`
+1. Edit your contract in `contracts/<contract-name>/src/index.{{LANGUAGE_EXT}}`
 2. Build the contract: `{{PACKAGE_MANAGER}} run build:contract <contract-name>`
 3. Run tests: `{{PACKAGE_MANAGER}} test -- <contract-name>`
 
