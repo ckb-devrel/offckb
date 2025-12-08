@@ -53,6 +53,9 @@ export class TemplateProcessor {
     processed = processed.replace(/\{\{PROJECT_PATH\}\}/g, context.projectPath || '.');
     processed = processed.replace(/\{\{CONTRACT_NAME\}\}/g, context.contractName || 'hello-world');
     processed = processed.replace(/\{\{LANGUAGE\}\}/g, context.language);
+    // Add LANGUAGE_EXT variable for file extensions (typescript -> ts, javascript -> js)
+    const languageExtension = context.language === 'typescript' ? 'ts' : 'js';
+    processed = processed.replace(/\{\{LANGUAGE_EXT\}\}/g, languageExtension);
     processed = processed.replace(/\{\{PACKAGE_MANAGER\}\}/g, context.packageManager);
 
     return processed;

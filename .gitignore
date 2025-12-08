@@ -7,3 +7,4 @@ dist/
 .vscode
 templates/temp-clone-folder
 build/
+package-lock.json

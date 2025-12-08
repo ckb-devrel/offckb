@@ -60,6 +60,7 @@ program
   .option('-o, --output <output>', 'Specify the output folder path for the deployment record files', './deployment')
   .option('-t, --type-id', 'Specify if use upgradable type id to deploy the script')
   .option('--privkey <privkey>', 'Specify the private key to deploy scripts')
+  .option('-y, --yes', 'Skip confirmation prompt and deploy immediately')
   .action((options: DeployOptions) => deploy(options));
 
 program
