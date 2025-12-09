@@ -105,7 +105,11 @@ program
     return printSystemScripts({ style: exportStyle, network });
   });
 
-program.command('clean').description('Clean the devnet data, need to stop running the chain first').action(clean);
+program
+  .command('clean')
+  .description('Clean the devnet data, need to stop running the chain first')
+  .option('-d, --data', 'Only remove chain data, keep devnet config files')
+  .action((options: { data?: boolean }) => clean(options));
 program.command('accounts').description('Print account list info').action(accounts);
 
 program
