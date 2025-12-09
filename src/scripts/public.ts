@@ -182,7 +182,7 @@ export const TESTNET_SYSTEM_SCRIPTS: SystemScriptsRecord = {
     name: 'secp256k1_blake160_multisig_all_v2',
     script: {
       codeHash: '0x36c971b8d41fbd94aabca77dc75e826729ac98447b46f91e00796155dddb0d29',
-      hashType: 'data1',
+      hashType: 'data2',
       cellDeps: [
         {
           cellDep: {
@@ -307,7 +307,7 @@ export const MAINNET_SYSTEM_SCRIPTS: SystemScriptsRecord = {
     name: 'secp256k1_blake160_multisig_all_v2',
     script: {
       codeHash: '0x36c971b8d41fbd94aabca77dc75e826729ac98447b46f91e00796155dddb0d29',
-      hashType: 'data1',
+      hashType: 'data2',
       cellDeps: [
         {
           cellDep: {

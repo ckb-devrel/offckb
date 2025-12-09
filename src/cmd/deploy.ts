@@ -13,6 +13,7 @@ export interface DeployOptions extends NetworkOption {
   output?: string;
   privkey?: string | null;
   typeId?: boolean;
+  yes?: boolean;
 }
 
 export async function deploy(
@@ -55,13 +56,16 @@ export async function deploy(
     `   🔄 Type ID: ${enableTypeId ? 'enabled (upgradable)' : 'disabled (immutable)'}`,
   ]);
 
-  const res = await confirm({
-    message: 'Are you sure you want to deploy these contracts?',
-  });
+  // Skip confirmation if -y flag is provided
+  if (!opt.yes) {
+    const res = await confirm({
+      message: 'Are you sure you want to deploy these contracts?',
+    });
 
-  if (!res) {
-    logger.info('Deployment cancelled.');
-    return;
+    if (!res) {
+      logger.info('Deployment cancelled.');
+      return;
+    }
   }
 
   const results = await deployBinaries(outputFolder, binPaths, privateKey, enableTypeId, ckb);

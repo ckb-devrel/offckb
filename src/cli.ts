@@ -31,8 +31,12 @@ program
   .command('node [CKB-Version]')
   .description('Use the CKB to start devnet')
   .option('--network <network>', 'Specify the network to deploy to', 'devnet')
-  .action(async (version: string, options: { network: Network }) => {
-    return startNode({ version, network: options.network });
+  .option(
+    '-b, --binary-path <binaryPath>',
+    'Specify the CKB binary path to use, only for devnet, when set, will ignore version and network',
+  )
+  .action(async (version: string, options: { network: Network; binaryPath?: string }) => {
+    return startNode({ version, network: options.network, binaryPath: options.binaryPath });
   });
 
 program
@@ -56,6 +60,7 @@ program
   .option('-o, --output <output>', 'Specify the output folder path for the deployment record files', './deployment')
   .option('-t, --type-id', 'Specify if use upgradable type id to deploy the script')
   .option('--privkey <privkey>', 'Specify the private key to deploy scripts')
+  .option('-y, --yes', 'Skip confirmation prompt and deploy immediately')
   .action((options: DeployOptions) => deploy(options));
 
 program
@@ -100,7 +105,11 @@ program
     return printSystemScripts({ style: exportStyle, network });
   });
 
-program.command('clean').description('Clean the devnet data, need to stop running the chain first').action(clean);
+program
+  .command('clean')
+  .description('Clean the devnet data, need to stop running the chain first')
+  .option('-d, --data', 'Only remove chain data, keep devnet config files')
+  .action((options: { data?: boolean }) => clean(options));
 program.command('accounts').description('Print account list info').action(accounts);
 
 program

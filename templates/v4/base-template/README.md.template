@@ -13,9 +13,9 @@ This project uses the CKB JavaScript VM (ckb-js-vm) to write smart contracts in 
 ├── contracts/           # Smart contract source code
 │   └── hello-world/
 │       └── src/
-│           └── index.{{LANGUAGE}} # Contract implementation
+│           └── index.{{LANGUAGE_EXT}} # Contract implementation
 ├── tests/              # Contract tests
-│   └── hello-world.test.{{LANGUAGE}}
+│   └── hello-world.test.{{LANGUAGE_EXT}}
 ├── scripts/            # Build and utility scripts
 │   ├── build-all.js
 │   ├── build-contract.js
@@ -56,6 +56,15 @@ Build a specific contract:
 {{PACKAGE_MANAGER}} run build:contract hello-world
 ```
 
+Build with debug version:
+```bash
+{{PACKAGE_MANAGER}} run build:debug
+```
+or for specific contract with debug enabled:
+```bash
+{{PACKAGE_MANAGER}} run build:contract:debug hello-world
+```
+
 ### Running Tests
 
 Run all tests:
@@ -84,7 +93,7 @@ This will:
 
 ### Contract Development
 
-1. Edit your contract in `contracts/<contract-name>/src/index.{{LANGUAGE}}`
+1. Edit your contract in `contracts/<contract-name>/src/index.{{LANGUAGE_EXT}}`
 2. Build the contract: `{{PACKAGE_MANAGER}} run build:contract <contract-name>`
 3. Run tests: `{{PACKAGE_MANAGER}} test -- <contract-name>`
 
@@ -106,9 +115,12 @@ Tests use the `ckb-testtool` framework to simulate CKB blockchain execution. Eac
 
 - `build` - Build all contracts
 - `build:contract <name>` - Build a specific contract
+- `build:debug` - Build all contracts with debug version
+- `build:contract:debug <name>` - Build a specific contract with debug version
 - `test` - Run all tests
 - `add-contract <name>` - Add a new contract
 - `deploy` - Deploy contracts to CKB network
+- `deploy:debug` - Deploy contracts with debug version to CKB network
 - `clean` - Remove all build outputs
 - `format` - Format code with Prettier
 
@@ -128,6 +140,8 @@ Deploy your contracts to CKB networks using the built-in deploy script:
 # Deploy to mainnet
 {{PACKAGE_MANAGER}} run deploy -- --network mainnet
 ```
+
+Note that you can change the `run deploy` to `run deploy:debug` to deploy the debug version of your smart contracts.
 
 ### Advanced Options
 

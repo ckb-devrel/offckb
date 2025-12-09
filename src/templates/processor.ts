@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { TemplateContext, TEMPLATE_CONFIG, BASE_TEMPLATE_METADATA } from './config';
+import { PACKAGE_JSON_CONFIG, REQUIRED_FILES } from './config';
+import { TemplateContext } from './type';
 
 export class TemplateProcessor {
   private templateDir: string;
@@ -52,6 +53,9 @@ export class TemplateProcessor {
     processed = processed.replace(/\{\{PROJECT_PATH\}\}/g, context.projectPath || '.');
     processed = processed.replace(/\{\{CONTRACT_NAME\}\}/g, context.contractName || 'hello-world');
     processed = processed.replace(/\{\{LANGUAGE\}\}/g, context.language);
+    // Add LANGUAGE_EXT variable for file extensions (typescript -> ts, javascript -> js)
+    const languageExtension = context.language === 'typescript' ? 'ts' : 'js';
+    processed = processed.replace(/\{\{LANGUAGE_EXT\}\}/g, languageExtension);
     processed = processed.replace(/\{\{PACKAGE_MANAGER\}\}/g, context.packageManager);
 
     return processed;
@@ -70,7 +74,7 @@ export class TemplateProcessor {
     }
 
     // Always include required files
-    if (BASE_TEMPLATE_METADATA.requiredFiles.some((reqFile) => relativePath.includes(reqFile))) {
+    if (REQUIRED_FILES.some((reqFile) => relativePath.includes(reqFile))) {
       return true;
     }
 
@@ -115,26 +119,17 @@ export class TemplateProcessor {
   generatePackageJson(context: TemplateContext): object {
     const basePackageJson = {
       name: context.projectName,
-      version: '0.1.0',
-      description: 'CKB JavaScript Smart Contract project',
-      private: true,
-      type: 'module',
-      scripts: {
-        build: 'node scripts/build-all.js',
-        'build:contract': 'node scripts/build-contract.js',
-        test: 'node scripts/build-all.js && jest',
-        'add-contract': 'node scripts/add-contract.js',
-        deploy: 'node scripts/build-all.js && node scripts/deploy.js',
-        clean: 'rimraf dist',
-        format: 'prettier --write .',
-      },
-      dependencies: TEMPLATE_CONFIG.dependencies,
-      devDependencies: { ...TEMPLATE_CONFIG.devDependencies },
+      version: PACKAGE_JSON_CONFIG.version,
+      description: PACKAGE_JSON_CONFIG.description,
+      private: PACKAGE_JSON_CONFIG.private,
+      type: PACKAGE_JSON_CONFIG.type,
+      scripts: PACKAGE_JSON_CONFIG.scripts,
+      dependencies: PACKAGE_JSON_CONFIG.dependencies,
+      devDependencies: { ...PACKAGE_JSON_CONFIG.devDependencies },
     };
 
-    // Add TypeScript dependencies if needed
     if (context.language === 'typescript') {
-      Object.assign(basePackageJson.devDependencies, TEMPLATE_CONFIG.typescriptDevDeps);
+      Object.assign(basePackageJson.devDependencies, PACKAGE_JSON_CONFIG.typescriptDevDeps);
     }
 
     return basePackageJson;

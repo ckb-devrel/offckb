@@ -42,7 +42,7 @@ export function getScriptInfoFrom(recipe: DeploymentRecipe) {
   const isDepCode = recipe.depGroupRecipes.length > 0;
   const scriptsInfo: ScriptInfo = {
     codeHash: (firstCell.typeId ? firstCell.typeId : firstCell.dataHash) as `0x${string}`,
-    hashType: firstCell.typeId ? 'type' : 'data1',
+    hashType: firstCell.typeId ? 'type' : 'data2',
     cellDeps: !isDepCode
       ? [
           {

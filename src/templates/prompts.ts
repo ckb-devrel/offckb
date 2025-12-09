@@ -1,6 +1,6 @@
 import { select, input, confirm } from '@inquirer/prompts';
 import { PackageManagerDetector, PackageManager } from './package-manager';
-import { TemplateContext } from './config';
+import { TemplateContext } from './type';
 
 export class InteractivePrompts {
   private packageManagerDetector: PackageManagerDetector;
