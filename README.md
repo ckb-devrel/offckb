@@ -267,7 +267,7 @@ Example result:
 Pay attention to the `devnet.configPath` and `devnet.dataPath`.
     
 2. `cd` into the `devnet.configPath` . Modify the config files as needed. See [Custom Devnet Setup](https://docs.nervos.org/docs/node/run-devnet-node#custom-devnet-setup) and [Configure CKB](https://github.com/nervosnetwork/ckb/blob/develop/docs/configure.md) for details.
-3. After modifications, remove everything in the `devnet.dataPath` folder to reset chain data.
+3. After modifications, run `offckb clean -d` to remove the chain data if needed while keeping the updated config files.
 4. Restart local blockchain by running `offckb node`
 
 
