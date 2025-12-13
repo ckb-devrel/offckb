@@ -52,8 +52,12 @@ export interface Settings {
     transactionsPath: string;
   };
   tools: {
+    rootFolder: string;
     ckbDebugger: {
       minVersion: string;
+    };
+    ckbTui: {
+      version: string;
     };
   };
 }
@@ -88,8 +92,12 @@ export const defaultSettings: Settings = {
     transactionsPath: path.resolve(dataPath, 'mainnet/transactions'),
   },
   tools: {
+    rootFolder: path.resolve(dataPath, 'tools'),
     ckbDebugger: {
       minVersion: '0.200.0',
+    },
+    ckbTui: {
+      version: 'v0.1.0',
     },
   },
 };
