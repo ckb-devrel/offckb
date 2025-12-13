@@ -11,7 +11,7 @@
   "dependencies": {
     "@ckb-ccc/connector-react": "^v1.0.30",
     "@ckb-ccc/lumos-patches": "^1.0.14",
-    "next": "^15.4.9",
+    "next": "^15.4.10",
     "react": "^18",
     "react-dom": "^18"
   },
