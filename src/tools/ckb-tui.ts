@@ -71,7 +71,6 @@ export class CKBTui {
       }
 
       // Set the correct binary name based on platform and architecture
-      // TODO: Fix the bin name
       let extractedBinary: string;
       if (platform === 'win32') {
         extractedBinary = 'ckb-tui.exe';
