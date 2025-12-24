@@ -134,7 +134,7 @@ offckb node --network <testnet or mainnet>
 
 Using a proxy RPC server for Testnet/Mainnet is especially helpful for debugging transactions, since failed transactions are dumped automatically.
 
-**Watch Network With TUI**
+**Watch Network with TUI**
 
 Once you start the CKB Node, you can use `offckb status --network devnet/testnet/mainnet` to start a CKB-TUI interface to monitor the CKB network from your node.
 
