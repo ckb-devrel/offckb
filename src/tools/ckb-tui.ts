@@ -22,6 +22,11 @@ export class CKBTui {
   }
 
   private static downloadBinary(version: string) {
+    // Validate version format to prevent URL manipulation
+    if (!/^v\d+\.\d+\.\d+$/.test(version)) {
+      throw new Error(`Invalid version format: ${version}. Expected format: vX.Y.Z`);
+    }
+
     const platform = process.platform;
     const arch = process.arch;
     let assetName: string;
@@ -29,6 +34,8 @@ export class CKBTui {
     if (platform === 'darwin') {
       if (arch === 'arm64') {
         assetName = `ckb-tui-with-node-macos-aarch64.tar.gz`;
+      } else if (arch === 'x64') {
+        assetName = `ckb-tui-with-node-macos-amd64.tar.gz`;
       } else {
         throw new Error(`Unsupported architecture for macOS: ${arch}`);
       }
@@ -63,9 +70,26 @@ export class CKBTui {
         execSync(`unzip "${archivePath}" -d "${binDir}"`, { stdio: 'inherit' });
       }
 
-      // Assume the binary is extracted as 'ckb-tui' or 'ckb-tui.exe'
-      // todo: fix the bin name
-      const extractedBinary = platform === 'win32' ? 'ckb-tui.exe' : 'ckb-tui-macos-amd64';
+      // Set the correct binary name based on platform and architecture
+      // TODO: Fix the bin name
+      let extractedBinary: string;
+      if (platform === 'win32') {
+        extractedBinary = 'ckb-tui.exe';
+      } else if (platform === 'darwin') {
+        if (arch === 'arm64') {
+          extractedBinary = 'ckb-tui-macos-aarch64';
+        } else {
+          extractedBinary = 'ckb-tui-macos-amd64';
+        }
+      } else if (platform === 'linux') {
+        if (arch === 'x64') {
+          extractedBinary = 'ckb-tui-linux-amd64';
+        } else {
+          throw new Error(`Unsupported architecture for Linux: ${arch}`);
+        }
+      } else {
+        throw new Error(`Unsupported platform: ${platform}`);
+      }
       const extractedPath = path.join(binDir, extractedBinary);
       if (fs.existsSync(extractedPath)) {
         fs.renameSync(extractedPath, this.binaryPath!);
@@ -84,18 +108,34 @@ export class CKBTui {
         }
       }
 
+      // Check that the binary was successfully extracted and moved
+      if (!fs.existsSync(this.binaryPath!)) {
+        logger.error(`ckb-tui binary was not found after extraction. Expected at: ${this.binaryPath}`);
+        throw new Error('Failed to extract and locate ckb-tui binary.');
+      }
+
       // Make executable on Unix
       if (platform !== 'win32') {
         execSync(`chmod +x "${this.binaryPath}"`);
       }
 
-      // Clean up archive
-      fs.unlinkSync(archivePath);
-
       logger.info('ckb-tui installed successfully.');
     } catch (error) {
-      logger.error('Failed to download/install ckb-tui:', (error as Error).message);
+      logger.error(
+        'Failed to download/install ckb-tui:',
+        (error as Error).message,
+        '\nPlease check your network connectivity, verify that the specified version exists in the releases, and ensure you have sufficient file system permissions.'
+      );
       throw error;
+    } finally {
+      // Clean up archive even if error occurs
+      if (fs.existsSync(archivePath)) {
+        try {
+          fs.unlinkSync(archivePath);
+        } catch (cleanupError) {
+          logger.warn('Failed to clean up archive file:', (cleanupError as Error).message);
+        }
+      }
     }
   }
 
@@ -110,11 +150,6 @@ export class CKBTui {
 
   static run(args: string[] = []) {
     const binaryPath = this.getBinaryPath();
-    const command = `"${binaryPath}" ${args.join(' ')}`;
-    return spawnSync(command, { stdio: 'inherit', shell: true });
-  }
-
-  static runWithArgs(args: string[]) {
-    this.run(args);
+    return spawnSync(binaryPath, args, { stdio: 'inherit' });
   }
 }

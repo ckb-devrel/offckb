@@ -160,7 +160,12 @@ program
   .description('Show ckb-tui status interface')
   .option('--network <network>', 'Specify the network to deploy to', 'devnet')
   .action(async (option) => {
-    status({ network: option.network });
+    const validNetworks = ['devnet', 'testnet', 'mainnet'];
+    if (!validNetworks.includes(option.network)) {
+      logger.error(`Invalid network: ${option.network}. Must be one of: ${validNetworks.join(', ')}`);
+      process.exit(1);
+    }
+    return await status({ network: option.network });
   });
 
 program
