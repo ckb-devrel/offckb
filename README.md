@@ -79,6 +79,7 @@ Commands:
   transfer-all [options] [toAddress]            Transfer All CKB tokens to address, only devnet and testnet
   balance [options] [toAddress]                 Check account balance, only devnet and testnet
   debugger                                      Port of the raw CKB Standalone Debugger
+  status [options]                              Show ckb-tui status interface
   config <action> [item] [value]                do a configuration action
   help [command]                                display help for command
 ```
@@ -130,7 +131,12 @@ You can also start a proxy RPC server for public networks:
 ```sh
 offckb node --network <testnet or mainnet>
 ```
+
 Using a proxy RPC server for Testnet/Mainnet is especially helpful for debugging transactions, since failed transactions are dumped automatically.
+
+**Watch Network with TUI**
+
+Once you start the CKB Node, you can use `offckb status --network devnet/testnet/mainnet` to start a CKB-TUI interface to monitor the CKB network from your node.
 
 ### 2. Create a New Contract Project {#create-project}
     
