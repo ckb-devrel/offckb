@@ -50,8 +50,8 @@ export async function downloadCKBBinaryAndUnzip(version: string) {
     fs.chmodSync(getCKBBinaryPath(version), '755'); // Make the binary executable
 
     logger.info(`CKB ${version} installed successfully.`);
-  } catch (error) {
-    logger.error('Error installing dependency binary:', error);
+  } catch (error: unknown) {
+    logger.error('Error installing dependency binary:', (error as Error).message);
   }
 }
 
