@@ -35,9 +35,6 @@ importers:
       commander:
         specifier: ^12.0.0
         version: 12.1.0
-      cpu-features:
-        specifier: ^0.0.10
-        version: 0.0.10
       http-proxy:
         specifier: ^1.18.1
         version: 1.18.1
@@ -60,9 +57,6 @@ importers:
       '@types/adm-zip':
         specifier: ^0.5.5
         version: 0.5.7
-      '@types/cpu-features':
-        specifier: ^0.0.3
-        version: 0.0.3
       '@types/node':
         specifier: ^20.17.24
         version: 20.17.24
@@ -102,6 +96,10 @@ importers:
       typescript:
         specifier: ^5.3.3
         version: 5.8.2
+    optionalDependencies:
+      cpu-features:
+        specifier: ^0.0.10
+        version: 0.0.10
 
 packages:
 
@@ -356,9 +354,6 @@ packages:
 
   '@types/adm-zip@0.5.7':
     resolution: {integrity: sha512-DNEs/QvmyRLurdQPChqq0Md4zGvPwHerAJYWk9l2jCbD1VPpnzRJorOdiq4zsw09NFbYnhfsoEhWtxIzXpn2yw==}
-
-  '@types/cpu-features@0.0.3':
-    resolution: {integrity: sha512-W/Ep+LDZoxMbCcH7LHRB3RN+TY4gbHl3u4uRq4XsxOh1gnpf5Lkwy5xWTBKSaJYQuMLW2XPAmRWA5Ucsy2EGVQ==}
 
   '@types/http-proxy@1.17.16':
     resolution: {integrity: sha512-sdWoUajOB1cd0A8cRRQ1cfyWNbmFKLAqBB89Y8x5iYyG/mkJHc0YUH8pdWBy2omi9qtCpiIgGjuwO0dQST2l5w==}
@@ -1998,8 +1993,6 @@ snapshots:
     dependencies:
       '@types/node': 20.17.24
 
-  '@types/cpu-features@0.0.3': {}
-
   '@types/http-proxy@1.17.16':
     dependencies:
       '@types/node': 20.17.24
@@ -2268,7 +2261,8 @@ snapshots:
       base64-js: 1.5.1
       ieee754: 1.2.1
 
-  buildcheck@0.0.6: {}
+  buildcheck@0.0.6:
+    optional: true
 
   call-bind-apply-helpers@1.0.2:
     dependencies:
@@ -2375,6 +2369,7 @@ snapshots:
     dependencies:
       buildcheck: 0.0.6
       nan: 2.22.2
+    optional: true
 
   create-hash@1.2.0:
     dependencies:

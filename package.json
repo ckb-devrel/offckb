@@ -27,7 +27,6 @@
   },
   "pnpm": {
     "onlyBuiltDependencies": [
-      "cpu-features",
       "secp256k1"
     ]
   },
@@ -55,7 +54,6 @@
   },
   "devDependencies": {
     "@types/adm-zip": "^0.5.5",
-    "@types/cpu-features": "^0.0.3",
     "@types/node": "^20.17.24",
     "@types/node-fetch": "^2.6.11",
     "@types/semver": "^7.5.7",
@@ -80,12 +78,14 @@
     "child_process": "^1.0.2",
     "ckb-transaction-dumper": "^0.4.2",
     "commander": "^12.0.0",
-    "cpu-features": "^0.0.10",
     "http-proxy": "^1.18.1",
     "https-proxy-agent": "^7.0.5",
     "node-fetch": "2",
     "semver": "^7.6.0",
     "tar": "^6.2.1",
     "winston": "^3.17.0"
+  },
+  "optionalDependencies": {
+    "cpu-features": "^0.0.10"
   }
 }
