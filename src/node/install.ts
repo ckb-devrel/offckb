@@ -170,7 +170,7 @@ function isPortable(): boolean {
     logger.warn('Failed to detect CPU features, using portable binary', error);
     cachedIsPortable = true;
   }
-  
+
   return cachedIsPortable;
 }
 
