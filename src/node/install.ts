@@ -148,21 +148,30 @@ function getExtension(): 'tar.gz' | 'zip' {
   return 'zip';
 }
 
+let cachedIsPortable: boolean | undefined = undefined;
+
 function isPortable(): boolean {
+  if (cachedIsPortable !== undefined) {
+    return cachedIsPortable;
+  }
+
   try {
     const CPUFeatures = require('cpu-features');
     const features = CPUFeatures();
     if (features.arch === 'x86') {
       const flags = features.flags as any; // CPUFeatures.X86CpuFlags
       // if lacks any of the following instruction, use portable binary
-      return !(flags.avx2 && flags.sse4_2 && flags.bmi2 && flags.pclmulqdq);
+      cachedIsPortable = !(flags.avx2 && flags.sse4_2 && flags.bmi2 && flags.pclmulqdq);
+    } else {
+      cachedIsPortable = false;
     }
-    return false;
   } catch (error) {
     // If cpu-features fails to load (e.g., on Windows without build tools), use portable binary
-    logger.warn('Failed to detect CPU features, using portable binary');
-    return true;
+    logger.warn('Failed to detect CPU features, using portable binary', error);
+    cachedIsPortable = true;
   }
+  
+  return cachedIsPortable;
 }
 
 function buildCKBGithubReleasePackageName(version: string, opt: { os?: string; arch?: string } = {}) {
