@@ -9,7 +9,6 @@ import { Request } from '../util/request';
 import { getCKBBinaryInstallPath, getCKBBinaryPath, readSettings } from '../cfg/setting';
 import { encodeBinPathForTerminal } from '../util/encoding';
 import { logger } from '../util/logger';
-import CPUFeatures from 'cpu-features';
 
 export async function installCKBBinary(version: string) {
   const ckbBinPath = getCKBBinaryPath(version);
@@ -150,11 +149,17 @@ function getExtension(): 'tar.gz' | 'zip' {
 }
 
 function isPortable(): boolean {
-  const features = CPUFeatures();
-  if (features.arch === 'x86') {
-    const flags = features.flags as CPUFeatures.X86CpuFlags;
-    // if lacks any of the following instruction, use portable binary
-    return !(flags.avx2 && flags.sse4_2 && flags.bmi2 && flags.pclmulqdq);
+  try {
+    const CPUFeatures = require('cpu-features');
+    const features = CPUFeatures();
+    if (features.arch === 'x86') {
+      const flags = features.flags as any; // CPUFeatures.X86CpuFlags
+      // if lacks any of the following instruction, use portable binary
+      return !(flags.avx2 && flags.sse4_2 && flags.bmi2 && flags.pclmulqdq);
+    }
+  } catch (error) {
+    // If cpu-features fails to load (e.g., on Windows without build tools), assume portable
+    logger.warn('Failed to detect CPU features, using portable binary');
   }
   return false;
 }
