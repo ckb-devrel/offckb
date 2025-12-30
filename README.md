@@ -55,6 +55,8 @@ pnpm install -g @offckb/cli
 
 _Require Node version `>= v20.0.0`. We recommend using latest [LTS](https://nodejs.org/en/download/package-manager) version of Node to run `offckb`_
 
+**Note for Windows users:** If installation fails due to native module compilation issues, the CLI will still work but may use portable binaries instead of optimized ones. For better performance, consider installing Visual Studio Build Tools.
+
 ## Usage
 
 ```sh
