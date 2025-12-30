@@ -157,11 +157,12 @@ function isPortable(): boolean {
       // if lacks any of the following instruction, use portable binary
       return !(flags.avx2 && flags.sse4_2 && flags.bmi2 && flags.pclmulqdq);
     }
+    return false;
   } catch (error) {
-    // If cpu-features fails to load (e.g., on Windows without build tools), assume portable
+    // If cpu-features fails to load (e.g., on Windows without build tools), use portable binary
     logger.warn('Failed to detect CPU features, using portable binary');
+    return true;
   }
-  return false;
 }
 
 function buildCKBGithubReleasePackageName(version: string, opt: { os?: string; arch?: string } = {}) {
