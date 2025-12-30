@@ -178,7 +178,8 @@ function buildCKBGithubReleasePackageName(version: string, opt: { os?: string; a
   const os = opt.os || getOS();
   const arch = opt.arch || getArch();
 
-  if (isPortable()) {
+  if (isPortable() && os !== 'pc-windows-msvc') {
+    // portable binary is not available for windows
     return `ckb_v${version}_${arch}-${os}-portable`;
   } else {
     return `ckb_v${version}_${arch}-${os}`;
@@ -193,7 +194,8 @@ function buildCKBGithubReleasePackageNameWithExtension(
   const arch = opt.arch || getArch();
   const extension = opt.ext || getExtension();
 
-  if (isPortable()) {
+  if (isPortable() && os !== 'pc-windows-msvc') {
+    // portable binary is not available for windows
     return `ckb_v${version}_${arch}-${os}-portable.${extension}`;
   } else {
     return `ckb_v${version}_${arch}-${os}.${extension}`;
