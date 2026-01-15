@@ -108,7 +108,7 @@ program
 program
   .command('clean')
   .description('Clean the devnet data, need to stop running the chain first')
-  .option('-d, --data', 'Only remove chain data, keep devnet config files')
+  .option('-d, --data', 'Deep clean: remove all devnet data including config files (useful when init is corrupted)')
   .action((options: { data?: boolean }) => clean(options));
 program.command('accounts').description('Print account list info').action(accounts);
 
