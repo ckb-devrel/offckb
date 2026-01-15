@@ -6,7 +6,7 @@ import { logger } from '../util/logger';
 import { TYPE_ID_SCRIPT } from './const';
 import { SystemScriptsRecord, SystemScriptName, SystemScript } from './type';
 import toml from '@iarna/toml';
-import * as path from 'path';
+import { extractScriptNameFromPath } from './util';
 
 export function getDevnetSystemScriptsFromListHashes(): SystemScriptsRecord | null {
   const settings = readSettings();
@@ -23,21 +23,8 @@ export function getDevnetSystemScriptsFromListHashes(): SystemScriptsRecord | nu
   }
   const systemScriptArray = chainSpecHashes.system_cells
     .map((cell) => {
-      // Extract the file name from the path
-      // Handle Bundled() and FileSystem() wrappers, and both Unix (/) and Windows (\) path separators
-      let pathString = cell.path;
-
-      // Remove FileSystem(...) or Bundled(...) wrapper if present
-      const wrapperMatch = pathString.match(/^(?:FileSystem|Bundled)\((.+)\)$/);
-      if (wrapperMatch) {
-        pathString = wrapperMatch[1];
-      }
-
-      // Use path.basename to extract filename (works for both Unix and Windows paths)
-      // On Windows, path.basename handles both forward and back slashes
-      // On Unix, it handles forward slashes
-      // For paths like "specs/cells/secp256k1_blake160_sighash_all", this gets the last part
-      const name = path.basename(pathString);
+      // Extract the file name from the path using the helper function
+      const name = extractScriptNameFromPath(cell.path);
 
       const depGroupIndex = chainSpecHashes.dep_groups.findIndex((depGroup) =>
         depGroup.included_cells.includes(cell.path),
