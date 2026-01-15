@@ -8,3 +8,7 @@ dist/
 templates/temp-clone-folder
 build/
 package-lock.json
+
+# Test coverage
+coverage/
+*.lcov
