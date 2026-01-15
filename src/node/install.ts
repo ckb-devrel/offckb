@@ -43,11 +43,24 @@ export async function downloadCKBBinaryAndUnzip(version: string) {
     const sourcePath = path.join(extractDir, ckbPackageName);
     const targetPath = getCKBBinaryInstallPath(version);
     if (fs.existsSync(targetPath)) {
-      fs.rmdirSync(targetPath, { recursive: true });
+      fs.rmSync(targetPath, { recursive: true, force: true });
     }
     fs.mkdirSync(targetPath, { recursive: true });
-    fs.renameSync(sourcePath, targetPath); // Move binary to desired location
-    fs.chmodSync(getCKBBinaryPath(version), '755'); // Make the binary executable
+
+    // Use fs.cp for cross-platform file copying (Node 16.7+)
+    // This is more reliable than renameSync on Windows
+    if (fs.cpSync) {
+      fs.cpSync(sourcePath, targetPath, { recursive: true, force: true });
+      fs.rmSync(sourcePath, { recursive: true, force: true });
+    } else {
+      // Fallback for older Node versions
+      fs.renameSync(sourcePath, targetPath);
+    }
+
+    // Make the binary executable (only for non-Windows platforms)
+    if (process.platform !== 'win32') {
+      fs.chmodSync(getCKBBinaryPath(version), '755');
+    }
 
     logger.info(`CKB ${version} installed successfully.`);
   } catch (error: unknown) {

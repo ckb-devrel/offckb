@@ -6,6 +6,7 @@ import { logger } from '../util/logger';
 import { TYPE_ID_SCRIPT } from './const';
 import { SystemScriptsRecord, SystemScriptName, SystemScript } from './type';
 import toml from '@iarna/toml';
+import { extractScriptNameFromPath } from './util';
 
 export function getDevnetSystemScriptsFromListHashes(): SystemScriptsRecord | null {
   const settings = readSettings();
@@ -22,8 +23,9 @@ export function getDevnetSystemScriptsFromListHashes(): SystemScriptsRecord | nu
   }
   const systemScriptArray = chainSpecHashes.system_cells
     .map((cell) => {
-      // Extract the file name
-      const name = cell.path.split('/').pop()?.replace(')', '') || 'unknown script';
+      // Extract the file name from the path using the helper function
+      const name = extractScriptNameFromPath(cell.path);
+
       const depGroupIndex = chainSpecHashes.dep_groups.findIndex((depGroup) =>
         depGroup.included_cells.includes(cell.path),
       );
