@@ -120,11 +120,13 @@ export function writeSettings(settings: Settings): void {
 
 export function getCKBBinaryInstallPath(version: string) {
   const setting = readSettings();
-  return `${setting.bins.rootFolder}/${version}`;
+  return path.join(setting.bins.rootFolder, version);
 }
 
 export function getCKBBinaryPath(version: string) {
-  return `${getCKBBinaryInstallPath(version)}/ckb`;
+  const platform = process.platform;
+  const binaryName = platform === 'win32' ? 'ckb.exe' : 'ckb';
+  return path.join(getCKBBinaryInstallPath(version), binaryName);
 }
 
 function deepMerge(target: any, source: any): any {
