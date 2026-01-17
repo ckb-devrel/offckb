@@ -71,7 +71,7 @@ fi
 echo ""
 echo "Creating test project with offckb create..."
 cd /tmp
-pnpm start create "$TEST_PROJECT_NAME" --no-interactive --no-git -l typescript
+pnpm start create "$TEST_PROJECT_NAME" --no-interactive --no-git --no-install -l typescript -c hello-world
 
 # Check if project was created
 if [ ! -d "$TEST_PROJECT_DIR" ]; then
@@ -109,21 +109,18 @@ done
 
 echo "✓ All essential files are present"
 
-# Note: Dependencies should have been installed during project creation
-# since we didn't use --no-install flag
+# Install dependencies explicitly to make test deterministic
 echo ""
-echo "Checking if dependencies were installed..."
-if [ ! -d "$TEST_PROJECT_DIR/node_modules" ]; then
-  echo "Dependencies not found, installing manually..."
-  cd "$TEST_PROJECT_DIR"
-  pnpm install --frozen-lockfile || pnpm install
-else
-  echo "✓ Dependencies already installed"
-fi
+echo "Installing dependencies..."
+cd "$TEST_PROJECT_DIR"
+pnpm install --frozen-lockfile || pnpm install
+
+echo "✓ Dependencies installed"
 
 # Build the project
 echo ""
 echo "Building the project..."
+cd "$TEST_PROJECT_DIR"
 pnpm run build
 
 if [ ! -d "$TEST_PROJECT_DIR/dist" ]; then
@@ -142,6 +139,7 @@ echo "✓ Project built successfully"
 # Deploy the project
 echo ""
 echo "Deploying the project..."
+cd "$TEST_PROJECT_DIR"
 pnpm run deploy
 
 # Check if deployment artifacts were created
@@ -172,6 +170,7 @@ echo "✓ Deployment record is valid"
 # Run a quick test to make sure the test framework works
 echo ""
 echo "Running mock tests..."
+cd "$TEST_PROJECT_DIR"
 pnpm run test -- hello-world.mock.test.ts
 
 echo "✓ Mock tests passed"
