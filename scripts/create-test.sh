@@ -71,7 +71,7 @@ fi
 echo ""
 echo "Creating test project with offckb create..."
 cd /tmp
-pnpm start create "$TEST_PROJECT_NAME" --no-interactive --no-git --no-install -l typescript
+pnpm start create "$TEST_PROJECT_NAME" --no-interactive --no-git -l typescript
 
 # Check if project was created
 if [ ! -d "$TEST_PROJECT_DIR" ]; then
@@ -109,13 +109,17 @@ done
 
 echo "✓ All essential files are present"
 
-# Install dependencies
+# Note: Dependencies should have been installed during project creation
+# since we didn't use --no-install flag
 echo ""
-echo "Installing dependencies..."
-cd "$TEST_PROJECT_DIR"
-pnpm install --frozen-lockfile || pnpm install
-
-echo "✓ Dependencies installed"
+echo "Checking if dependencies were installed..."
+if [ ! -d "$TEST_PROJECT_DIR/node_modules" ]; then
+  echo "Dependencies not found, installing manually..."
+  cd "$TEST_PROJECT_DIR"
+  pnpm install --frozen-lockfile || pnpm install
+else
+  echo "✓ Dependencies already installed"
+fi
 
 # Build the project
 echo ""
