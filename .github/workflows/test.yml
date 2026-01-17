@@ -42,6 +42,10 @@ jobs:
         shell: bash
         run: bash scripts/starting-node-test.sh
 
+      - name: Integration test - Create project workflow
+        shell: bash
+        run: bash scripts/create-test.sh
+
       - name: Upload coverage to Codecov (Ubuntu only)
         if: matrix.os == 'ubuntu-latest'
         uses: codecov/codecov-action@v4
