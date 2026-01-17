@@ -77,11 +77,12 @@ function buildContract(contractName, isDebug = false) {
 
     // Step 3: Compile to bytecode with ckb-debugger
     console.log('  🔧 Compiling to bytecode...');
+    const ckbJsVmPath = path.join('node_modules', 'ckb-testtool', 'src', 'unittest', 'defaultScript', 'ckb-js-vm');
     const debuggerCmd = [
       'ckb-debugger',
       `--read-file "${outputJsFile}"`,
       '--bin',
-      path.join('node_modules', 'ckb-testtool', 'src', 'unittest', 'defaultScript', 'ckb-js-vm'),
+      `"${ckbJsVmPath}"`,
       '--',
       '-c',
       `"${outputBcFile}"`,
