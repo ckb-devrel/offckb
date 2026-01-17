@@ -71,7 +71,18 @@ fi
 echo ""
 echo "Creating test project with offckb create..."
 cd /tmp
-pnpm start create "$TEST_PROJECT_NAME" --no-interactive --no-git --no-install -l typescript -c hello-world
+# Create project with explicit options:
+# - --no-interactive: Skip all interactive prompts
+# - --no-git: Skip git initialization (not needed for CI)
+# - --no-install: Skip automatic dependency installation (we'll do it explicitly)
+# - -l typescript: Use TypeScript language
+# - -c hello-world: Name the first contract 'hello-world'
+pnpm start create "$TEST_PROJECT_NAME" \
+  --no-interactive \
+  --no-git \
+  --no-install \
+  -l typescript \
+  -c hello-world
 
 # Check if project was created
 if [ ! -d "$TEST_PROJECT_DIR" ]; then
@@ -113,9 +124,15 @@ echo "✓ All essential files are present"
 echo ""
 echo "Installing dependencies..."
 cd "$TEST_PROJECT_DIR"
-pnpm install --frozen-lockfile || pnpm install
-
-echo "✓ Dependencies installed"
+# Note: First try with frozen-lockfile, but fall back to regular install
+# since the newly created project might not have a lock file initially
+if pnpm install --frozen-lockfile 2>/dev/null; then
+  echo "✓ Dependencies installed with frozen lockfile"
+else
+  echo "⚠ Frozen lockfile not available, installing with regular mode..."
+  pnpm install
+  echo "✓ Dependencies installed"
+fi
 
 # Build the project
 echo ""
