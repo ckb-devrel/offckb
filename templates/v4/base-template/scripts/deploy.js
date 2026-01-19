@@ -13,12 +13,14 @@
  * - --network: Network to deploy to (devnet, testnet, mainnet) - defaults to devnet
  * - --privkey: Private key for deployment - defaults to offckb's deployer account
  * - --type-id: Whether to use upgradable type id - defaults to false
+ * - --yes, -y: Skip confirmation prompt and deploy immediately - defaults to false
  *
  * Usage:
  *   pnpm run deploy
  *   pnpm run deploy --network testnet
  *   pnpm run deploy --network testnet --privkey 0x...
  *   pnpm run deploy --network testnet --type-id
+ *   pnpm run deploy --yes
  */
 
 import { spawn } from 'child_process';
@@ -30,6 +32,7 @@ function parseArgs() {
     network: 'devnet',
     privkey: null,
     typeId: false,
+    yes: false,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -43,6 +46,8 @@ function parseArgs() {
       i++; // Skip next argument since we consumed it
     } else if (arg === '--type-id' || arg === '-t') {
       parsed.typeId = true;
+    } else if (arg === '--yes' || arg === '-y') {
+      parsed.yes = true;
     }
   }
 
@@ -59,6 +64,7 @@ function main() {
   const NETWORK = options.network;
   const PRIVKEY = options.privkey;
   const TYPE_ID = options.typeId;
+  const YES = options.yes;
 
   // Validate that dist directory exists
   if (!fs.existsSync(TARGET)) {
@@ -98,6 +104,10 @@ function main() {
 
   if (PRIVKEY) {
     args.push('--privkey', PRIVKEY);
+  }
+
+  if (YES) {
+    args.push('--yes');
   }
 
   // Try to find offckb binary
