@@ -70,14 +70,13 @@ fi
 # Create test project with non-interactive mode
 echo ""
 echo "Creating test project with offckb create..."
-cd /tmp
 # Create project with explicit options:
 # - --no-interactive: Skip all interactive prompts
 # - --no-git: Skip git initialization (not needed for CI)
 # - --no-install: Skip automatic dependency installation (we'll do it explicitly)
 # - -l typescript: Use TypeScript language
 # - -c hello-world: Name the first contract 'hello-world'
-pnpm start create "$TEST_PROJECT_NAME" \
+pnpm start create "$TEST_PROJECT_DIR" \
   --no-interactive \
   --no-git \
   --no-install \
