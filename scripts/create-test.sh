@@ -162,7 +162,7 @@ echo "✓ Project built successfully"
 echo ""
 echo "Deploying the project..."
 cd "$TEST_PROJECT_DIR"
-pnpm run deploy
+pnpm run deploy --network devnet --yes
 
 # Check if deployment artifacts were created
 if [ ! -f "$TEST_PROJECT_DIR/deployment/devnet.json" ]; then
