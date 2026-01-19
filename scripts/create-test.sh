@@ -88,26 +88,25 @@ fi
 TEMP_BIN_DIR="/tmp/offckb-cli-$$"
 mkdir -p "$TEMP_BIN_DIR"
 
-# Create a wrapper script for cross-platform compatibility
-if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" || "$OSTYPE" == "cygwin" ]]; then
-  # Windows
-  cat > "$TEMP_BIN_DIR/offckb.cmd" << EOF
-@echo off
-node "$OFFCKB_CLI_PATH" %*
-EOF
-  chmod +x "$TEMP_BIN_DIR/offckb.cmd"
-else
-  # Unix-like systems
-  cat > "$TEMP_BIN_DIR/offckb" << EOF
+# Create wrapper script - always use bash since we're running in bash
+cat > "$TEMP_BIN_DIR/offckb" << EOF
 #!/bin/bash
 exec node "$OFFCKB_CLI_PATH" "\$@"
 EOF
-  chmod +x "$TEMP_BIN_DIR/offckb"
-fi
+chmod +x "$TEMP_BIN_DIR/offckb"
 
 # Add to PATH for this session
 export PATH="$TEMP_BIN_DIR:$PATH"
 echo "✓ Using local offckb CLI, added to PATH"
+
+# Verify the command is accessible
+if ! command -v offckb >/dev/null 2>&1; then
+  echo "✗ offckb command not found in PATH after setup"
+  echo "PATH: $PATH"
+  echo "Temp dir contents: $(ls -la $TEMP_BIN_DIR)"
+  exit 1
+fi
+echo "✓ Verified offckb command is accessible"
 
 # Create test project with non-interactive mode
 echo ""
