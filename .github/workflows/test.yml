@@ -42,12 +42,6 @@ jobs:
         shell: bash
         run: bash scripts/starting-node-test.sh
       
-      - uses: sigoden/install-binary@v1
-        with:
-          repo: nervosnetwork/ckb-standalone-debugger
-          name: ckb-debugger
-          cache: true
-
       - name: Integration test - Create project workflow
         shell: bash
         run: bash scripts/create-test.sh

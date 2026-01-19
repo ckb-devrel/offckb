@@ -67,6 +67,12 @@ else
   exit 1
 fi
 
+# Install offckb since create test need it
+echo ""
+echo "Installing offckb CLI tool..."
+npm install -g @offckb/cli
+echo "✓ offckb installed"
+
 # Create test project with non-interactive mode
 echo ""
 echo "Creating test project with offckb create..."
@@ -187,9 +193,9 @@ echo "✓ Deployment record is valid"
 echo ""
 echo "Running mock tests..."
 cd "$TEST_PROJECT_DIR"
-pnpm run test -- hello-world.mock.test.ts
+pnpm run test
 
-echo "✓ Mock tests passed"
+echo "✓ All tests passed"
 
 echo ""
 echo "========================================"
