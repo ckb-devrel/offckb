@@ -25,12 +25,6 @@ cleanup() {
     rm -rf "$TEST_PROJECT_DIR"
   fi
   
-  # Remove temporary CLI directory if it exists
-  if [ -d "/tmp/offckb-cli-$$" ]; then
-    echo "Removing temporary CLI directory..."
-    rm -rf "/tmp/offckb-cli-$$"
-  fi
-  
   echo "Cleanup complete."
 }
 
@@ -76,7 +70,7 @@ fi
 # Install offckb since create test need it
 echo ""
 echo "Installing offckb CLI tool..."
-# Use the local build instead of installing globally for better reliability
+# Use the local build but install it globally for better compatibility
 OFFCKB_CLI_PATH="$(pwd)/build/index.js"
 if [ ! -f "$OFFCKB_CLI_PATH" ]; then
   echo "✗ Local build not found at $OFFCKB_CLI_PATH"
@@ -84,29 +78,14 @@ if [ ! -f "$OFFCKB_CLI_PATH" ]; then
   exit 1
 fi
 
-# Create a temporary directory for the CLI and add it to PATH
-TEMP_BIN_DIR="/tmp/offckb-cli-$$"
-mkdir -p "$TEMP_BIN_DIR"
+# Pack and install the local build globally
+echo "Packing local build..."
+pnpm pack --pack-destination /tmp
+PACKAGE_FILE=$(ls /tmp/@offckb-cli-*.tgz)
+echo "Installing local package globally: $PACKAGE_FILE"
+npm install -g "$PACKAGE_FILE"
 
-# Create wrapper script - always use bash since we're running in bash
-cat > "$TEMP_BIN_DIR/offckb" << EOF
-#!/bin/bash
-exec node "$OFFCKB_CLI_PATH" "\$@"
-EOF
-chmod +x "$TEMP_BIN_DIR/offckb"
-
-# Add to PATH for this session
-export PATH="$TEMP_BIN_DIR:$PATH"
-echo "✓ Using local offckb CLI, added to PATH"
-
-# Verify the command is accessible
-if ! command -v offckb >/dev/null 2>&1; then
-  echo "✗ offckb command not found in PATH after setup"
-  echo "PATH: $PATH"
-  echo "Temp dir contents: $(ls -la $TEMP_BIN_DIR)"
-  exit 1
-fi
-echo "✓ Verified offckb command is accessible"
+echo "✓ Local offckb CLI installed globally"
 
 # Create test project with non-interactive mode
 echo ""
