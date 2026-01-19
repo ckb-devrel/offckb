@@ -82,12 +82,13 @@ echo "Creating test project with offckb create..."
 # - --no-install: Skip automatic dependency installation (we'll do it explicitly)
 # - -l typescript: Use TypeScript language
 # - -c hello-world: Name the first contract 'hello-world'
+CONTRACT_NAME="hello-world"
 pnpm start create "$TEST_PROJECT_DIR" \
   --no-interactive \
   --no-git \
   --no-install \
   -l typescript \
-  -c hello-world
+  -c "$CONTRACT_NAME"
 
 # Check if project was created
 if [ ! -d "$TEST_PROJECT_DIR" ]; then
@@ -165,7 +166,7 @@ cd "$TEST_PROJECT_DIR"
 pnpm run deploy -- --network devnet --yes
 
 # Check if deployment artifacts were created
-if [ ! -f "$TEST_PROJECT_DIR/deployment/devnet.json" ]; then
+if [ ! -f "$TEST_PROJECT_DIR/deployment/scripts.json" ]; then
   echo "✗ Deploy failed - deployment record not created"
   exit 1
 fi
@@ -175,10 +176,15 @@ echo "✓ Project deployed successfully"
 # Verify deployment record contains expected data
 echo ""
 echo "Verifying deployment record..."
-DEPLOY_RECORD=$(cat "$TEST_PROJECT_DIR/deployment/devnet.json")
+DEPLOY_RECORD=$(cat "$TEST_PROJECT_DIR/deployment/scripts.json")
 
-if ! echo "$DEPLOY_RECORD" | grep -q '"contractName"'; then
-  echo "✗ Deployment record is missing contractName"
+if ! echo "$DEPLOY_RECORD" | grep -q '"devnet"'; then
+  echo "✗ Deployment record is missing devnet section"
+  exit 1
+fi
+
+if ! echo "$DEPLOY_RECORD" | grep -q "\"${CONTRACT_NAME}.bc\""; then
+  echo "✗ Deployment record is missing ${CONTRACT_NAME}.bc contract"
   exit 1
 fi
 
