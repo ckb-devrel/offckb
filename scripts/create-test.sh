@@ -25,6 +25,12 @@ cleanup() {
     rm -rf "$TEST_PROJECT_DIR"
   fi
   
+  # Remove temporary CLI directory if it exists
+  if [ -d "/tmp/offckb-cli-$$" ]; then
+    echo "Removing temporary CLI directory..."
+    rm -rf "/tmp/offckb-cli-$$"
+  fi
+  
   echo "Cleanup complete."
 }
 
@@ -70,8 +76,38 @@ fi
 # Install offckb since create test need it
 echo ""
 echo "Installing offckb CLI tool..."
-npm install -g @offckb/cli
-echo "✓ offckb installed"
+# Use the local build instead of installing globally for better reliability
+OFFCKB_CLI_PATH="$(pwd)/build/index.js"
+if [ ! -f "$OFFCKB_CLI_PATH" ]; then
+  echo "✗ Local build not found at $OFFCKB_CLI_PATH"
+  echo "Please run 'pnpm build' first"
+  exit 1
+fi
+
+# Create a temporary directory for the CLI and add it to PATH
+TEMP_BIN_DIR="/tmp/offckb-cli-$$"
+mkdir -p "$TEMP_BIN_DIR"
+
+# Create a wrapper script for cross-platform compatibility
+if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" || "$OSTYPE" == "cygwin" ]]; then
+  # Windows
+  cat > "$TEMP_BIN_DIR/offckb.cmd" << EOF
+@echo off
+node "$OFFCKB_CLI_PATH" %*
+EOF
+  chmod +x "$TEMP_BIN_DIR/offckb.cmd"
+else
+  # Unix-like systems
+  cat > "$TEMP_BIN_DIR/offckb" << EOF
+#!/bin/bash
+exec node "$OFFCKB_CLI_PATH" "\$@"
+EOF
+  chmod +x "$TEMP_BIN_DIR/offckb"
+fi
+
+# Add to PATH for this session
+export PATH="$TEMP_BIN_DIR:$PATH"
+echo "✓ Using local offckb CLI, added to PATH"
 
 # Create test project with non-interactive mode
 echo ""
@@ -83,7 +119,7 @@ echo "Creating test project with offckb create..."
 # - -l typescript: Use TypeScript language
 # - -c hello-world: Name the first contract 'hello-world'
 CONTRACT_NAME="hello-world"
-pnpm start create "$TEST_PROJECT_DIR" \
+offckb create "$TEST_PROJECT_DIR" \
   --no-interactive \
   --no-git \
   --no-install \

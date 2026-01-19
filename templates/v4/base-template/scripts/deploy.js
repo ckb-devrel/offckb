@@ -27,7 +27,13 @@ import { spawn } from 'child_process';
 import fs from 'fs';
 
 function parseArgs() {
-  const args = process.argv.slice(2);
+  let args = process.argv.slice(2);
+
+  // Skip the first argument if it's "--" (npm/pnpm script separator)
+  if (args.length > 0 && args[0] === '--') {
+    args = args.slice(1);
+  }
+
   const parsed = {
     network: 'devnet',
     privkey: null,
@@ -110,12 +116,12 @@ function main() {
     args.push('--yes');
   }
 
-  // Try to find offckb binary
+  // Use offckb command - should be available in PATH
   const offckbCmd = 'offckb';
 
-  // For now, use 'offckb' directly - users should have it installed
-  console.log(`� Deploying contracts...`);
-  console.log(`�💻 Running: ${offckbCmd} ${args.join(' ')}`);
+  console.log(`🚀 Deploying contracts...`);
+  console.log(`💻 Running: ${offckbCmd} ${args.join(' ')}`);
+  console.log(`🖥️  Platform: ${process.platform}`);
   console.log('');
 
   // Execute the deploy command
@@ -125,6 +131,7 @@ function main() {
   });
 
   deployProcess.on('close', (code) => {
+    console.log(`Deploy process exited with code: ${code}`);
     if (code === 0) {
       console.log('');
       console.log('✅ Successfully deployed all contracts!');
@@ -134,6 +141,7 @@ function main() {
       console.log('💡 Next steps:');
       console.log('   - Check the deployment artifacts in the deployment/ folder');
       console.log('   - Run your tests to use the deployed contract scripts');
+      process.exit(0);
     } else {
       console.error('');
       console.error('❌ Deployment failed.');
@@ -144,11 +152,15 @@ function main() {
 
   deployProcess.on('error', (error) => {
     console.error('❌ Error running deploy command:', error.message);
+    console.error(`💻 Command: ${offckbCmd} ${args.join(' ')}`);
     console.error('');
-    console.error('💡 Make sure offckb is installed:');
-    console.error('   npm install -g offckb-cli');
-    console.error('   # or');
-    console.error('   pnpm add -g offckb-cli');
+    console.error('💡 Troubleshooting:');
+    console.error('   1. Make sure offckb is installed:');
+    console.error('      npm install -g @offckb/cli');
+    console.error('      # or');
+    console.error('      pnpm add -g @offckb/cli');
+    console.error('   2. Check if offckb is in your PATH');
+    console.error('   3. Try running the command manually to see the exact error');
     process.exit(1);
   });
 }
