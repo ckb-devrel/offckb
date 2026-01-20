@@ -25,6 +25,8 @@
 
 import { spawn } from 'child_process';
 import fs from 'fs';
+import { fileURLToPath } from 'url';
+import path from 'path';
 
 function parseArgs() {
   let args = process.argv.slice(2);
@@ -166,6 +168,8 @@ function main() {
 }
 
 // Run main function if this script is executed directly
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Use URL comparison for cross-platform compatibility (Windows uses backslashes in process.argv)
+const __filename = fileURLToPath(import.meta.url);
+if (path.resolve(process.argv[1]) === path.resolve(__filename)) {
   main();
 }
