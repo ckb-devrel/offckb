@@ -26,6 +26,21 @@ import * as fs from 'node:fs';
 import * as wasi from 'node:wasi';
 import * as path from 'node:path';
 
+/**
+ * Converts a Windows path to a POSIX-style path for WASI compatibility.
+ * On non-Windows platforms, returns the path unchanged.
+ * @param windowsPath - The path to convert
+ * @returns The POSIX-style path
+ */
+function toPosixPath(windowsPath: string): string {
+  if (process.platform !== 'win32') {
+    return windowsPath;
+  }
+  // Convert backslashes to forward slashes and handle drive letters
+  // e.g., "C:\Users\foo" -> "/c/Users/foo"
+  return windowsPath.replace(/^([A-Za-z]):/, (_, drive) => `/${drive.toLowerCase()}`).replace(/\\/g, '/');
+}
+
 export interface CkbDebuggerResult {
   exitCode: number;
   output?: string;
@@ -68,13 +83,15 @@ export class CkbDebuggerWasi {
       if (args[i] === '--tx-file' || args[i] === '--bin' || args[i] === '--read-file') {
         const filePath = args[i + 1].replace(/^["']|["']$/g, ''); // Remove quotes
         const dir = path.dirname(filePath);
-        additionalPreopens[dir] = dir;
+        // Use POSIX path for key (WASI compatibility on Windows)
+        additionalPreopens[toPosixPath(dir)] = dir;
       }
       // Handle output file for build mode (-c argument)
       if (args[i] === '-c' && i + 1 < args.length) {
         const filePath = args[i + 1].replace(/^["']|["']$/g, ''); // Remove quotes
         const dir = path.dirname(filePath);
-        additionalPreopens[dir] = dir;
+        // Use POSIX path for key (WASI compatibility on Windows)
+        additionalPreopens[toPosixPath(dir)] = dir;
       }
     }
     return additionalPreopens;
@@ -88,15 +105,31 @@ export class CkbDebuggerWasi {
         // Extract file paths from arguments to add to preopens
         const additionalPreopens = this.extractFilePathPreopens(args);
 
+        // Convert args that contain paths to POSIX style for WASI on Windows
+        const wasiArgs = args.map((arg) => {
+          const cleanArg = arg.replace(/^["']|["']$/g, ''); // Remove quotes
+          // Check if the arg looks like an absolute path (Windows or Unix)
+          if (path.isAbsolute(cleanArg)) {
+            return toPosixPath(cleanArg);
+          }
+          return cleanArg;
+        });
+
+        // Convert user-provided preopens to use POSIX keys
+        const normalizedPreopens: Record<string, string> = {};
+        for (const [key, value] of Object.entries(preopens)) {
+          normalizedPreopens[toPosixPath(key)] = value;
+        }
+
         // Configure WASI options
         const wasiOptions: any = {
           version: 'preview1',
-          args: ['ckb-debugger', ...args.map((arg) => arg.replace(/^["']|["']$/g, ''))], // Remove quotes from all args
+          args: ['ckb-debugger', ...wasiArgs],
           env: this.env,
           preopens: {
             '/': this.workingDirectory,
             ...additionalPreopens,
-            ...preopens,
+            ...normalizedPreopens,
           },
         };
 
