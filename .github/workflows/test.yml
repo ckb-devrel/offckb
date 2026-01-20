@@ -38,6 +38,9 @@ jobs:
       - name: Run tests
         run: pnpm test
 
+      - name: Build project
+        run: pnpm build
+
       - name: Integration test - Start node and test RPC
         shell: bash
         run: bash scripts/starting-node-test.sh

@@ -13,23 +13,34 @@
  * - --network: Network to deploy to (devnet, testnet, mainnet) - defaults to devnet
  * - --privkey: Private key for deployment - defaults to offckb's deployer account
  * - --type-id: Whether to use upgradable type id - defaults to false
+ * - --yes, -y: Skip confirmation prompt and deploy immediately - defaults to false
  *
  * Usage:
  *   pnpm run deploy
  *   pnpm run deploy --network testnet
  *   pnpm run deploy --network testnet --privkey 0x...
  *   pnpm run deploy --network testnet --type-id
+ *   pnpm run deploy --yes
  */
 
 import { spawn } from 'child_process';
 import fs from 'fs';
+import { fileURLToPath } from 'url';
+import path from 'path';
 
 function parseArgs() {
-  const args = process.argv.slice(2);
+  let args = process.argv.slice(2);
+
+  // Skip the first argument if it's "--" (npm/pnpm script separator)
+  if (args.length > 0 && args[0] === '--') {
+    args = args.slice(1);
+  }
+
   const parsed = {
     network: 'devnet',
     privkey: null,
     typeId: false,
+    yes: false,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -43,6 +54,8 @@ function parseArgs() {
       i++; // Skip next argument since we consumed it
     } else if (arg === '--type-id' || arg === '-t') {
       parsed.typeId = true;
+    } else if (arg === '--yes' || arg === '-y') {
+      parsed.yes = true;
     }
   }
 
@@ -59,6 +72,7 @@ function main() {
   const NETWORK = options.network;
   const PRIVKEY = options.privkey;
   const TYPE_ID = options.typeId;
+  const YES = options.yes;
 
   // Validate that dist directory exists
   if (!fs.existsSync(TARGET)) {
@@ -100,12 +114,16 @@ function main() {
     args.push('--privkey', PRIVKEY);
   }
 
-  // Try to find offckb binary
+  if (YES) {
+    args.push('--yes');
+  }
+
+  // Use offckb command - should be available in PATH
   const offckbCmd = 'offckb';
 
-  // For now, use 'offckb' directly - users should have it installed
-  console.log(`� Deploying contracts...`);
-  console.log(`�💻 Running: ${offckbCmd} ${args.join(' ')}`);
+  console.log(`🚀 Deploying contracts...`);
+  console.log(`💻 Running: ${offckbCmd} ${args.join(' ')}`);
+  console.log(`🖥️  Platform: ${process.platform}`);
   console.log('');
 
   // Execute the deploy command
@@ -115,6 +133,7 @@ function main() {
   });
 
   deployProcess.on('close', (code) => {
+    console.log(`Deploy process exited with code: ${code}`);
     if (code === 0) {
       console.log('');
       console.log('✅ Successfully deployed all contracts!');
@@ -124,6 +143,7 @@ function main() {
       console.log('💡 Next steps:');
       console.log('   - Check the deployment artifacts in the deployment/ folder');
       console.log('   - Run your tests to use the deployed contract scripts');
+      process.exit(0);
     } else {
       console.error('');
       console.error('❌ Deployment failed.');
@@ -134,16 +154,22 @@ function main() {
 
   deployProcess.on('error', (error) => {
     console.error('❌ Error running deploy command:', error.message);
+    console.error(`💻 Command: ${offckbCmd} ${args.join(' ')}`);
     console.error('');
-    console.error('💡 Make sure offckb is installed:');
-    console.error('   npm install -g offckb-cli');
-    console.error('   # or');
-    console.error('   pnpm add -g offckb-cli');
+    console.error('💡 Troubleshooting:');
+    console.error('   1. Make sure offckb is installed:');
+    console.error('      npm install -g @offckb/cli');
+    console.error('      # or');
+    console.error('      pnpm add -g @offckb/cli');
+    console.error('   2. Check if offckb is in your PATH');
+    console.error('   3. Try running the command manually to see the exact error');
     process.exit(1);
   });
 }
 
 // Run main function if this script is executed directly
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Use URL comparison for cross-platform compatibility (Windows uses backslashes in process.argv)
+const __filename = fileURLToPath(import.meta.url);
+if (path.resolve(process.argv[1]) === path.resolve(__filename)) {
   main();
 }

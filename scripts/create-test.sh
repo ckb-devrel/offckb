@@ -70,8 +70,25 @@ fi
 # Install offckb since create test need it
 echo ""
 echo "Installing offckb CLI tool..."
-npm install -g @offckb/cli
-echo "✓ offckb installed"
+# Use the local build but install it globally for better compatibility
+OFFCKB_CLI_PATH="$(pwd)/build/index.js"
+if [ ! -f "$OFFCKB_CLI_PATH" ]; then
+  echo "✗ Local build not found at $OFFCKB_CLI_PATH"
+  echo "Please run 'pnpm build' first"
+  exit 1
+fi
+
+# Pack and install the local build globally
+echo "Packing local build..."
+PACKAGE_FILE=$(pnpm pack --pack-destination /tmp 2>&1 | tail -1)
+if [ ! -f "$PACKAGE_FILE" ]; then
+  echo "✗ Failed to pack local build. Output: $PACKAGE_FILE"
+  exit 1
+fi
+echo "Installing local package globally: $PACKAGE_FILE"
+npm install -g "$PACKAGE_FILE"
+
+echo "✓ Local offckb CLI installed globally"
 
 # Create test project with non-interactive mode
 echo ""
@@ -82,12 +99,13 @@ echo "Creating test project with offckb create..."
 # - --no-install: Skip automatic dependency installation (we'll do it explicitly)
 # - -l typescript: Use TypeScript language
 # - -c hello-world: Name the first contract 'hello-world'
-pnpm start create "$TEST_PROJECT_DIR" \
+CONTRACT_NAME="hello-world"
+offckb create "$TEST_PROJECT_DIR" \
   --no-interactive \
   --no-git \
   --no-install \
   -l typescript \
-  -c hello-world
+  -c "$CONTRACT_NAME"
 
 # Check if project was created
 if [ ! -d "$TEST_PROJECT_DIR" ]; then
@@ -162,10 +180,10 @@ echo "✓ Project built successfully"
 echo ""
 echo "Deploying the project..."
 cd "$TEST_PROJECT_DIR"
-pnpm run deploy
+pnpm run deploy -- --network devnet --yes
 
 # Check if deployment artifacts were created
-if [ ! -f "$TEST_PROJECT_DIR/deployment/devnet.json" ]; then
+if [ ! -f "$TEST_PROJECT_DIR/deployment/scripts.json" ]; then
   echo "✗ Deploy failed - deployment record not created"
   exit 1
 fi
@@ -175,10 +193,15 @@ echo "✓ Project deployed successfully"
 # Verify deployment record contains expected data
 echo ""
 echo "Verifying deployment record..."
-DEPLOY_RECORD=$(cat "$TEST_PROJECT_DIR/deployment/devnet.json")
+DEPLOY_RECORD=$(cat "$TEST_PROJECT_DIR/deployment/scripts.json")
 
-if ! echo "$DEPLOY_RECORD" | grep -q '"contractName"'; then
-  echo "✗ Deployment record is missing contractName"
+if ! echo "$DEPLOY_RECORD" | grep -q '"devnet"'; then
+  echo "✗ Deployment record is missing devnet section"
+  exit 1
+fi
+
+if ! echo "$DEPLOY_RECORD" | grep -q "\"${CONTRACT_NAME}.bc\""; then
+  echo "✗ Deployment record is missing ${CONTRACT_NAME}.bc contract"
   exit 1
 fi
 
