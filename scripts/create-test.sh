@@ -234,7 +234,7 @@ if [ "$IS_WINDOWS" = true ]; then
   echo "  (ckb-testtool WASM debugger doesn't support Windows paths yet)"
   echo "  Running devnet tests only..."
   # Only run devnet tests on Windows (mock tests use WASI which has path issues)
-  pnpm run test:only -- --testPathIgnorePatterns=mock
+  pnpm run test:only --testPathIgnorePatterns "mock.test.ts"
 else
   pnpm run test
 fi
