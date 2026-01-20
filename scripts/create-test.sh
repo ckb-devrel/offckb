@@ -80,8 +80,11 @@ fi
 
 # Pack and install the local build globally
 echo "Packing local build..."
-pnpm pack --pack-destination /tmp
-PACKAGE_FILE=$(ls /tmp/@offckb-cli-*.tgz)
+PACKAGE_FILE=$(pnpm pack --pack-destination /tmp 2>&1 | tail -1)
+if [ ! -f "$PACKAGE_FILE" ]; then
+  echo "✗ Failed to pack local build. Output: $PACKAGE_FILE"
+  exit 1
+fi
 echo "Installing local package globally: $PACKAGE_FILE"
 npm install -g "$PACKAGE_FILE"
 
