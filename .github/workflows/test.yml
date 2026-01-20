@@ -30,7 +30,22 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-          cache: 'pnpm'
+          # Don't use built-in cache - we'll cache pnpm store manually to include create-test deps
+
+      # Cache pnpm store - includes both main project and create-test template dependencies
+      - name: Get pnpm store directory
+        shell: bash
+        id: pnpm-cache
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          # Cache key includes both lockfile (main deps) and template config (create-test deps)
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml', 'src/templates/config.ts') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -41,10 +56,8 @@ jobs:
       - name: Build project
         run: pnpm build
 
-      - name: Integration test - Start node and test RPC
-        shell: bash
-        run: bash scripts/starting-node-test.sh
-      
+      # Note: create-test.sh includes node startup and RPC verification,
+      # so we don't need a separate starting-node-test step
       - name: Integration test - Create project workflow
         shell: bash
         run: bash scripts/create-test.sh
