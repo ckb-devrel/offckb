@@ -27,7 +27,8 @@ function buildAllContracts(isDebug = false) {
   for (const contractName of contracts) {
     console.log(`\n📦 Building contract: ${contractName}`);
     try {
-      execSync(`node scripts/build-contract.js ${contractName} ${isDebug ? '--debug' : ''}`, { stdio: 'inherit' });
+      const buildScriptPath = path.join('scripts', 'build-contract.js');
+      execSync(`node "${buildScriptPath}" ${contractName} ${isDebug ? '--debug' : ''}`, { stdio: 'inherit' });
       console.log(`✅ Successfully built: ${contractName} with ${isDebug ? 'debug' : 'release'} version`);
     } catch (error) {
       console.error(`❌ Failed to build: ${contractName}`);
