@@ -176,9 +176,10 @@ export class CKBDebugger {
         // Node.js script that uses spawn with stdio: 'inherit' to forward stdin properly
         const jsContent = `#!/usr/bin/env node
 const { spawn } = require('child_process');
+const isWindows = process.platform === 'win32';
 const child = spawn('offckb', ['debugger', ...process.argv.slice(2)], {
   stdio: 'inherit',
-  shell: false
+  shell: isWindows
 });
 child.on('error', (err) => {
   console.error('Failed to start offckb:', err.message);
