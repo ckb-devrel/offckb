@@ -143,6 +143,39 @@ done
 
 echo "✓ All essential files are present"
 
+# Detect if we're on Windows
+# In GitHub Actions, even with bash shell, we're still on Windows OS
+IS_WINDOWS=false
+if [[ "$OSTYPE" == "cygwin" ]] || [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "win32" ]]; then
+  IS_WINDOWS=true
+elif [[ "$(uname -s)" == MINGW* ]] || [[ "$(uname -s)" == MSYS* ]]; then
+  IS_WINDOWS=true
+elif [[ -n "$WINDIR" ]] || [[ -n "$windir" ]]; then
+  # WINDIR environment variable is set on Windows
+  IS_WINDOWS=true
+fi
+
+# On Windows, comment out setWasmDebuggerEnabled in mock tests
+# Windows now supports stdin forwarding via Node.js wrapper, so we can use native debugger
+if [ "$IS_WINDOWS" = true ]; then
+  echo ""
+  echo "Configuring tests for Windows..."
+  echo "  Commenting out setWasmDebuggerEnabled in mock tests (using native debugger instead)"
+  
+  # Find all mock.test files and comment out the setWasmDebuggerEnabled line
+  find "$TEST_PROJECT_DIR/tests" -name "*.mock.test.*" -type f | while read -r test_file; do
+    if [ -f "$test_file" ]; then
+      # Use sed to comment out the setWasmDebuggerEnabled line
+      # Works for both .ts and .js files
+      sed -i.bak 's/\(.*\)verifier\.setWasmDebuggerEnabled(true);/\1\/\/ verifier.setWasmDebuggerEnabled(true);/' "$test_file"
+      rm -f "${test_file}.bak"
+      echo "    ✓ Modified: $(basename "$test_file")"
+    fi
+  done
+  
+  echo "  ✓ Mock tests configured for Windows (native debugger mode)"
+fi
+
 # Install dependencies explicitly to make test deterministic
 echo ""
 echo "Installing dependencies..."
@@ -217,27 +250,7 @@ echo ""
 echo "Running tests..."
 cd "$TEST_PROJECT_DIR"
 
-# Check if we're on Windows
-# In GitHub Actions, even with bash shell, we're still on Windows OS
-IS_WINDOWS=false
-if [[ "$OSTYPE" == "cygwin" ]] || [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "win32" ]]; then
-  IS_WINDOWS=true
-elif [[ "$(uname -s)" == MINGW* ]] || [[ "$(uname -s)" == MSYS* ]]; then
-  IS_WINDOWS=true
-elif [[ -n "$WINDIR" ]] || [[ -n "$windir" ]]; then
-  # WINDIR environment variable is set on Windows
-  IS_WINDOWS=true
-fi
-
-if [ "$IS_WINDOWS" = true ]; then
-  echo "⚠ Skipping mock tests on Windows due to WASI path compatibility issues"
-  echo "  (ckb-testtool WASM debugger doesn't support Windows paths yet)"
-  echo "  Running devnet tests only..."
-  # Only run devnet tests on Windows (mock tests use WASI which has path issues)
-  pnpm run test:only --testPathIgnorePatterns "mock.test.ts"
-else
-  pnpm run test
-fi
+pnpm run test
 
 echo "✓ All tests passed"
 
