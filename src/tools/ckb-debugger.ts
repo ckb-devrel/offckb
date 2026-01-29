@@ -134,12 +134,15 @@ export class CKBDebugger {
    * This creates a shell script that calls: offckb debugger [args]
    * Purpose: Reduce user friction by providing a placeholder when native binary is not available
    * Users can install the real ckb-debugger binary for better performance if needed
+   *
+   * On Windows, we create a Node.js script instead of a batch file because batch files
+   * do not properly forward stdin to child processes. This is critical for tools like
+   * ckb-testtool that pass transaction data via stdin (e.g., `--tx-file -`).
    */
   static createCkbDebuggerFallback() {
     const fs = require('fs');
     const { spawnSync } = require('child_process');
     const isWindows = process.platform === 'win32';
-    const binName = isWindows ? 'ckb-debugger.cmd' : 'ckb-debugger';
 
     // Find the offckb binary location
     let offckbPath: string;
@@ -158,41 +161,65 @@ export class CKBDebugger {
 
     // Get the directory where offckb is located
     const offckbDir = path.dirname(offckbPath);
-    const targetPath = path.join(offckbDir, binName);
-
-    // Create the binary content
-    let binContent;
-    if (isWindows) {
-      // Windows batch file
-      binContent = `@echo off
-offckb debugger %*`;
-    } else {
-      // Unix shell script
-      binContent = `#!/bin/sh
-exec offckb debugger "$@"`;
-    }
 
     try {
       // Ensure directory exists
-      fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+      fs.mkdirSync(offckbDir, { recursive: true });
 
-      // Write the binary
-      fs.writeFileSync(targetPath, binContent);
+      if (isWindows) {
+        // On Windows, create a Node.js script that properly forwards stdin
+        // Batch files (.cmd) do NOT forward stdin to child processes, which breaks
+        // tools like ckb-testtool that use `spawnSync('ckb-debugger', args, { input: data })`
+        const jsPath = path.join(offckbDir, 'ckb-debugger.js');
+        const cmdPath = path.join(offckbDir, 'ckb-debugger.cmd');
 
-      // Make executable on Unix systems
-      if (!isWindows) {
+        // Node.js script that uses spawn with stdio: 'inherit' to forward stdin properly
+        const jsContent = `#!/usr/bin/env node
+const { spawn } = require('child_process');
+const child = spawn('offckb', ['debugger', ...process.argv.slice(2)], {
+  stdio: 'inherit',
+  shell: false
+});
+child.on('error', (err) => {
+  console.error('Failed to start offckb:', err.message);
+  process.exit(1);
+});
+child.on('exit', (code) => {
+  process.exit(code ?? 0);
+});
+`;
+
+        // CMD wrapper that calls the Node.js script
+        // %~dp0 expands to the directory containing the batch file
+        const cmdContent = `@echo off
+node "%~dp0ckb-debugger.js" %*
+`;
+
+        fs.writeFileSync(jsPath, jsContent);
+        fs.writeFileSync(cmdPath, cmdContent);
+
+        logger.info(`✅ Created ckb-debugger fallback at: ${cmdPath}`);
+        logger.info(`   Helper script: ${jsPath}`);
+      } else {
+        // Unix shell script - use exec to replace the shell process
+        // This ensures stdin is properly inherited by offckb
+        const targetPath = path.join(offckbDir, 'ckb-debugger');
+        const binContent = `#!/bin/sh
+exec offckb debugger "$@"`;
+
+        fs.writeFileSync(targetPath, binContent);
         fs.chmodSync(targetPath, '755');
+
+        logger.info(`✅ Created ckb-debugger fallback at: ${targetPath}`);
       }
 
-      logger.info(`✅ Created ckb-debugger fallback at: ${targetPath}`);
       logger.info(`   This fallback uses WASM and calls: offckb debugger [args]`);
       logger.info(
         `   For better performance, install the real binary: cargo install --git https://github.com/nervosnetwork/ckb-standalone-debugger ckb-debugger`,
       );
-      logger.info(`   To uninstall the fallback binary: rm ${targetPath}`);
     } catch (error: unknown) {
       logger.error(`❌ Failed to create ckb-debugger fallback: ${(error as Error).message}`);
-      logger.error(`   Make sure you have write permissions to: ${path.dirname(targetPath)}`);
+      logger.error(`   Make sure you have write permissions to: ${offckbDir}`);
       process.exit(1);
     }
   }
