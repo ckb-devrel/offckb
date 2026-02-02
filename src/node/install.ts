@@ -9,7 +9,6 @@ import { Request } from '../util/request';
 import { getCKBBinaryInstallPath, getCKBBinaryPath, readSettings } from '../cfg/setting';
 import { encodeBinPathForTerminal } from '../util/encoding';
 import { logger } from '../util/logger';
-import CPUFeatures from 'cpu-features';
 
 export async function installCKBBinary(version: string) {
   const ckbBinPath = getCKBBinaryPath(version);
@@ -44,15 +43,28 @@ export async function downloadCKBBinaryAndUnzip(version: string) {
     const sourcePath = path.join(extractDir, ckbPackageName);
     const targetPath = getCKBBinaryInstallPath(version);
     if (fs.existsSync(targetPath)) {
-      fs.rmdirSync(targetPath, { recursive: true });
+      fs.rmSync(targetPath, { recursive: true, force: true });
     }
     fs.mkdirSync(targetPath, { recursive: true });
-    fs.renameSync(sourcePath, targetPath); // Move binary to desired location
-    fs.chmodSync(getCKBBinaryPath(version), '755'); // Make the binary executable
+
+    // Use fs.cp for cross-platform file copying (Node 16.7+)
+    // This is more reliable than renameSync on Windows
+    if (fs.cpSync) {
+      fs.cpSync(sourcePath, targetPath, { recursive: true, force: true });
+      fs.rmSync(sourcePath, { recursive: true, force: true });
+    } else {
+      // Fallback for older Node versions
+      fs.renameSync(sourcePath, targetPath);
+    }
+
+    // Make the binary executable (only for non-Windows platforms)
+    if (process.platform !== 'win32') {
+      fs.chmodSync(getCKBBinaryPath(version), '755');
+    }
 
     logger.info(`CKB ${version} installed successfully.`);
-  } catch (error) {
-    logger.error('Error installing dependency binary:', error);
+  } catch (error: unknown) {
+    logger.error('Error installing dependency binary:', (error as Error).message);
   }
 }
 
@@ -149,21 +161,38 @@ function getExtension(): 'tar.gz' | 'zip' {
   return 'zip';
 }
 
+let cachedIsPortable: boolean | undefined = undefined;
+
 function isPortable(): boolean {
-  const features = CPUFeatures();
-  if (features.arch === 'x86') {
-    const flags = features.flags as CPUFeatures.X86CpuFlags;
-    // if lacks any of the following instruction, use portable binary
-    return !(flags.avx2 && flags.sse4_2 && flags.bmi2 && flags.pclmulqdq);
+  if (cachedIsPortable !== undefined) {
+    return cachedIsPortable;
   }
-  return false;
+
+  try {
+    const CPUFeatures = require('cpu-features');
+    const features = CPUFeatures();
+    if (features.arch === 'x86') {
+      const flags = features.flags as any; // CPUFeatures.X86CpuFlags
+      // if lacks any of the following instruction, use portable binary
+      cachedIsPortable = !(flags.avx2 && flags.sse4_2 && flags.bmi2 && flags.pclmulqdq);
+    } else {
+      cachedIsPortable = false;
+    }
+  } catch (error) {
+    // If cpu-features fails to load (e.g., on Windows without build tools), use portable binary
+    logger.warn('Failed to detect CPU features, using portable binary', error);
+    cachedIsPortable = true;
+  }
+
+  return cachedIsPortable;
 }
 
 function buildCKBGithubReleasePackageName(version: string, opt: { os?: string; arch?: string } = {}) {
   const os = opt.os || getOS();
   const arch = opt.arch || getArch();
 
-  if (isPortable()) {
+  if (isPortable() && os !== 'pc-windows-msvc') {
+    // portable binary is not available for windows
     return `ckb_v${version}_${arch}-${os}-portable`;
   } else {
     return `ckb_v${version}_${arch}-${os}`;
@@ -178,7 +207,8 @@ function buildCKBGithubReleasePackageNameWithExtension(
   const arch = opt.arch || getArch();
   const extension = opt.ext || getExtension();
 
-  if (isPortable()) {
+  if (isPortable() && os !== 'pc-windows-msvc') {
+    // portable binary is not available for windows
     return `ckb_v${version}_${arch}-${os}-portable.${extension}`;
   } else {
     return `ckb_v${version}_${arch}-${os}.${extension}`;

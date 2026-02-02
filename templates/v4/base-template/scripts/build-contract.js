@@ -46,7 +46,8 @@ function buildContract(contractName, isDebug = false) {
     // Step 1: TypeScript type checking (if TypeScript file) - temporarily disabled due to @ckb-ccc/core version conflicts
     // if (srcFile.endsWith('.ts')) {
     //   console.log('  🔍 Type checking...');
-    //   execSync(`./node_modules/.bin/tsc --noEmit --project .`, { stdio: 'pipe' });
+    //   const tscPath = path.join('node_modules', '.bin', 'tsc');
+    //   execSync(`"${tscPath}" --noEmit --project .`, { stdio: 'pipe' });
     // }
 
     // Step 2: Bundle with esbuild
@@ -60,28 +61,31 @@ function buildContract(contractName, isDebug = false) {
       '--loader:.map=json',
     ];
     const releaseParams = ['--minify'];
+    const esbuildPath = path.join('node_modules', '.bin', 'esbuild');
     const esbuildCmd = [
-      './node_modules/.bin/esbuild',
+      `"${esbuildPath}"`,
       '--platform=neutral',
       '--bundle',
       '--external:@ckb-js-std/bindings',
       '--target=es2022',
       ...(isDebug ? debugParams : releaseParams),
-      srcFile,
-      `--outfile=${outputJsFile}`,
+      `"${srcFile}"`,
+      `--outfile="${outputJsFile}"`,
     ].join(' ');
 
     execSync(esbuildCmd, { stdio: 'pipe' });
 
     // Step 3: Compile to bytecode with ckb-debugger
     console.log('  🔧 Compiling to bytecode...');
+    const ckbJsVmPath = path.join('node_modules', 'ckb-testtool', 'src', 'unittest', 'defaultScript', 'ckb-js-vm');
     const debuggerCmd = [
       'ckb-debugger',
-      `--read-file ${outputJsFile}`,
-      '--bin node_modules/ckb-testtool/src/unittest/defaultScript/ckb-js-vm',
+      `--read-file "${outputJsFile}"`,
+      '--bin',
+      `"${ckbJsVmPath}"`,
       '--',
       '-c',
-      outputBcFile,
+      `"${outputBcFile}"`,
     ].join(' ');
 
     execSync(debuggerCmd, { stdio: 'pipe' });
