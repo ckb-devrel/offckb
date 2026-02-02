@@ -142,6 +142,33 @@ offckb create <your-project-name> -c <your-contract-name>
 ```
 - The `-c` option is optional, if not provided, the contract name defaults to `hello-world`.
 
+**Note for Windows Users:**
+
+To run mock tests in the generated project, you need to manually install `ckb-debugger` until [this upstream fix about ckb-testtool wasm](https://github.com/nervosnetwork/ckb-js-vm/pull/98) is applied.
+
+**Installation Steps:**
+
+1. Download the latest `ckb-debugger` release for Windows from the [releases page](https://github.com/nervosnetwork/ckb-standalone-debugger/releases)
+2. Extract the downloaded archive (e.g., `ckb-debugger-win64.zip`)
+3. Add the extracted binary to your system PATH:
+   - Open "System Properties" → "Environment Variables"
+   - Under "System variables" or "User variables", find and edit the `Path` variable
+   - Click "New" and add the full path to the folder containing `ckb-debugger.exe`
+   - Click "OK" to save
+4. Verify installation by opening a new terminal and running:
+   ```sh
+   ckb-debugger --version
+   ```
+5. Disable WASM debugger in your mock test file:
+   - Open the mock test file (e.g., `<your-contract-name>.mock.test.ts`)
+   - Comment out or delete the `verifier.setWasmDebuggerEnabled(true)` line:
+   ```typescript
+   // When using native ckb-debugger, comment out or delete the following line:
+   // verifier.setWasmDebuggerEnabled(true);
+   ```
+
+After completing these steps, `npm run test` should pass without mock test failures.
+
 ### 3. Deploy Your Contract {#deploy-contract}
     
 ```sh
