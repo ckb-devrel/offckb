@@ -45,7 +45,7 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
   let hasUnsavedChanges = false;
   let didSave = false;
   let searchTerm = '';
-  let statusMessage = 'Tab focus | Enter edit | a add | d delete | / search | s save | q quit';
+  let statusMessage = 'Tab focus | Enter edit | a add | i insert | m move | d delete | / search n/N | s save | q quit';
   let visibleEntries: TomlEntry[] = [];
 
   const screen = blessed.screen({
@@ -216,6 +216,30 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
     screen.render();
   };
 
+  const parseNonNegativeInteger = (value: string, fieldName: string): number => {
+    const parsed = Number(value.trim());
+    if (!Number.isInteger(parsed) || parsed < 0) {
+      throw new Error(`${fieldName} must be a non-negative integer.`);
+    }
+    return parsed;
+  };
+
+  const resolveArrayTarget = (
+    selectedEntry: TomlEntry,
+  ): { arrayPath: string[]; suggestedIndex: number | null } | null => {
+    if (selectedEntry.type === 'array') {
+      return { arrayPath: selectedEntry.path, suggestedIndex: null };
+    }
+
+    const lastPart = selectedEntry.path[selectedEntry.path.length - 1];
+    const parsedIndex = Number(lastPart);
+    if (Number.isInteger(parsedIndex) && parsedIndex >= 0) {
+      return { arrayPath: selectedEntry.path.slice(0, -1), suggestedIndex: parsedIndex };
+    }
+
+    return null;
+  };
+
   const saveAndExit = () => {
     editor.save();
     hasUnsavedChanges = false;
@@ -291,6 +315,24 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
     refreshUi();
   };
 
+  const jumpSearchMatch = (direction: 'next' | 'prev') => {
+    if (visibleEntries.length === 0) {
+      statusMessage = searchTerm ? 'No search matches to jump.' : 'Set search filter first with /.';
+      refreshUi();
+      return;
+    }
+
+    if (direction === 'next') {
+      selectedEntryIndex = (selectedEntryIndex + 1) % visibleEntries.length;
+      statusMessage = `Jumped to next match (${selectedEntryIndex + 1}/${visibleEntries.length}).`;
+    } else {
+      selectedEntryIndex = (selectedEntryIndex - 1 + visibleEntries.length) % visibleEntries.length;
+      statusMessage = `Jumped to previous match (${selectedEntryIndex + 1}/${visibleEntries.length}).`;
+    }
+
+    refreshUi();
+  };
+
   const addEntry = async () => {
     const selectedDocument = documents[selectedDocumentIndex];
 
@@ -352,6 +394,118 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
     }
 
     statusMessage = 'Select an object or array node to add items.';
+    refreshUi();
+  };
+
+  const insertArrayEntry = async () => {
+    if (visibleEntries.length === 0) {
+      statusMessage = 'No selected entry for insert.';
+      refreshUi();
+      return;
+    }
+
+    const selectedDocument = documents[selectedDocumentIndex];
+    const selectedEntry = visibleEntries[selectedEntryIndex];
+    const target = resolveArrayTarget(selectedEntry);
+    if (target == null) {
+      statusMessage = 'Select an array or array item to insert.';
+      refreshUi();
+      return;
+    }
+
+    const arrayValue = editor.getEntryValue(selectedDocument.id, target.arrayPath);
+    const arrayLength = Array.isArray(arrayValue) ? arrayValue.length : 0;
+    const indexAnswer = await waitForQuestion(
+      screen,
+      prompt,
+      `Insert index (0-${arrayLength}${target.suggestedIndex != null ? `, default ${target.suggestedIndex}` : ''}):`,
+    );
+    if (indexAnswer == null) {
+      statusMessage = 'Insert canceled.';
+      refreshUi();
+      return;
+    }
+
+    const valueAnswer = await waitForQuestion(
+      screen,
+      prompt,
+      `Value to insert at ${target.arrayPath.join('.')} (auto parse bool/number):`,
+    );
+    if (valueAnswer == null) {
+      statusMessage = 'Insert canceled.';
+      refreshUi();
+      return;
+    }
+
+    try {
+      const indexInput = indexAnswer.trim();
+      const insertIndex =
+        indexInput === '' && target.suggestedIndex != null
+          ? target.suggestedIndex
+          : parseNonNegativeInteger(indexAnswer, 'Insert index');
+
+      editor.insertArrayEntry(selectedDocument.id, target.arrayPath, insertIndex, valueAnswer);
+      hasUnsavedChanges = true;
+      statusMessage = `Inserted array item at ${target.arrayPath.join('.')}[${insertIndex}].`;
+    } catch (error) {
+      statusMessage = `Insert failed: ${(error as Error).message}`;
+    }
+
+    refreshUi();
+  };
+
+  const moveArrayEntry = async () => {
+    if (visibleEntries.length === 0) {
+      statusMessage = 'No selected entry for move.';
+      refreshUi();
+      return;
+    }
+
+    const selectedDocument = documents[selectedDocumentIndex];
+    const selectedEntry = visibleEntries[selectedEntryIndex];
+    const target = resolveArrayTarget(selectedEntry);
+    if (target == null) {
+      statusMessage = 'Select an array or array item to move.';
+      refreshUi();
+      return;
+    }
+
+    const arrayValue = editor.getEntryValue(selectedDocument.id, target.arrayPath);
+    const arrayLength = Array.isArray(arrayValue) ? arrayValue.length : 0;
+
+    const fromAnswer = await waitForQuestion(
+      screen,
+      prompt,
+      `Move from index (0-${Math.max(0, arrayLength - 1)}${target.suggestedIndex != null ? `, default ${target.suggestedIndex}` : ''}):`,
+    );
+    if (fromAnswer == null) {
+      statusMessage = 'Move canceled.';
+      refreshUi();
+      return;
+    }
+
+    const toAnswer = await waitForQuestion(screen, prompt, `Move to index (0-${Math.max(0, arrayLength - 1)}):`);
+    if (toAnswer == null) {
+      statusMessage = 'Move canceled.';
+      refreshUi();
+      return;
+    }
+
+    try {
+      const fromInput = fromAnswer.trim();
+      const fromIndex =
+        fromInput === '' && target.suggestedIndex != null
+          ? target.suggestedIndex
+          : parseNonNegativeInteger(fromAnswer, 'Source index');
+      const toIndex = parseNonNegativeInteger(toAnswer, 'Target index');
+
+      editor.moveArrayEntry(selectedDocument.id, target.arrayPath, fromIndex, toIndex);
+      hasUnsavedChanges = true;
+      statusMessage = `Moved item in ${target.arrayPath.join('.')} from ${fromIndex} to ${toIndex}.`;
+    } catch (error) {
+      statusMessage = `Move failed: ${(error as Error).message}`;
+    }
+
     refreshUi();
   };
 
@@ -426,6 +580,22 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
 
   screen.key(['d'], () => {
     void deleteEntry();
+  });
+
+  screen.key(['i'], () => {
+    void insertArrayEntry();
+  });
+
+  screen.key(['m'], () => {
+    void moveArrayEntry();
+  });
+
+  screen.key(['n'], () => {
+    jumpSearchMatch('next');
+  });
+
+  screen.key(['N'], () => {
+    jumpSearchMatch('prev');
   });
 
   refreshUi();

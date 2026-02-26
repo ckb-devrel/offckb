@@ -24,6 +24,7 @@ function writeFixtureConfig(configPath: string) {
       },
       network: {
         max_peers: 125,
+        bootnodes: ['node-a', 'node-b'],
       },
     }),
     'utf8',
@@ -166,5 +167,20 @@ describe('DevnetConfigEditor', () => {
       any
     >;
     expect(ckbToml.network.max_peers).toBe(256);
+  });
+
+  it('inserts and moves array entries via document path api', () => {
+    const editor = createDevnetConfigEditor(configPath);
+
+    editor.insertArrayEntry('ckb', ['network', 'bootnodes'], 1, 'node-x');
+    editor.moveArrayEntry('ckb', ['network', 'bootnodes'], 2, 0);
+    editor.save();
+
+    const ckbToml = toml.parse(fs.readFileSync(path.join(configPath, 'ckb.toml'), 'utf8')) as unknown as Record<
+      string,
+      any
+    >;
+
+    expect(ckbToml.network.bootnodes).toEqual(['node-b', 'node-a', 'node-x']);
   });
 });

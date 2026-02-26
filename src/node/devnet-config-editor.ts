@@ -514,6 +514,47 @@ export class DevnetConfigEditor {
     return parsedValue;
   }
 
+  insertArrayEntry(
+    documentId: 'ckb' | 'miner',
+    pathParts: string[],
+    index: number,
+    rawValue: string,
+  ): TomlPrimitive {
+    const target = getByPath(this.getDocument(documentId).data as Record<string, unknown>, pathParts);
+    if (!Array.isArray(target)) {
+      throw new Error('Target path is not an array.');
+    }
+
+    if (!Number.isInteger(index) || index < 0 || index > target.length) {
+      throw new Error(`Insert index must be between 0 and ${target.length}.`);
+    }
+
+    const parsedValue = parseInputAsTomlPrimitive(rawValue);
+    target.splice(index, 0, parsedValue);
+    return parsedValue;
+  }
+
+  moveArrayEntry(documentId: 'ckb' | 'miner', pathParts: string[], fromIndex: number, toIndex: number): void {
+    const target = getByPath(this.getDocument(documentId).data as Record<string, unknown>, pathParts);
+    if (!Array.isArray(target)) {
+      throw new Error('Target path is not an array.');
+    }
+
+    if (!Number.isInteger(fromIndex) || fromIndex < 0 || fromIndex >= target.length) {
+      throw new Error(`Source index must be between 0 and ${Math.max(0, target.length - 1)}.`);
+    }
+    if (!Number.isInteger(toIndex) || toIndex < 0 || toIndex >= target.length) {
+      throw new Error(`Target index must be between 0 and ${Math.max(0, target.length - 1)}.`);
+    }
+
+    if (fromIndex === toIndex) {
+      return;
+    }
+
+    const [item] = target.splice(fromIndex, 1);
+    target.splice(toIndex, 0, item);
+  }
+
   deleteDocumentPath(documentId: 'ckb' | 'miner', pathParts: string[]): void {
     if (pathParts.length === 0) {
       throw new Error('Cannot delete the root node.');
