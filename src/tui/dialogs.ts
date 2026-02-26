@@ -69,7 +69,7 @@ export async function waitForFixedArraySelection(
       width: '100%-4',
       height: 2,
       tags: true,
-      content: '{gray-fg}Space toggle  Enter apply  Esc cancel  Alt+a all  Alt+d none{/gray-fg}',
+      content: 'Space toggle  Enter apply  Esc cancel  Alt+a all  Alt+d none',
     });
 
     const renderList = () => {

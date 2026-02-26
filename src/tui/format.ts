@@ -8,7 +8,7 @@ export function formatEntryLine(entry: TomlEntry): string {
   const treeIndent = depth === 0 ? '' : `${'│ '.repeat(Math.max(0, depth - 1))}`;
   const branch = depth === 0 ? '' : '├─ ';
   const keyDoc = getConfigDoc(entry.path);
-  const docText = keyDoc != null ? ` {gray-fg}// ${keyDoc.summary}{/gray-fg}` : '';
+  const docText = keyDoc != null ? ` {245-fg}// ${keyDoc.summary}{/245-fg}` : '';
   const valueColor = entry.type === 'string' ? 'green' : entry.type === 'number' ? 'yellow' : 'magenta';
   const keyColor = depth === 0 ? 'cyan' : 'white';
 
