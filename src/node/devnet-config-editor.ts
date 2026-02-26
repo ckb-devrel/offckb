@@ -255,6 +255,25 @@ function parseValueByExistingType(rawInput: string, existingValue: unknown): Tom
   return trimmed;
 }
 
+function parseInputAsTomlPrimitive(rawInput: string): TomlPrimitive {
+  const trimmed = rawInput.trim();
+  if (!trimmed) {
+    throw new Error('Value cannot be empty.');
+  }
+
+  const parsedBoolean = normalizeBooleanInput(trimmed);
+  if (parsedBoolean != null) {
+    return parsedBoolean;
+  }
+
+  const parsedNumber = Number(trimmed);
+  if (!Number.isNaN(parsedNumber) && Number.isFinite(parsedNumber)) {
+    return parsedNumber;
+  }
+
+  return trimmed;
+}
+
 function readTomlFile(filePath: string): Record<string, unknown> {
   const text = fs.readFileSync(filePath, 'utf8');
   return toml.parse(text) as unknown as Record<string, unknown>;
@@ -406,6 +425,11 @@ export class DevnetConfigEditor {
       }
 
       this.values[fieldId] = trimmed;
+      setByPath(
+        this.getDocument(definition.file).data as Record<string, unknown>,
+        definition.path,
+        this.values[fieldId],
+      );
       return this.values[fieldId];
     }
 
@@ -416,6 +440,11 @@ export class DevnetConfigEditor {
       }
 
       this.values[fieldId] = parsed;
+      setByPath(
+        this.getDocument(definition.file).data as Record<string, unknown>,
+        definition.path,
+        this.values[fieldId],
+      );
       return this.values[fieldId];
     }
 
@@ -425,6 +454,11 @@ export class DevnetConfigEditor {
     }
 
     this.values[fieldId] = parsedBoolean;
+    setByPath(
+      this.getDocument(definition.file).data as Record<string, unknown>,
+      definition.path,
+      this.values[fieldId],
+    );
     return this.values[fieldId];
   }
 
@@ -442,12 +476,71 @@ export class DevnetConfigEditor {
     const document = this.getDocument(documentId);
     const currentValue = getByPath(document.data as Record<string, unknown>, pathParts);
     if (!isTomlPrimitive(currentValue)) {
-      throw new Error('Only primitive values can be edited in phase 1.');
+      throw new Error('Only primitive values can be edited directly.');
     }
 
     const parsedValue = parseValueByExistingType(rawInput, currentValue);
     setByPath(document.data as Record<string, unknown>, pathParts, parsedValue);
     return parsedValue;
+  }
+
+  addObjectEntry(documentId: 'ckb' | 'miner', pathParts: string[], key: string, rawValue: string): TomlPrimitive {
+    const target = getByPath(this.getDocument(documentId).data as Record<string, unknown>, pathParts);
+    if (!isPlainObject(target)) {
+      throw new Error('Target path is not an object.');
+    }
+
+    const normalizedKey = key.trim();
+    if (!normalizedKey) {
+      throw new Error('Key cannot be empty.');
+    }
+    if (normalizedKey in target) {
+      throw new Error(`Key '${normalizedKey}' already exists.`);
+    }
+
+    const parsedValue = parseInputAsTomlPrimitive(rawValue);
+    target[normalizedKey] = parsedValue;
+    return parsedValue;
+  }
+
+  appendArrayEntry(documentId: 'ckb' | 'miner', pathParts: string[], rawValue: string): TomlPrimitive {
+    const target = getByPath(this.getDocument(documentId).data as Record<string, unknown>, pathParts);
+    if (!Array.isArray(target)) {
+      throw new Error('Target path is not an array.');
+    }
+
+    const parsedValue = parseInputAsTomlPrimitive(rawValue);
+    target.push(parsedValue);
+    return parsedValue;
+  }
+
+  deleteDocumentPath(documentId: 'ckb' | 'miner', pathParts: string[]): void {
+    if (pathParts.length === 0) {
+      throw new Error('Cannot delete the root node.');
+    }
+
+    const parentPath = pathParts.slice(0, -1);
+    const key = pathParts[pathParts.length - 1];
+    const parent = getByPath(this.getDocument(documentId).data as Record<string, unknown>, parentPath);
+
+    if (Array.isArray(parent)) {
+      const index = Number(key);
+      if (!Number.isInteger(index) || index < 0 || index >= parent.length) {
+        throw new Error('Invalid array index for deletion.');
+      }
+      parent.splice(index, 1);
+      return;
+    }
+
+    if (isPlainObject(parent)) {
+      if (!(key in parent)) {
+        throw new Error(`Key '${key}' does not exist.`);
+      }
+      delete parent[key];
+      return;
+    }
+
+    throw new Error('Target path cannot be deleted.');
   }
 
   toggleBooleanField(fieldId: string): EditableFieldValue {
@@ -458,17 +551,17 @@ export class DevnetConfigEditor {
 
     const nextValue = !field.value;
     this.values[fieldId] = nextValue;
+    setByPath(
+      this.getDocument(field.file).data as Record<string, unknown>,
+      field.path,
+      nextValue,
+    );
     return nextValue;
   }
 
   save(): void {
-    for (const definition of editableFieldDefinitions) {
-      const target = definition.file === 'ckb' ? this.ckbConfig : this.minerConfig;
-      setByPath(target, definition.path, this.values[definition.id]);
-    }
-
-    writeTomlFileAtomic(this.ckbTomlPath, this.ckbConfig);
-    writeTomlFileAtomic(this.minerTomlPath, this.minerConfig);
+    writeTomlFileAtomic(this.ckbTomlPath, this.documents.ckb.data as unknown as Record<string, unknown>);
+    writeTomlFileAtomic(this.minerTomlPath, this.documents.miner.data as unknown as Record<string, unknown>);
   }
 }
 

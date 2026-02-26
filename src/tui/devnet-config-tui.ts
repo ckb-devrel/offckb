@@ -44,7 +44,9 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
   let focusPane: FocusPane = 'entries';
   let hasUnsavedChanges = false;
   let didSave = false;
-  let statusMessage = 'Tab switch focus | Enter edit | s save | / search (next phase) | q quit';
+  let searchTerm = '';
+  let statusMessage = 'Tab focus | Enter edit | a add | d delete | / search | s save | q quit';
+  let visibleEntries: TomlEntry[] = [];
 
   const screen = blessed.screen({
     smartCSR: true,
@@ -144,6 +146,17 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
     hidden: true,
   });
 
+  const getVisibleEntries = (entries: TomlEntry[]): TomlEntry[] => {
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) {
+      return entries;
+    }
+    return entries.filter((entry) => {
+      const text = `${entry.pathText} ${entry.valuePreview} ${entry.type}`.toLowerCase();
+      return text.includes(term);
+    });
+  };
+
   const refreshUi = () => {
     const fileItems = documents.map((document) => document.title);
     filesList.setItems(fileItems);
@@ -151,19 +164,24 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
 
     const selectedDocument = documents[selectedDocumentIndex];
     const entries = editor.getEntriesForDocument(selectedDocument.id);
-    const entryLines = entries.map(formatEntryLine);
+    visibleEntries = getVisibleEntries(entries);
+    const entryLines = visibleEntries.map(formatEntryLine);
     entriesList.setItems(entryLines);
 
-    if (entries.length === 0) {
+    if (visibleEntries.length === 0) {
       selectedEntryIndex = 0;
-      detailsBox.setContent('{yellow-fg}No keys found in selected document.{/yellow-fg}');
+      detailsBox.setContent(
+        searchTerm
+          ? '{yellow-fg}No keys match search filter.{/yellow-fg}'
+          : '{yellow-fg}No keys found in selected document.{/yellow-fg}',
+      );
     } else {
-      if (selectedEntryIndex >= entries.length) {
-        selectedEntryIndex = entries.length - 1;
+      if (selectedEntryIndex >= visibleEntries.length) {
+        selectedEntryIndex = visibleEntries.length - 1;
       }
       entriesList.select(selectedEntryIndex);
 
-      const selectedEntry = entries[selectedEntryIndex];
+      const selectedEntry = visibleEntries[selectedEntryIndex];
       const rawValue = editor.getEntryValue(selectedEntry.documentId, selectedEntry.path);
       const valueText = typeof rawValue === 'string' ? rawValue : JSON.stringify(rawValue, null, 2);
 
@@ -184,7 +202,7 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
     statusBar.setContent(
       [
         `Path: ${configPath}`,
-        `Focus: ${focusPane} | Unsaved: ${dirtyText}`,
+        `Focus: ${focusPane} | Search: ${searchTerm || '(none)'} | Unsaved: ${dirtyText}`,
         `Status: ${statusMessage}`,
       ].join('\n'),
     );
@@ -224,12 +242,11 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
 
   const editCurrentEntry = async () => {
     const selectedDocument = documents[selectedDocumentIndex];
-    const entries = editor.getEntriesForDocument(selectedDocument.id);
-    if (entries.length === 0) {
+    if (visibleEntries.length === 0) {
       return;
     }
 
-    const selectedEntry = entries[selectedEntryIndex];
+    const selectedEntry = visibleEntries[selectedEntryIndex];
     if (!selectedEntry.editable) {
       statusMessage = `Path ${selectedEntry.pathText} is not primitive-editable yet.`;
       refreshUi();
@@ -253,6 +270,115 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
       statusMessage = `Validation error: ${(error as Error).message}`;
     }
 
+    refreshUi();
+  };
+
+  const searchEntries = async () => {
+    const answer = await waitForQuestion(
+      screen,
+      prompt,
+      `Search (path/type/value, empty to clear): ${searchTerm || ''}`,
+    );
+    if (answer == null) {
+      statusMessage = 'Search canceled.';
+      refreshUi();
+      return;
+    }
+
+    searchTerm = answer.trim();
+    selectedEntryIndex = 0;
+    statusMessage = searchTerm ? `Filter applied: ${searchTerm}` : 'Search filter cleared.';
+    refreshUi();
+  };
+
+  const addEntry = async () => {
+    const selectedDocument = documents[selectedDocumentIndex];
+
+    const targetEntry =
+      visibleEntries.length > 0 ? visibleEntries[Math.min(selectedEntryIndex, visibleEntries.length - 1)] : null;
+
+    const targetPath = targetEntry?.path ?? [];
+    const targetValue = editor.getEntryValue(selectedDocument.id, targetPath);
+
+    if (targetEntry == null && !Array.isArray(targetValue) && (targetValue == null || typeof targetValue !== 'object')) {
+      statusMessage = 'No target object/array selected for add.';
+      refreshUi();
+      return;
+    }
+
+    if (targetEntry?.type === 'object' || (targetEntry == null && targetValue != null && typeof targetValue === 'object')) {
+      const keyAnswer = await waitForQuestion(screen, prompt, 'New key name:');
+      if (keyAnswer == null) {
+        statusMessage = 'Add canceled.';
+        refreshUi();
+        return;
+      }
+
+      const valueAnswer = await waitForQuestion(screen, prompt, `Value for ${keyAnswer.trim()} (auto parse bool/number):`);
+      if (valueAnswer == null) {
+        statusMessage = 'Add canceled.';
+        refreshUi();
+        return;
+      }
+
+      try {
+        editor.addObjectEntry(selectedDocument.id, targetPath, keyAnswer, valueAnswer);
+        hasUnsavedChanges = true;
+        statusMessage = `Added key '${keyAnswer.trim()}' under ${targetPath.join('.') || '<root>'}.`;
+      } catch (error) {
+        statusMessage = `Add failed: ${(error as Error).message}`;
+      }
+      refreshUi();
+      return;
+    }
+
+    if (targetEntry?.type === 'array') {
+      const valueAnswer = await waitForQuestion(screen, prompt, `Append value to ${targetEntry.pathText}:`);
+      if (valueAnswer == null) {
+        statusMessage = 'Append canceled.';
+        refreshUi();
+        return;
+      }
+
+      try {
+        editor.appendArrayEntry(selectedDocument.id, targetEntry.path, valueAnswer);
+        hasUnsavedChanges = true;
+        statusMessage = `Appended value to ${targetEntry.pathText}.`;
+      } catch (error) {
+        statusMessage = `Append failed: ${(error as Error).message}`;
+      }
+      refreshUi();
+      return;
+    }
+
+    statusMessage = 'Select an object or array node to add items.';
+    refreshUi();
+  };
+
+  const deleteEntry = async () => {
+    const selectedDocument = documents[selectedDocumentIndex];
+    if (visibleEntries.length === 0) {
+      statusMessage = 'No selected entry to delete.';
+      refreshUi();
+      return;
+    }
+
+    const selectedEntry = visibleEntries[selectedEntryIndex];
+    const confirmed = await waitForConfirm(screen, question, `Delete ${selectedEntry.pathText}?`);
+    if (!confirmed) {
+      statusMessage = 'Delete canceled.';
+      refreshUi();
+      return;
+    }
+
+    try {
+      editor.deleteDocumentPath(selectedDocument.id, selectedEntry.path);
+      hasUnsavedChanges = true;
+      selectedEntryIndex = Math.max(0, selectedEntryIndex - 1);
+      statusMessage = `Deleted ${selectedEntry.pathText}.`;
+    } catch (error) {
+      statusMessage = `Delete failed: ${(error as Error).message}`;
+    }
     refreshUi();
   };
 
@@ -288,6 +414,18 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
 
   screen.key(['enter'], () => {
     void editCurrentEntry();
+  });
+
+  screen.key(['/'], () => {
+    void searchEntries();
+  });
+
+  screen.key(['a'], () => {
+    void addEntry();
+  });
+
+  screen.key(['d'], () => {
+    void deleteEntry();
   });
 
   refreshUi();
