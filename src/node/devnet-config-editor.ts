@@ -6,6 +6,12 @@ type FieldType = 'string' | 'number' | 'boolean';
 
 type EditableFieldValue = string | number | boolean;
 
+export type TomlPrimitive = string | number | boolean;
+export type TomlValue = TomlPrimitive | TomlObject | TomlValue[];
+export interface TomlObject {
+  [key: string]: TomlValue;
+}
+
 interface EditableFieldDefinition {
   id: string;
   file: 'ckb' | 'miner';
@@ -17,6 +23,22 @@ interface EditableFieldDefinition {
 
 export interface EditableField extends EditableFieldDefinition {
   value: EditableFieldValue;
+}
+
+export interface TomlDocument {
+  id: 'ckb' | 'miner';
+  title: string;
+  filePath: string;
+  data: TomlObject;
+}
+
+export interface TomlEntry {
+  documentId: 'ckb' | 'miner';
+  path: string[];
+  pathText: string;
+  type: 'object' | 'array' | 'string' | 'number' | 'boolean';
+  valuePreview: string;
+  editable: boolean;
 }
 
 const editableFieldDefinitions: EditableFieldDefinition[] = [
@@ -102,6 +124,13 @@ const editableFieldDefinitions: EditableFieldDefinition[] = [
   },
 ];
 
+const safeFieldDefinitionMap = new Map(
+  editableFieldDefinitions.map((definition) => [
+    `${definition.file}:${definition.path.map((item) => String(item)).join('.')}`,
+    definition,
+  ]),
+);
+
 function getByPath(target: Record<string, unknown>, keyPath: Array<string | number>): unknown {
   let current: unknown = target;
   for (const key of keyPath) {
@@ -129,6 +158,46 @@ function setByPath(target: Record<string, unknown>, keyPath: Array<string | numb
   }
 
   current[String(keyPath[keyPath.length - 1])] = value;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value != null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isTomlPrimitive(value: unknown): value is TomlPrimitive {
+  return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
+}
+
+function getTypeOfTomlValue(value: unknown): TomlEntry['type'] {
+  if (Array.isArray(value)) {
+    return 'array';
+  }
+  if (isPlainObject(value)) {
+    return 'object';
+  }
+  if (typeof value === 'string') {
+    return 'string';
+  }
+  if (typeof value === 'number') {
+    return 'number';
+  }
+  return 'boolean';
+}
+
+function valuePreview(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.length}]`;
+  }
+  if (isPlainObject(value)) {
+    return `{${Object.keys(value).length}}`;
+  }
+  if (typeof value === 'string') {
+    if (value.length > 80) {
+      return `${value.slice(0, 80)}...`;
+    }
+    return value;
+  }
+  return String(value);
 }
 
 function validateHostPort(value: string): boolean {
@@ -162,6 +231,30 @@ function normalizeBooleanInput(value: string): boolean | null {
   return null;
 }
 
+function parseValueByExistingType(rawInput: string, existingValue: unknown): TomlPrimitive {
+  if (typeof existingValue === 'boolean') {
+    const parsedBoolean = normalizeBooleanInput(rawInput);
+    if (parsedBoolean == null) {
+      throw new Error('Boolean value must be one of: true/false/yes/no/1/0.');
+    }
+    return parsedBoolean;
+  }
+
+  if (typeof existingValue === 'number') {
+    const parsedNumber = Number(rawInput.trim());
+    if (!Number.isFinite(parsedNumber)) {
+      throw new Error('Number value must be finite.');
+    }
+    return parsedNumber;
+  }
+
+  const trimmed = rawInput.trim();
+  if (!trimmed) {
+    throw new Error('Value cannot be empty.');
+  }
+  return trimmed;
+}
+
 function readTomlFile(filePath: string): Record<string, unknown> {
   const text = fs.readFileSync(filePath, 'utf8');
   return toml.parse(text) as unknown as Record<string, unknown>;
@@ -182,6 +275,7 @@ export class DevnetConfigEditor {
   private ckbConfig: Record<string, unknown>;
   private minerConfig: Record<string, unknown>;
   private values: Record<string, EditableFieldValue>;
+  private documents: Record<'ckb' | 'miner', TomlDocument>;
 
   constructor(configPath: string, ckbConfig: Record<string, unknown>, minerConfig: Record<string, unknown>) {
     this.configPath = configPath;
@@ -210,6 +304,66 @@ export class DevnetConfigEditor {
 
       this.values[definition.id] = value as EditableFieldValue;
     }
+
+    this.documents = {
+      ckb: {
+        id: 'ckb',
+        title: 'ckb.toml',
+        filePath: this.ckbTomlPath,
+        data: this.ckbConfig as TomlObject,
+      },
+      miner: {
+        id: 'miner',
+        title: 'ckb-miner.toml',
+        filePath: this.minerTomlPath,
+        data: this.minerConfig as TomlObject,
+      },
+    };
+  }
+
+  getDocuments(): TomlDocument[] {
+    return [this.documents.ckb, this.documents.miner];
+  }
+
+  getDocument(documentId: 'ckb' | 'miner'): TomlDocument {
+    return this.documents[documentId];
+  }
+
+  getEntriesForDocument(documentId: 'ckb' | 'miner'): TomlEntry[] {
+    const entries: TomlEntry[] = [];
+    const document = this.getDocument(documentId);
+
+    const walk = (value: unknown, currentPath: string[]) => {
+      if (currentPath.length > 0) {
+        const entryType = getTypeOfTomlValue(value);
+        entries.push({
+          documentId,
+          path: currentPath,
+          pathText: currentPath.join('.'),
+          type: entryType,
+          valuePreview: valuePreview(value),
+          editable: entryType === 'string' || entryType === 'number' || entryType === 'boolean',
+        });
+      }
+
+      if (Array.isArray(value)) {
+        value.forEach((item, index) => walk(item, [...currentPath, String(index)]));
+        return;
+      }
+
+      if (isPlainObject(value)) {
+        for (const key of Object.keys(value)) {
+          walk(value[key], [...currentPath, key]);
+        }
+      }
+    };
+
+    walk(document.data, []);
+    return entries;
+  }
+
+  getEntryValue(documentId: 'ckb' | 'miner', pathParts: string[]): unknown {
+    return getByPath(this.getDocument(documentId).data as Record<string, unknown>, pathParts);
   }
 
   getFields(): EditableField[] {
@@ -272,6 +426,28 @@ export class DevnetConfigEditor {
 
     this.values[fieldId] = parsedBoolean;
     return this.values[fieldId];
+  }
+
+  setDocumentValue(documentId: 'ckb' | 'miner', pathParts: string[], rawInput: string): TomlPrimitive {
+    if (pathParts.length === 0) {
+      throw new Error('Cannot edit the root node.');
+    }
+
+    const fileKey = `${documentId}:${pathParts.join('.')}`;
+    const safeDefinition = safeFieldDefinitionMap.get(fileKey);
+    if (safeDefinition != null) {
+      return this.setFieldValue(safeDefinition.id, rawInput);
+    }
+
+    const document = this.getDocument(documentId);
+    const currentValue = getByPath(document.data as Record<string, unknown>, pathParts);
+    if (!isTomlPrimitive(currentValue)) {
+      throw new Error('Only primitive values can be edited in phase 1.');
+    }
+
+    const parsedValue = parseValueByExistingType(rawInput, currentValue);
+    setByPath(document.data as Record<string, unknown>, pathParts, parsedValue);
+    return parsedValue;
   }
 
   toggleBooleanField(fieldId: string): EditableFieldValue {

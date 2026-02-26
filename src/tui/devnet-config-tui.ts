@@ -1,30 +1,33 @@
-import readline from 'node:readline';
-import { DevnetConfigEditor } from '../node/devnet-config-editor';
+import blessed, { Widgets } from 'blessed';
+import { DevnetConfigEditor, TomlEntry } from '../node/devnet-config-editor';
 
-const ansi = {
-  clear: '\u001B[2J\u001B[H',
-  hideCursor: '\u001B[?25l',
-  showCursor: '\u001B[?25h',
-  bold: '\u001B[1m',
-  reset: '\u001B[0m',
-};
+type FocusPane = 'files' | 'entries';
 
-function formatFieldValue(value: string | number | boolean): string {
-  if (typeof value === 'boolean') {
-    return value ? 'true' : 'false';
-  }
-  return String(value);
+function formatEntryLine(entry: TomlEntry): string {
+  return `${entry.pathText} = ${entry.valuePreview}`;
 }
 
-async function askLine(question: string): Promise<string> {
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-
+function waitForQuestion(
+  screen: Widgets.Screen,
+  prompt: Widgets.PromptElement,
+  questionText: string,
+): Promise<string | null> {
   return new Promise((resolve) => {
-    rl.question(question, (answer) => {
-      rl.close();
+    prompt.input(questionText, '', (_error, value) => {
+      screen.render();
+      resolve(value == null ? null : value);
+    });
+  });
+}
+
+function waitForConfirm(
+  screen: Widgets.Screen,
+  question: Widgets.QuestionElement,
+  text: string,
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    question.ask(text, (answer) => {
+      screen.render();
       resolve(answer);
     });
   });
@@ -35,183 +38,263 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
     throw new Error('Interactive TUI requires a TTY terminal.');
   }
 
-  let selectedIndex = 0;
-  let isSaved = false;
-  let isDone = false;
-  let statusMessage = 'Use ↑/↓ to navigate, Enter to edit, Space to toggle booleans, s to save, q to quit.';
+  const documents = editor.getDocuments();
+  let selectedDocumentIndex = 0;
+  let selectedEntryIndex = 0;
+  let focusPane: FocusPane = 'entries';
+  let hasUnsavedChanges = false;
+  let didSave = false;
+  let statusMessage = 'Tab switch focus | Enter edit | s save | / search (next phase) | q quit';
 
-  const initialFields = editor.getFields();
-  const initialState = new Map(initialFields.map((field) => [field.id, field.value]));
+  const screen = blessed.screen({
+    smartCSR: true,
+    title: 'OffCKB Devnet Config Editor',
+    fullUnicode: true,
+  });
 
-  const hasChanges = () => {
-    const current = editor.getFields();
-    return current.some((field) => initialState.get(field.id) !== field.value);
-  };
+  const filesList = blessed.list({
+    parent: screen,
+    label: ' Files ',
+    top: 0,
+    left: 0,
+    width: '22%',
+    height: '90%',
+    border: 'line',
+    keys: true,
+    vi: true,
+    style: {
+      selected: { bg: 'blue' },
+      border: { fg: 'gray' },
+    },
+  });
 
-  const render = () => {
-    const fields = editor.getFields();
-    const lines: string[] = [];
+  const entriesList = blessed.list({
+    parent: screen,
+    label: ' Keys ',
+    top: 0,
+    left: '22%',
+    width: '43%',
+    height: '90%',
+    border: 'line',
+    keys: true,
+    vi: true,
+    style: {
+      selected: { bg: 'blue' },
+      border: { fg: 'gray' },
+    },
+  });
 
-    lines.push(`${ansi.bold}OffCKB Devnet Config Editor${ansi.reset}`);
-    lines.push(`Path: ${configPath}`);
-    lines.push('');
+  const detailsBox = blessed.box({
+    parent: screen,
+    label: ' Value / Details ',
+    top: 0,
+    left: '65%',
+    width: '35%',
+    height: '90%',
+    border: 'line',
+    tags: true,
+    scrollable: true,
+    alwaysScroll: true,
+    keys: true,
+    vi: true,
+    style: {
+      border: { fg: 'gray' },
+    },
+  });
 
-    lines.push(`${ansi.bold}Editable fields (safe subset)${ansi.reset}`);
-    for (let i = 0; i < fields.length; i++) {
-      const field = fields[i];
-      const marker = i === selectedIndex ? '›' : ' ';
-      lines.push(`${marker} ${String(i + 1).padStart(2, '0')}. ${field.label}: ${formatFieldValue(field.value)}`);
-      lines.push(`     ${field.description} (${field.id})`);
+  const statusBar = blessed.box({
+    parent: screen,
+    bottom: 0,
+    left: 0,
+    width: '100%',
+    height: '10%',
+    border: 'line',
+    tags: true,
+    content: '',
+    style: {
+      border: { fg: 'gray' },
+    },
+  });
+
+  const prompt = blessed.prompt({
+    parent: screen,
+    border: 'line',
+    height: 9,
+    width: '70%',
+    top: 'center',
+    left: 'center',
+    label: ' Edit Value ',
+    keys: true,
+    vi: true,
+    tags: true,
+    hidden: true,
+  });
+
+  const question = blessed.question({
+    parent: screen,
+    border: 'line',
+    height: 8,
+    width: '60%',
+    top: 'center',
+    left: 'center',
+    label: ' Confirm ',
+    keys: true,
+    vi: true,
+    tags: true,
+    hidden: true,
+  });
+
+  const refreshUi = () => {
+    const fileItems = documents.map((document) => document.title);
+    filesList.setItems(fileItems);
+    filesList.select(selectedDocumentIndex);
+
+    const selectedDocument = documents[selectedDocumentIndex];
+    const entries = editor.getEntriesForDocument(selectedDocument.id);
+    const entryLines = entries.map(formatEntryLine);
+    entriesList.setItems(entryLines);
+
+    if (entries.length === 0) {
+      selectedEntryIndex = 0;
+      detailsBox.setContent('{yellow-fg}No keys found in selected document.{/yellow-fg}');
+    } else {
+      if (selectedEntryIndex >= entries.length) {
+        selectedEntryIndex = entries.length - 1;
+      }
+      entriesList.select(selectedEntryIndex);
+
+      const selectedEntry = entries[selectedEntryIndex];
+      const rawValue = editor.getEntryValue(selectedEntry.documentId, selectedEntry.path);
+      const valueText = typeof rawValue === 'string' ? rawValue : JSON.stringify(rawValue, null, 2);
+
+      detailsBox.setContent(
+        [
+          `{bold}File{/bold}: ${selectedDocument.title}`,
+          `{bold}Path{/bold}: ${selectedEntry.pathText}`,
+          `{bold}Type{/bold}: ${selectedEntry.type}`,
+          `{bold}Editable{/bold}: ${selectedEntry.editable ? 'yes' : 'no'}`,
+          '',
+          '{bold}Current Value{/bold}',
+          valueText ?? 'null',
+        ].join('\n'),
+      );
     }
 
-    lines.push('');
-    lines.push(`${ansi.bold}Keys${ansi.reset}: ↑/↓ move  Enter edit  Space toggle  s save  q quit  Ctrl+C quit`);
-    lines.push(`Changes pending: ${hasChanges() ? 'yes' : 'no'}`);
-    lines.push(`Status: ${statusMessage}`);
+    const dirtyText = hasUnsavedChanges ? '{yellow-fg}yes{/yellow-fg}' : '{green-fg}no{/green-fg}';
+    statusBar.setContent(
+      [
+        `Path: ${configPath}`,
+        `Focus: ${focusPane} | Unsaved: ${dirtyText}`,
+        `Status: ${statusMessage}`,
+      ].join('\n'),
+    );
 
-    process.stdout.write(`${ansi.clear}${ansi.hideCursor}${lines.join('\n')}\n`);
-  };
-
-  const setRawMode = (enabled: boolean) => {
-    if (process.stdin.isTTY) {
-      process.stdin.setRawMode(enabled);
+    if (focusPane === 'files') {
+      filesList.focus();
+    } else {
+      entriesList.focus();
     }
+
+    screen.render();
   };
 
-  const cleanup = () => {
-    process.stdin.off('keypress', onKeypress);
-    setRawMode(false);
-    process.stdout.write(`${ansi.showCursor}\n`);
+  const saveAndExit = () => {
+    editor.save();
+    hasUnsavedChanges = false;
+    didSave = true;
+    statusMessage = 'Saved.';
+    screen.destroy();
   };
 
-  const confirmDiscard = async (): Promise<boolean> => {
-    setRawMode(false);
-    process.stdout.write(`${ansi.showCursor}`);
-    const answer = await askLine('Discard unsaved changes? [y/N]: ');
-    setRawMode(true);
-    process.stdout.write(ansi.hideCursor);
-    const normalized = answer.trim().toLowerCase();
-    return normalized === 'y' || normalized === 'yes';
-  };
-
-  const editSelectedField = async () => {
-    const selectedField = editor.getFields()[selectedIndex];
-
-    if (selectedField.type === 'boolean') {
-      const nextValue = editor.toggleBooleanField(selectedField.id);
-      statusMessage = `${selectedField.label} updated to ${formatFieldValue(nextValue)}.`;
+  const quitFlow = async () => {
+    if (!hasUnsavedChanges) {
+      screen.destroy();
       return;
     }
 
-    setRawMode(false);
-    process.stdout.write(ansi.showCursor);
-    const answer = await askLine(`${selectedField.label} (${formatFieldValue(selectedField.value)}): `);
-    setRawMode(true);
-    process.stdout.write(ansi.hideCursor);
+    const shouldDiscard = await waitForConfirm(screen, question, 'Discard unsaved changes?');
+    if (shouldDiscard) {
+      screen.destroy();
+      return;
+    }
 
-    if (!answer.trim()) {
-      statusMessage = 'No input provided, keeping current value.';
+    statusMessage = 'Continue editing.';
+    refreshUi();
+  };
+
+  const editCurrentEntry = async () => {
+    const selectedDocument = documents[selectedDocumentIndex];
+    const entries = editor.getEntriesForDocument(selectedDocument.id);
+    if (entries.length === 0) {
+      return;
+    }
+
+    const selectedEntry = entries[selectedEntryIndex];
+    if (!selectedEntry.editable) {
+      statusMessage = `Path ${selectedEntry.pathText} is not primitive-editable yet.`;
+      refreshUi();
+      return;
+    }
+
+    const value = editor.getEntryValue(selectedEntry.documentId, selectedEntry.path);
+    const valueText = value == null ? '' : String(value);
+    const answer = await waitForQuestion(screen, prompt, `${selectedEntry.pathText} = ${valueText}`);
+    if (answer == null) {
+      statusMessage = 'Edit canceled.';
+      refreshUi();
       return;
     }
 
     try {
-      const nextValue = editor.setFieldValue(selectedField.id, answer);
-      statusMessage = `${selectedField.label} updated to ${formatFieldValue(nextValue)}.`;
+      editor.setDocumentValue(selectedEntry.documentId, selectedEntry.path, answer);
+      hasUnsavedChanges = true;
+      statusMessage = `Updated ${selectedEntry.pathText}.`;
     } catch (error) {
       statusMessage = `Validation error: ${(error as Error).message}`;
     }
+
+    refreshUi();
   };
 
-  const onKeypress = async (_chunk: string, key: readline.Key) => {
-    if (isDone) {
+  filesList.on('select', (_, index) => {
+    if (index == null) {
       return;
     }
+    selectedDocumentIndex = index;
+    selectedEntryIndex = 0;
+    refreshUi();
+  });
 
-    const fields = editor.getFields();
-
-    if (key.ctrl && key.name === 'c') {
-      if (hasChanges()) {
-        const shouldDiscard = await confirmDiscard();
-        if (!shouldDiscard) {
-          statusMessage = 'Continue editing.';
-          render();
-          return;
-        }
-      }
-
-      statusMessage = 'Canceled.';
-      isDone = true;
-      cleanup();
+  entriesList.on('select', (_, index) => {
+    if (index == null) {
       return;
     }
+    selectedEntryIndex = index;
+    refreshUi();
+  });
 
-    switch (key.name) {
-      case 'up': {
-        selectedIndex = selectedIndex === 0 ? fields.length - 1 : selectedIndex - 1;
-        break;
-      }
-      case 'down': {
-        selectedIndex = selectedIndex === fields.length - 1 ? 0 : selectedIndex + 1;
-        break;
-      }
-      case 'return': {
-        await editSelectedField();
-        break;
-      }
-      case 'space': {
-        const selectedField = fields[selectedIndex];
-        if (selectedField.type !== 'boolean') {
-          statusMessage = `Field ${selectedField.label} is not boolean.`;
-        } else {
-          const nextValue = editor.toggleBooleanField(selectedField.id);
-          statusMessage = `${selectedField.label} updated to ${formatFieldValue(nextValue)}.`;
-        }
-        break;
-      }
-      default: {
-        if (_chunk === 'k') {
-          selectedIndex = selectedIndex === 0 ? fields.length - 1 : selectedIndex - 1;
-        } else if (_chunk === 'j') {
-          selectedIndex = selectedIndex === fields.length - 1 ? 0 : selectedIndex + 1;
-        } else if (_chunk === 'e') {
-          await editSelectedField();
-        } else if (_chunk === 's') {
-          editor.save();
-          statusMessage = 'Saved.';
-          isSaved = true;
-          isDone = true;
-          cleanup();
-          return;
-        } else if (_chunk === 'q') {
-          if (hasChanges()) {
-            const shouldDiscard = await confirmDiscard();
-            if (!shouldDiscard) {
-              statusMessage = 'Continue editing.';
-              render();
-              return;
-            }
-          }
+  screen.key(['tab'], () => {
+    focusPane = focusPane === 'files' ? 'entries' : 'files';
+    refreshUi();
+  });
 
-          statusMessage = 'Canceled.';
-          isDone = true;
-          cleanup();
-          return;
-        }
-        break;
-      }
-    }
+  screen.key(['s'], () => {
+    saveAndExit();
+  });
 
-    render();
-  };
+  screen.key(['q', 'C-c'], () => {
+    void quitFlow();
+  });
 
-  readline.emitKeypressEvents(process.stdin);
-  process.stdin.on('keypress', onKeypress);
-  setRawMode(true);
-  render();
+  screen.key(['enter'], () => {
+    void editCurrentEntry();
+  });
 
-  while (!isDone) {
-    await new Promise((resolve) => setTimeout(resolve, 40));
-  }
+  refreshUi();
 
-  return isSaved;
+  return new Promise<boolean>((resolve) => {
+    screen.once('destroy', () => {
+      resolve(didSave);
+    });
+  });
 }

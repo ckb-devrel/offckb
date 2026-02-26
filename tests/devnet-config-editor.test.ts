@@ -143,4 +143,28 @@ describe('DevnetConfigEditor', () => {
     expect(ckbToml.rpc.enable_deprecated_rpc).toBe(true);
     expect(minerToml.miner.client.poll_interval).toBe(1500);
   });
+
+  it('provides full TOML document and flattened entries', () => {
+    const editor = createDevnetConfigEditor(configPath);
+
+    const documents = editor.getDocuments();
+    expect(documents.map((document) => document.id)).toEqual(['ckb', 'miner']);
+
+    const ckbEntries = editor.getEntriesForDocument('ckb');
+    expect(ckbEntries.some((entry) => entry.pathText === 'logger.filter')).toBe(true);
+    expect(ckbEntries.some((entry) => entry.pathText === 'network.max_peers')).toBe(true);
+  });
+
+  it('edits primitive value via generic document path api', () => {
+    const editor = createDevnetConfigEditor(configPath);
+
+    editor.setDocumentValue('ckb', ['network', 'max_peers'], '256');
+    editor.save();
+
+    const ckbToml = toml.parse(fs.readFileSync(path.join(configPath, 'ckb.toml'), 'utf8')) as unknown as Record<
+      string,
+      any
+    >;
+    expect(ckbToml.network.max_peers).toBe(256);
+  });
 });
