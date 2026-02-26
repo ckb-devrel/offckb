@@ -20,7 +20,9 @@ function formatEntryLine(entry: TomlEntry): string {
   }
 
   if (entry.type === 'array') {
-    return `${treeIndent}${branch}{magenta-fg}▾ ${nodeName}{/magenta-fg} {gray-fg}${entry.valuePreview}{/gray-fg}${docText}`;
+    const fixedArraySpec = getFixedArraySpecFromEntryPath(entry.path);
+    const fixedArrayTag = fixedArraySpec != null ? ' {green-fg}[editable set]{/green-fg}' : '';
+    return `${treeIndent}${branch}{magenta-fg}▾ ${nodeName}{/magenta-fg} {gray-fg}${entry.valuePreview}{/gray-fg}${fixedArrayTag}${docText}`;
   }
 
   return `${treeIndent}${branch}{${keyColor}-fg}${nodeName}{/${keyColor}-fg} = {${valueColor}-fg}${entry.valuePreview}{/${valueColor}-fg}${docText}`;
@@ -557,11 +559,25 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
   });
 
   const getVisibleEntries = (entries: TomlEntry[]): TomlEntry[] => {
+    const compactEntries = entries.filter((entry) => {
+      if (entry.path.length === 0) {
+        return true;
+      }
+
+      const lastPathPart = entry.path[entry.path.length - 1];
+      const isArrayItem = /^\d+$/.test(lastPathPart);
+      if (!isArrayItem) {
+        return true;
+      }
+
+      return getFixedArraySpecFromEntryPath(entry.path) == null;
+    });
+
     const term = searchTerm.trim().toLowerCase();
     if (!term) {
-      return entries;
+      return compactEntries;
     }
-    return entries.filter((entry) => {
+    return compactEntries.filter((entry) => {
       const text = `${entry.pathText} ${entry.valuePreview} ${entry.type}`.toLowerCase();
       return text.includes(term);
     });
@@ -1061,6 +1077,18 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
     }
     selectedEntryIndex = index;
     refreshUi();
+  });
+
+  entriesList.on('action', () => {
+    syncEntrySelectionFromEntriesList();
+    const selectedEntry = visibleEntries[selectedEntryIndex];
+    if (selectedEntry == null) {
+      return;
+    }
+
+    if (getFixedArraySpecFromEntryPath(selectedEntry.path) != null) {
+      void editCurrentEntry();
+    }
   });
 
   entriesList.on('keypress', (_, key) => {
