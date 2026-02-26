@@ -4,32 +4,290 @@ import { DevnetConfigEditor, TomlEntry } from '../node/devnet-config-editor';
 type FocusPane = 'files' | 'entries';
 
 function formatEntryLine(entry: TomlEntry): string {
-  return `${entry.pathText} = ${entry.valuePreview}`;
+  const depth = Math.max(0, entry.path.length - 1);
+  const lastPathPart = entry.path[entry.path.length - 1] ?? '';
+  const nodeName = /^\d+$/.test(lastPathPart) ? `[${lastPathPart}]` : lastPathPart;
+  const indent = '  '.repeat(depth);
+
+  if (entry.type === 'object') {
+    return `${indent}▸ ${nodeName} ${entry.valuePreview}`;
+  }
+
+  if (entry.type === 'array') {
+    return `${indent}▾ ${nodeName} ${entry.valuePreview}`;
+  }
+
+  return `${indent}  ${nodeName} = ${entry.valuePreview}`;
 }
 
-function waitForQuestion(
+function waitForInput(
   screen: Widgets.Screen,
-  prompt: Widgets.PromptElement,
+  title: string,
   questionText: string,
+  initialValue: string,
 ): Promise<string | null> {
   return new Promise((resolve) => {
-    prompt.input(questionText, '', (_error, value) => {
-      screen.render();
-      resolve(value == null ? null : value);
+    const dialog = blessed.box({
+      parent: screen,
+      label: ` ${title} `,
+      border: 'line',
+      top: 'center',
+      left: 'center',
+      width: '70%',
+      height: 13,
+      keys: true,
+      tags: true,
+      style: {
+        border: { fg: 'cyan' },
+      },
     });
+
+    blessed.box({
+      parent: dialog,
+      top: 1,
+      left: 2,
+      width: '95%-4',
+      height: 2,
+      tags: true,
+      content: questionText,
+    });
+
+    const input = blessed.textbox({
+      parent: dialog,
+      top: 3,
+      left: 2,
+      width: '100%-4',
+      height: 3,
+      border: 'line',
+      inputOnFocus: true,
+      keys: true,
+      vi: true,
+      style: {
+        border: { fg: 'gray' },
+      },
+    });
+
+    const okButton = blessed.button({
+      parent: dialog,
+      mouse: true,
+      keys: true,
+      shrink: true,
+      top: 8,
+      left: '40%-8',
+      height: 1,
+      content: '  OK  ',
+      style: {
+        bg: 'blue',
+        focus: { bg: 'blue' },
+      },
+    });
+
+    const cancelButton = blessed.button({
+      parent: dialog,
+      mouse: true,
+      keys: true,
+      shrink: true,
+      top: 8,
+      left: '40%+4',
+      height: 1,
+      content: ' Cancel ',
+      style: {
+        bg: 'gray',
+        focus: { bg: 'gray' },
+      },
+    });
+
+    type InputDialogFocus = 'input' | 'ok' | 'cancel';
+    let currentFocus: InputDialogFocus = 'input';
+
+    const cleanup = (value: string | null) => {
+      dialog.destroy();
+      screen.render();
+      resolve(value);
+    };
+
+    const setFocus = (nextFocus: InputDialogFocus) => {
+      currentFocus = nextFocus;
+      if (nextFocus === 'input') {
+        input.style.border = { fg: 'cyan' };
+        okButton.style.bg = 'blue';
+        cancelButton.style.bg = 'gray';
+        input.focus();
+      } else if (nextFocus === 'ok') {
+        input.style.border = { fg: 'gray' };
+        okButton.style.bg = 'cyan';
+        cancelButton.style.bg = 'gray';
+        okButton.focus();
+      } else {
+        input.style.border = { fg: 'gray' };
+        okButton.style.bg = 'blue';
+        cancelButton.style.bg = 'cyan';
+        cancelButton.focus();
+      }
+      screen.render();
+    };
+
+    const nextFocus = () => {
+      if (currentFocus === 'input') {
+        setFocus('ok');
+        return;
+      }
+      if (currentFocus === 'ok') {
+        setFocus('cancel');
+        return;
+      }
+      setFocus('input');
+    };
+
+    const prevFocus = () => {
+      if (currentFocus === 'cancel') {
+        setFocus('ok');
+        return;
+      }
+      if (currentFocus === 'ok') {
+        setFocus('input');
+        return;
+      }
+      setFocus('cancel');
+    };
+
+    const getInputValue = () => input.getValue() ?? '';
+
+    okButton.on('press', () => cleanup(getInputValue()));
+    cancelButton.on('press', () => cleanup(null));
+
+    dialog.key(['escape'], () => cleanup(null));
+    dialog.key(['tab', 'down'], () => nextFocus());
+    dialog.key(['S-tab', 'up'], () => prevFocus());
+    dialog.key(['left'], () => {
+      if (currentFocus !== 'input') {
+        prevFocus();
+      }
+    });
+    dialog.key(['right'], () => {
+      if (currentFocus !== 'input') {
+        nextFocus();
+      }
+    });
+    dialog.key(['enter'], () => {
+      if (currentFocus === 'input') {
+        setFocus('ok');
+        return;
+      }
+      if (currentFocus === 'ok') {
+        cleanup(getInputValue());
+        return;
+      }
+      cleanup(null);
+    });
+
+    input.key(['enter'], () => {
+      setFocus('ok');
+    });
+
+    input.setValue(initialValue);
+    setFocus('input');
+    input.readInput();
+    screen.render();
   });
 }
 
 function waitForConfirm(
   screen: Widgets.Screen,
-  question: Widgets.QuestionElement,
+  title: string,
   text: string,
 ): Promise<boolean> {
   return new Promise((resolve) => {
-    question.ask(text, (answer) => {
+    const dialog = blessed.box({
+      parent: screen,
+      label: ` ${title} `,
+      border: 'line',
+      top: 'center',
+      left: 'center',
+      width: '60%',
+      height: 10,
+      keys: true,
+      tags: true,
+      style: {
+        border: { fg: 'cyan' },
+      },
+    });
+
+    blessed.box({
+      parent: dialog,
+      top: 2,
+      left: 2,
+      width: '100%-4',
+      height: 2,
+      tags: true,
+      content: text,
+    });
+
+    const okButton = blessed.button({
+      parent: dialog,
+      mouse: true,
+      keys: true,
+      shrink: true,
+      top: 5,
+      left: '40%-8',
+      height: 1,
+      content: '  OK  ',
+      style: {
+        bg: 'blue',
+        focus: { bg: 'blue' },
+      },
+    });
+
+    const cancelButton = blessed.button({
+      parent: dialog,
+      mouse: true,
+      keys: true,
+      shrink: true,
+      top: 5,
+      left: '40%+4',
+      height: 1,
+      content: ' Cancel ',
+      style: {
+        bg: 'gray',
+        focus: { bg: 'gray' },
+      },
+    });
+
+    let focusButton: 'ok' | 'cancel' = 'cancel';
+
+    const cleanup = (answer: boolean) => {
+      dialog.destroy();
       screen.render();
       resolve(answer);
+    };
+
+    const setFocus = (focus: 'ok' | 'cancel') => {
+      focusButton = focus;
+      if (focus === 'ok') {
+        okButton.style.bg = 'cyan';
+        cancelButton.style.bg = 'gray';
+        okButton.focus();
+      } else {
+        okButton.style.bg = 'blue';
+        cancelButton.style.bg = 'cyan';
+        cancelButton.focus();
+      }
+      screen.render();
+    };
+
+    okButton.on('press', () => cleanup(true));
+    cancelButton.on('press', () => cleanup(false));
+
+    dialog.key(['escape'], () => cleanup(false));
+    dialog.key(['tab', 'left', 'right'], () => {
+      setFocus(focusButton === 'ok' ? 'cancel' : 'ok');
     });
+    dialog.key(['enter'], () => {
+      cleanup(focusButton === 'ok');
+    });
+
+    setFocus('cancel');
+    screen.render();
   });
 }
 
@@ -41,11 +299,11 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
   const documents = editor.getDocuments();
   let selectedDocumentIndex = 0;
   let selectedEntryIndex = 0;
-  let focusPane: FocusPane = 'entries';
+  let focusPane: FocusPane = 'files';
   let hasUnsavedChanges = false;
   let didSave = false;
   let searchTerm = '';
-  let statusMessage = 'Tab focus | Enter edit | a add | i insert | m move | d delete | / search n/N | s save | q quit';
+  let statusMessage = 'Ready';
   let visibleEntries: TomlEntry[] = [];
 
   const screen = blessed.screen({
@@ -68,6 +326,7 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
       selected: { bg: 'blue' },
       border: { fg: 'gray' },
     },
+    tags: true,
   });
 
   const entriesList = blessed.list({
@@ -84,6 +343,7 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
       selected: { bg: 'blue' },
       border: { fg: 'gray' },
     },
+    tags: true,
   });
 
   const detailsBox = blessed.box({
@@ -118,34 +378,6 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
     },
   });
 
-  const prompt = blessed.prompt({
-    parent: screen,
-    border: 'line',
-    height: 9,
-    width: '70%',
-    top: 'center',
-    left: 'center',
-    label: ' Edit Value ',
-    keys: true,
-    vi: true,
-    tags: true,
-    hidden: true,
-  });
-
-  const question = blessed.question({
-    parent: screen,
-    border: 'line',
-    height: 8,
-    width: '60%',
-    top: 'center',
-    left: 'center',
-    label: ' Confirm ',
-    keys: true,
-    vi: true,
-    tags: true,
-    hidden: true,
-  });
-
   const getVisibleEntries = (entries: TomlEntry[]): TomlEntry[] => {
     const term = searchTerm.trim().toLowerCase();
     if (!term) {
@@ -167,6 +399,10 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
     visibleEntries = getVisibleEntries(entries);
     const entryLines = visibleEntries.map(formatEntryLine);
     entriesList.setItems(entryLines);
+
+    filesList.style.border = { fg: focusPane === 'files' ? 'cyan' : 'gray' };
+    entriesList.style.border = { fg: focusPane === 'entries' ? 'cyan' : 'gray' };
+    detailsBox.style.border = { fg: 'gray' };
 
     if (visibleEntries.length === 0) {
       selectedEntryIndex = 0;
@@ -202,7 +438,7 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
     statusBar.setContent(
       [
         `Path: ${configPath}`,
-        `Focus: ${focusPane} | Search: ${searchTerm || '(none)'} | Unsaved: ${dirtyText}`,
+        `File: ${documents[selectedDocumentIndex].title} | Focus: ${focusPane} | Search: ${searchTerm || '(none)'} | Unsaved: ${dirtyText}`,
         `Status: ${statusMessage}`,
       ].join('\n'),
     );
@@ -254,7 +490,7 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
       return;
     }
 
-    const shouldDiscard = await waitForConfirm(screen, question, 'Discard unsaved changes?');
+    const shouldDiscard = await waitForConfirm(screen, 'Discard Changes', 'Discard unsaved changes?');
     if (shouldDiscard) {
       screen.destroy();
       return;
@@ -265,6 +501,12 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
   };
 
   const editCurrentEntry = async () => {
+    if (focusPane === 'files') {
+      focusPane = 'entries';
+      refreshUi();
+      return;
+    }
+
     const selectedDocument = documents[selectedDocumentIndex];
     if (visibleEntries.length === 0) {
       return;
@@ -279,7 +521,7 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
 
     const value = editor.getEntryValue(selectedEntry.documentId, selectedEntry.path);
     const valueText = value == null ? '' : String(value);
-    const answer = await waitForQuestion(screen, prompt, `${selectedEntry.pathText} = ${valueText}`);
+    const answer = await waitForInput(screen, 'Edit Value', selectedEntry.pathText, valueText);
     if (answer == null) {
       statusMessage = 'Edit canceled.';
       refreshUi();
@@ -298,10 +540,11 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
   };
 
   const searchEntries = async () => {
-    const answer = await waitForQuestion(
+    const answer = await waitForInput(
       screen,
-      prompt,
-      `Search (path/type/value, empty to clear): ${searchTerm || ''}`,
+      'Search',
+      'Path/type/value filter (empty clears):',
+      searchTerm,
     );
     if (answer == null) {
       statusMessage = 'Search canceled.';
@@ -349,14 +592,19 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
     }
 
     if (targetEntry?.type === 'object' || (targetEntry == null && targetValue != null && typeof targetValue === 'object')) {
-      const keyAnswer = await waitForQuestion(screen, prompt, 'New key name:');
+      const keyAnswer = await waitForInput(screen, 'Add Object Key', 'New key name:', '');
       if (keyAnswer == null) {
         statusMessage = 'Add canceled.';
         refreshUi();
         return;
       }
 
-      const valueAnswer = await waitForQuestion(screen, prompt, `Value for ${keyAnswer.trim()} (auto parse bool/number):`);
+      const valueAnswer = await waitForInput(
+        screen,
+        'Add Object Key',
+        `Value for ${keyAnswer.trim()} (auto parse bool/number):`,
+        '',
+      );
       if (valueAnswer == null) {
         statusMessage = 'Add canceled.';
         refreshUi();
@@ -375,7 +623,7 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
     }
 
     if (targetEntry?.type === 'array') {
-      const valueAnswer = await waitForQuestion(screen, prompt, `Append value to ${targetEntry.pathText}:`);
+      const valueAnswer = await waitForInput(screen, 'Append Array Item', `Append value to ${targetEntry.pathText}:`, '');
       if (valueAnswer == null) {
         statusMessage = 'Append canceled.';
         refreshUi();
@@ -415,10 +663,11 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
 
     const arrayValue = editor.getEntryValue(selectedDocument.id, target.arrayPath);
     const arrayLength = Array.isArray(arrayValue) ? arrayValue.length : 0;
-    const indexAnswer = await waitForQuestion(
+    const indexAnswer = await waitForInput(
       screen,
-      prompt,
+      'Insert Array Item',
       `Insert index (0-${arrayLength}${target.suggestedIndex != null ? `, default ${target.suggestedIndex}` : ''}):`,
+      target.suggestedIndex != null ? String(target.suggestedIndex) : String(arrayLength),
     );
     if (indexAnswer == null) {
       statusMessage = 'Insert canceled.';
@@ -426,10 +675,11 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
       return;
     }
 
-    const valueAnswer = await waitForQuestion(
+    const valueAnswer = await waitForInput(
       screen,
-      prompt,
+      'Insert Array Item',
       `Value to insert at ${target.arrayPath.join('.')} (auto parse bool/number):`,
+      '',
     );
     if (valueAnswer == null) {
       statusMessage = 'Insert canceled.';
@@ -473,10 +723,11 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
     const arrayValue = editor.getEntryValue(selectedDocument.id, target.arrayPath);
     const arrayLength = Array.isArray(arrayValue) ? arrayValue.length : 0;
 
-    const fromAnswer = await waitForQuestion(
+    const fromAnswer = await waitForInput(
       screen,
-      prompt,
+      'Move Array Item',
       `Move from index (0-${Math.max(0, arrayLength - 1)}${target.suggestedIndex != null ? `, default ${target.suggestedIndex}` : ''}):`,
+      target.suggestedIndex != null ? String(target.suggestedIndex) : '0',
     );
     if (fromAnswer == null) {
       statusMessage = 'Move canceled.';
@@ -484,7 +735,12 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
       return;
     }
 
-    const toAnswer = await waitForQuestion(screen, prompt, `Move to index (0-${Math.max(0, arrayLength - 1)}):`);
+    const toAnswer = await waitForInput(
+      screen,
+      'Move Array Item',
+      `Move to index (0-${Math.max(0, arrayLength - 1)}):`,
+      '0',
+    );
     if (toAnswer == null) {
       statusMessage = 'Move canceled.';
       refreshUi();
@@ -518,7 +774,7 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
     }
 
     const selectedEntry = visibleEntries[selectedEntryIndex];
-    const confirmed = await waitForConfirm(screen, question, `Delete ${selectedEntry.pathText}?`);
+    const confirmed = await waitForConfirm(screen, 'Delete Path', `Delete ${selectedEntry.pathText}?`);
     if (!confirmed) {
       statusMessage = 'Delete canceled.';
       refreshUi();
@@ -534,6 +790,19 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
       statusMessage = `Delete failed: ${(error as Error).message}`;
     }
     refreshUi();
+  };
+
+  const syncDocumentSelectionFromFilesList = () => {
+    const listIndex = (filesList as unknown as { selected?: number }).selected;
+    if (listIndex == null || listIndex < 0 || listIndex >= documents.length) {
+      return;
+    }
+    if (listIndex !== selectedDocumentIndex) {
+      selectedDocumentIndex = listIndex;
+      selectedEntryIndex = 0;
+      statusMessage = `Switched to ${documents[selectedDocumentIndex].title}.`;
+      refreshUi();
+    }
   };
 
   filesList.on('select', (_, index) => {
@@ -553,9 +822,34 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
     refreshUi();
   });
 
+  filesList.on('keypress', (_, key) => {
+    const navKeys = ['up', 'down', 'k', 'j', 'pageup', 'pagedown', 'home', 'end'];
+    if (!key?.name || !navKeys.includes(key.name)) {
+      return;
+    }
+
+    setTimeout(() => {
+      syncDocumentSelectionFromFilesList();
+    }, 0);
+  });
+
   screen.key(['tab'], () => {
     focusPane = focusPane === 'files' ? 'entries' : 'files';
     refreshUi();
+  });
+
+  screen.key(['left', 'h'], () => {
+    if (focusPane === 'entries') {
+      focusPane = 'files';
+      refreshUi();
+    }
+  });
+
+  screen.key(['right', 'l'], () => {
+    if (focusPane === 'files') {
+      focusPane = 'entries';
+      refreshUi();
+    }
   });
 
   screen.key(['s'], () => {
@@ -596,6 +890,11 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
 
   screen.key(['N'], () => {
     jumpSearchMatch('prev');
+  });
+
+  filesList.key(['enter'], () => {
+    focusPane = 'entries';
+    refreshUi();
   });
 
   refreshUi();
