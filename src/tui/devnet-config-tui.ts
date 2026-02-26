@@ -1,5 +1,6 @@
 import blessed, { Widgets } from 'blessed';
 import { DevnetConfigEditor, TomlEntry } from '../node/devnet-config-editor';
+import { getConfigDoc, getFixedArraySpecFromEntryPath, FixedArraySpec } from './devnet-config-metadata';
 
 type FocusPane = 'files' | 'entries';
 
@@ -7,17 +8,212 @@ function formatEntryLine(entry: TomlEntry): string {
   const depth = Math.max(0, entry.path.length - 1);
   const lastPathPart = entry.path[entry.path.length - 1] ?? '';
   const nodeName = /^\d+$/.test(lastPathPart) ? `[${lastPathPart}]` : lastPathPart;
-  const indent = '  '.repeat(depth);
+  const treeIndent = depth === 0 ? '' : `${'│ '.repeat(Math.max(0, depth - 1))}`;
+  const branch = depth === 0 ? '' : '├─ ';
+  const keyDoc = getConfigDoc(entry.path);
+  const docText = keyDoc != null ? ` {gray-fg}// ${keyDoc.summary}{/gray-fg}` : '';
+  const valueColor = entry.type === 'string' ? 'green' : entry.type === 'number' ? 'yellow' : 'magenta';
+  const keyColor = depth === 0 ? 'cyan' : 'white';
 
   if (entry.type === 'object') {
-    return `${indent}▸ ${nodeName} ${entry.valuePreview}`;
+    return `${treeIndent}${branch}{cyan-fg}▸ ${nodeName}{/cyan-fg} {gray-fg}${entry.valuePreview}{/gray-fg}${docText}`;
   }
 
   if (entry.type === 'array') {
-    return `${indent}▾ ${nodeName} ${entry.valuePreview}`;
+    return `${treeIndent}${branch}{magenta-fg}▾ ${nodeName}{/magenta-fg} {gray-fg}${entry.valuePreview}{/gray-fg}${docText}`;
   }
 
-  return `${indent}  ${nodeName} = ${entry.valuePreview}`;
+  return `${treeIndent}${branch}{${keyColor}-fg}${nodeName}{/${keyColor}-fg} = {${valueColor}-fg}${entry.valuePreview}{/${valueColor}-fg}${docText}`;
+}
+
+async function waitForFixedArraySelection(
+  screen: Widgets.Screen,
+  title: string,
+  spec: FixedArraySpec,
+  currentValues: string[],
+): Promise<string[] | null> {
+  return new Promise((resolve) => {
+    const maxVisibleRows = 14;
+    const visibleRows = Math.min(Math.max(spec.options.length, 1), maxVisibleRows);
+    const listHeight = visibleRows + 2;
+    const dialogHeight = listHeight + 6;
+
+    const overlay = blessed.box({
+      parent: screen,
+      top: 0,
+      left: 0,
+      width: '100%',
+      height: '100%',
+      mouse: true,
+      keys: true,
+      tags: true,
+    });
+
+    const dialog = blessed.box({
+      parent: overlay,
+      label: ` ${title} `,
+      border: 'line',
+      top: 'center',
+      left: 'center',
+      width: '62%',
+      height: dialogHeight,
+      mouse: true,
+      keys: true,
+      tags: true,
+      style: {
+        border: { fg: 'cyan' },
+      },
+    });
+
+    const selectedValues = new Set(currentValues);
+
+    const list = blessed.list({
+      parent: dialog,
+      top: 1,
+      left: 1,
+      width: '100%-2',
+      height: listHeight,
+      border: 'line',
+      mouse: true,
+      keys: true,
+      vi: true,
+      tags: true,
+      style: {
+        selected: { bg: 'blue' },
+        border: { fg: 'gray' },
+      },
+    });
+
+    const footer = blessed.box({
+      parent: dialog,
+      top: listHeight + 1,
+      left: 2,
+      width: '100%-4',
+      height: 2,
+      tags: true,
+      content: '{gray-fg}Space toggle  Enter apply  Esc cancel{/gray-fg}',
+    });
+
+    const renderList = () => {
+      const items = spec.options.map((option) => {
+        const checked = selectedValues.has(option) ? 'x' : ' ';
+        return `[${checked}] ${option}`;
+      });
+      list.setItems(items);
+    };
+
+    renderList();
+    list.select(0);
+
+    const screenWithGrab = screen as unknown as { grabKeys?: boolean; grabMouse?: boolean };
+    const previousGrabKeys = screenWithGrab.grabKeys;
+    const previousGrabMouse = screenWithGrab.grabMouse;
+    screenWithGrab.grabKeys = true;
+    screenWithGrab.grabMouse = true;
+
+    const cleanup = (value: string[] | null) => {
+      screenWithGrab.grabKeys = previousGrabKeys;
+      screenWithGrab.grabMouse = previousGrabMouse;
+      overlay.destroy();
+      screen.render();
+      resolve(value);
+    };
+
+    const selectedOption = () => {
+      const selectedIndex = (list as unknown as { selected?: number }).selected ?? 0;
+      return spec.options[selectedIndex] ?? null;
+    };
+
+    const applySelection = () => {
+      const values = spec.options.filter((option) => selectedValues.has(option));
+      cleanup(values);
+    };
+
+    const toggleSelectedOption = () => {
+      const option = selectedOption();
+      if (option == null) {
+        return;
+      }
+
+      if (selectedValues.has(option)) {
+        selectedValues.delete(option);
+      } else {
+        selectedValues.add(option);
+      }
+      renderList();
+      const selectedIndex = (list as unknown as { selected?: number }).selected ?? 0;
+      list.select(selectedIndex);
+      screen.render();
+    };
+
+    list.on('select', () => {
+      toggleSelectedOption();
+    });
+
+    list.key(['enter'], () => {
+      applySelection();
+    });
+
+    list.key(['up', 'k'], () => {
+      list.up(1);
+      screen.render();
+    });
+
+    list.key(['down', 'j'], () => {
+      list.down(1);
+      screen.render();
+    });
+
+    list.key(['space'], () => {
+      toggleSelectedOption();
+    });
+
+    dialog.key(['escape'], () => cleanup(null));
+    dialog.key(['A-a'], () => {
+      spec.options.forEach((option) => selectedValues.add(option));
+      renderList();
+      screen.render();
+    });
+    dialog.key(['A-d'], () => {
+      selectedValues.clear();
+      renderList();
+      screen.render();
+    });
+
+    list.focus();
+    footer.setContent('{gray-fg}Space toggle  Enter apply  Esc cancel  Alt+a all  Alt+d none{/gray-fg}');
+    screen.render();
+  });
+}
+
+async function waitForArrayValue(
+  screen: Widgets.Screen,
+  spec: FixedArraySpec | null,
+  title: string,
+  questionText: string,
+  initialValue: string,
+): Promise<string | null> {
+  if (spec == null) {
+    return waitForInput(screen, title, questionText, initialValue);
+  }
+
+  if (spec.options.includes(initialValue)) {
+    const selected = await waitForFixedArraySelection(screen, `${title} (${spec.label})`, spec, [initialValue]);
+    if (selected == null || selected.length === 0) {
+      return null;
+    }
+    return selected[0];
+  }
+
+  if (!spec.allowCustom) {
+    const selected = await waitForFixedArraySelection(screen, `${title} (${spec.label})`, spec, []);
+    if (selected == null || selected.length === 0) {
+      return null;
+    }
+    return selected[0];
+  }
+
+  return waitForInput(screen, title, questionText, initialValue);
 }
 
 function waitForInput(
@@ -331,10 +527,10 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
 
   const entriesList = blessed.list({
     parent: screen,
-    label: ' Keys ',
+    label: ' Config ',
     top: 0,
     left: '22%',
-    width: '43%',
+    width: '78%',
     height: '90%',
     border: 'line',
     keys: true,
@@ -344,24 +540,6 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
       border: { fg: 'gray' },
     },
     tags: true,
-  });
-
-  const detailsBox = blessed.box({
-    parent: screen,
-    label: ' Value / Details ',
-    top: 0,
-    left: '65%',
-    width: '35%',
-    height: '90%',
-    border: 'line',
-    tags: true,
-    scrollable: true,
-    alwaysScroll: true,
-    keys: true,
-    vi: true,
-    style: {
-      border: { fg: 'gray' },
-    },
   });
 
   const statusBar = blessed.box({
@@ -402,44 +580,26 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
 
     filesList.style.border = { fg: focusPane === 'files' ? 'cyan' : 'gray' };
     entriesList.style.border = { fg: focusPane === 'entries' ? 'cyan' : 'gray' };
-    detailsBox.style.border = { fg: 'gray' };
 
     if (visibleEntries.length === 0) {
       selectedEntryIndex = 0;
-      detailsBox.setContent(
-        searchTerm
-          ? '{yellow-fg}No keys match search filter.{/yellow-fg}'
-          : '{yellow-fg}No keys found in selected document.{/yellow-fg}',
-      );
     } else {
       if (selectedEntryIndex >= visibleEntries.length) {
         selectedEntryIndex = visibleEntries.length - 1;
       }
       entriesList.select(selectedEntryIndex);
-
-      const selectedEntry = visibleEntries[selectedEntryIndex];
-      const rawValue = editor.getEntryValue(selectedEntry.documentId, selectedEntry.path);
-      const valueText = typeof rawValue === 'string' ? rawValue : JSON.stringify(rawValue, null, 2);
-
-      detailsBox.setContent(
-        [
-          `{bold}File{/bold}: ${selectedDocument.title}`,
-          `{bold}Path{/bold}: ${selectedEntry.pathText}`,
-          `{bold}Type{/bold}: ${selectedEntry.type}`,
-          `{bold}Editable{/bold}: ${selectedEntry.editable ? 'yes' : 'no'}`,
-          '',
-          '{bold}Current Value{/bold}',
-          valueText ?? 'null',
-        ].join('\n'),
-      );
     }
 
     const dirtyText = hasUnsavedChanges ? '{yellow-fg}yes{/yellow-fg}' : '{green-fg}no{/green-fg}';
+    const selectedEntry = visibleEntries[selectedEntryIndex];
+    const keyDoc = selectedEntry != null ? getConfigDoc(selectedEntry.path) : null;
+    const docLine = keyDoc != null ? `${keyDoc.summary} (${keyDoc.source})` : 'No inline doc for this key yet.';
     statusBar.setContent(
       [
         `Path: ${configPath}`,
         `File: ${documents[selectedDocumentIndex].title} | Focus: ${focusPane} | Search: ${searchTerm || '(none)'} | Unsaved: ${dirtyText}`,
         `Status: ${statusMessage}`,
+        `Doc: ${docLine}`,
       ].join('\n'),
     );
 
@@ -474,6 +634,51 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
     }
 
     return null;
+  };
+
+  const resolveFixedArrayTarget = (selectedEntry: TomlEntry): { arrayPath: string[]; spec: FixedArraySpec } | null => {
+    const spec = getFixedArraySpecFromEntryPath(selectedEntry.path);
+    if (spec == null) {
+      return null;
+    }
+
+    if (selectedEntry.type === 'array') {
+      return { arrayPath: selectedEntry.path, spec };
+    }
+
+    const lastPart = selectedEntry.path[selectedEntry.path.length - 1];
+    if (/^\d+$/.test(lastPart)) {
+      return { arrayPath: selectedEntry.path.slice(0, -1), spec };
+    }
+
+    return { arrayPath: selectedEntry.path, spec };
+  };
+
+  const editFixedArraySelection = async (
+    documentId: 'ckb' | 'miner',
+    arrayPath: string[],
+    spec: FixedArraySpec,
+  ) => {
+    const rawArrayValue = editor.getEntryValue(documentId, arrayPath);
+    if (!Array.isArray(rawArrayValue)) {
+      statusMessage = `Path ${arrayPath.join('.')} is not an array.`;
+      refreshUi();
+      return;
+    }
+
+    const currentValues = rawArrayValue.map((item) => String(item));
+    const selectedValues = await waitForFixedArraySelection(screen, `Edit ${spec.label}`, spec, currentValues);
+    if (selectedValues == null) {
+      statusMessage = 'Edit canceled.';
+      refreshUi();
+      return;
+    }
+
+    const nextValues = spec.unique ? Array.from(new Set(selectedValues)) : selectedValues;
+    rawArrayValue.splice(0, rawArrayValue.length, ...nextValues);
+    hasUnsavedChanges = true;
+    statusMessage = `Updated ${arrayPath.join('.')} (${nextValues.length} selected).`;
+    refreshUi();
   };
 
   const saveAndExit = () => {
@@ -513,6 +718,12 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
     }
 
     const selectedEntry = visibleEntries[selectedEntryIndex];
+    const fixedArrayTarget = resolveFixedArrayTarget(selectedEntry);
+    if (fixedArrayTarget != null) {
+      await editFixedArraySelection(selectedDocument.id, fixedArrayTarget.arrayPath, fixedArrayTarget.spec);
+      return;
+    }
+
     if (!selectedEntry.editable) {
       statusMessage = `Path ${selectedEntry.pathText} is not primitive-editable yet.`;
       refreshUi();
@@ -521,7 +732,7 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
 
     const value = editor.getEntryValue(selectedEntry.documentId, selectedEntry.path);
     const valueText = value == null ? '' : String(value);
-    const answer = await waitForInput(screen, 'Edit Value', selectedEntry.pathText, valueText);
+    const answer = await waitForArrayValue(screen, null, 'Edit Value', selectedEntry.pathText, valueText);
     if (answer == null) {
       statusMessage = 'Edit canceled.';
       refreshUi();
@@ -623,7 +834,13 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
     }
 
     if (targetEntry?.type === 'array') {
-      const valueAnswer = await waitForInput(screen, 'Append Array Item', `Append value to ${targetEntry.pathText}:`, '');
+      const fixedArrayTarget = resolveFixedArrayTarget(targetEntry);
+      if (fixedArrayTarget != null) {
+        await editFixedArraySelection(selectedDocument.id, fixedArrayTarget.arrayPath, fixedArrayTarget.spec);
+        return;
+      }
+
+      const valueAnswer = await waitForArrayValue(screen, null, 'Append Array Item', `Append value to ${targetEntry.pathText}:`, '');
       if (valueAnswer == null) {
         statusMessage = 'Append canceled.';
         refreshUi();
@@ -661,6 +878,12 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
       return;
     }
 
+    const fixedArraySpec = getFixedArraySpecFromEntryPath(target.arrayPath);
+    if (fixedArraySpec != null) {
+      await editFixedArraySelection(selectedDocument.id, target.arrayPath, fixedArraySpec);
+      return;
+    }
+
     const arrayValue = editor.getEntryValue(selectedDocument.id, target.arrayPath);
     const arrayLength = Array.isArray(arrayValue) ? arrayValue.length : 0;
     const indexAnswer = await waitForInput(
@@ -675,12 +898,7 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
       return;
     }
 
-    const valueAnswer = await waitForInput(
-      screen,
-      'Insert Array Item',
-      `Value to insert at ${target.arrayPath.join('.')} (auto parse bool/number):`,
-      '',
-    );
+    const valueAnswer = await waitForArrayValue(screen, null, 'Insert Array Item', `Value to insert at ${target.arrayPath.join('.')} (auto parse bool/number):`, '');
     if (valueAnswer == null) {
       statusMessage = 'Insert canceled.';
       refreshUi();
@@ -717,6 +935,12 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
     if (target == null) {
       statusMessage = 'Select an array or array item to move.';
       refreshUi();
+      return;
+    }
+
+    const fixedArraySpec = getFixedArraySpecFromEntryPath(target.arrayPath);
+    if (fixedArraySpec != null) {
+      await editFixedArraySelection(selectedDocument.id, target.arrayPath, fixedArraySpec);
       return;
     }
 
@@ -774,6 +998,12 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
     }
 
     const selectedEntry = visibleEntries[selectedEntryIndex];
+    const fixedArrayTarget = resolveFixedArrayTarget(selectedEntry);
+    if (fixedArrayTarget != null) {
+      await editFixedArraySelection(selectedDocument.id, fixedArrayTarget.arrayPath, fixedArrayTarget.spec);
+      return;
+    }
+
     const confirmed = await waitForConfirm(screen, 'Delete Path', `Delete ${selectedEntry.pathText}?`);
     if (!confirmed) {
       statusMessage = 'Delete canceled.';
@@ -805,6 +1035,17 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
     }
   };
 
+  const syncEntrySelectionFromEntriesList = () => {
+    const listIndex = (entriesList as unknown as { selected?: number }).selected;
+    if (listIndex == null || listIndex < 0 || listIndex >= visibleEntries.length) {
+      return;
+    }
+    if (listIndex !== selectedEntryIndex) {
+      selectedEntryIndex = listIndex;
+      refreshUi();
+    }
+  };
+
   filesList.on('select', (_, index) => {
     if (index == null) {
       return;
@@ -820,6 +1061,17 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
     }
     selectedEntryIndex = index;
     refreshUi();
+  });
+
+  entriesList.on('keypress', (_, key) => {
+    const navKeys = ['up', 'down', 'k', 'j', 'pageup', 'pagedown', 'home', 'end'];
+    if (!key?.name || !navKeys.includes(key.name)) {
+      return;
+    }
+
+    setTimeout(() => {
+      syncEntrySelectionFromEntriesList();
+    }, 0);
   });
 
   filesList.on('keypress', (_, key) => {
@@ -861,6 +1113,7 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
   });
 
   screen.key(['enter'], () => {
+    syncEntrySelectionFromEntriesList();
     void editCurrentEntry();
   });
 
@@ -869,18 +1122,22 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
   });
 
   screen.key(['a'], () => {
+    syncEntrySelectionFromEntriesList();
     void addEntry();
   });
 
   screen.key(['d'], () => {
+    syncEntrySelectionFromEntriesList();
     void deleteEntry();
   });
 
   screen.key(['i'], () => {
+    syncEntrySelectionFromEntriesList();
     void insertArrayEntry();
   });
 
   screen.key(['m'], () => {
+    syncEntrySelectionFromEntriesList();
     void moveArrayEntry();
   });
 
