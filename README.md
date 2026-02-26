@@ -276,7 +276,29 @@ offckb system-scripts --output <output-file-path>
     
 By default, OffCKB use a fixed Devnet config. You can customize it, for example by modifying the default log level (`warn,ckb-script=debug`).
 
-1. Locate your Devnet config folder:
+1. Open the interactive Devnet config editor:
+
+```sh
+offckb devnet config
+```
+
+The editor provides a safe subset of common options from `ckb.toml` and `ckb-miner.toml` (for example logger and RPC settings), with keyboard navigation and validation.
+
+You can also update the same fields non-interactively (useful for scripts/CI):
+
+```sh
+offckb devnet config --set ckb.logger.filter=info
+offckb devnet config --set ckb.rpc.enable_deprecated_rpc=true --set miner.client.poll_interval=1500
+```
+
+1. Save changes and restart devnet:
+
+```sh
+offckb clean -d
+offckb node
+```
+
+1. (Advanced) Locate your Devnet config folder for manual edits:
     
 ```sh
 offckb config list
@@ -295,9 +317,9 @@ Example result:
 ```
 Pay attention to the `devnet.configPath` and `devnet.dataPath`.
     
-2. `cd` into the `devnet.configPath` . Modify the config files as needed. See [Custom Devnet Setup](https://docs.nervos.org/docs/node/run-devnet-node#custom-devnet-setup) and [Configure CKB](https://github.com/nervosnetwork/ckb/blob/develop/docs/configure.md) for details.
-3. After modifications, run `offckb clean -d` to remove the chain data if needed while keeping the updated config files.
-4. Restart local blockchain by running `offckb node`
+1. `cd` into the `devnet.configPath` . Modify the config files as needed. See [Custom Devnet Setup](https://docs.nervos.org/docs/node/run-devnet-node#custom-devnet-setup) and [Configure CKB](https://github.com/nervosnetwork/ckb/blob/develop/docs/configure.md) for details.
+1. After modifications, run `offckb clean -d` to remove the chain data if needed while keeping the updated config files.
+1. Restart local blockchain by running `offckb node`
 
 
 ## Config Setting
