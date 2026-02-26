@@ -555,6 +555,14 @@ export class DevnetConfigEditor {
     target.splice(toIndex, 0, item);
   }
 
+  setArrayValues(documentId: 'ckb' | 'miner', pathParts: string[], values: string[]): void {
+    const target = getByPath(this.getDocument(documentId).data as Record<string, unknown>, pathParts);
+    if (!Array.isArray(target)) {
+      throw new Error('Target path is not an array.');
+    }
+    target.splice(0, target.length, ...values);
+  }
+
   deleteDocumentPath(documentId: 'ckb' | 'miner', pathParts: string[]): void {
     if (pathParts.length === 0) {
       throw new Error('Cannot delete the root node.');
