@@ -10,6 +10,7 @@ import { TransferOptions, transfer } from './cmd/transfer';
 import { BalanceOption, balanceOf } from './cmd/balance';
 import { createScriptProject, CreateScriptProjectOptions } from './cmd/create';
 import { Config, ConfigItem } from './cmd/config';
+import { devnetConfig } from './cmd/devnet-config';
 import { debugSingleScript, debugTransaction, parseSingleScriptOption } from './cmd/debug';
 import { printSystemScripts } from './cmd/system-scripts';
 import { transferAll } from './cmd/transfer-all';
@@ -20,7 +21,6 @@ import { Network } from './type/base';
 
 const version = require('../package.json').version;
 const description = require('../package.json').description;
-const { devnetConfig } = require('./cmd/devnet-config');
 
 // fix windows terminal encoding of simplified chinese text
 setUTF8EncodingForWindows();
