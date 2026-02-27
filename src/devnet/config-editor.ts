@@ -286,6 +286,22 @@ function writeTomlFileAtomic(filePath: string, data: Record<string, unknown>) {
   fs.renameSync(tempFilePath, filePath);
 }
 
+function requirePath<T>(target: Record<string, unknown>, pathParts: string[], guard: (value: unknown) => value is T, message: string): T {
+  const value = getByPath(target, pathParts);
+  if (!guard(value)) {
+    throw new Error(message);
+  }
+  return value;
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string');
+}
+
 export class DevnetConfigEditor {
   readonly configPath: string;
   readonly ckbTomlPath: string;
@@ -595,7 +611,59 @@ export class DevnetConfigEditor {
     return nextValue;
   }
 
+  private validateBeforeSave(): void {
+    const ckb = this.documents.ckb.data as unknown as Record<string, unknown>;
+    const miner = this.documents.miner.data as unknown as Record<string, unknown>;
+
+    const listenAddress = requirePath(
+      ckb,
+      ['rpc', 'listen_address'],
+      isNonEmptyString,
+      'Invalid config: rpc.listen_address must be a non-empty string.',
+    );
+    if (!validateHostPort(listenAddress)) {
+      throw new Error('Invalid config: rpc.listen_address must be in host:port format.');
+    }
+
+    const rpcModules = requirePath(
+      ckb,
+      ['rpc', 'modules'],
+      isStringArray,
+      'Invalid config: rpc.modules must be an array of strings.',
+    );
+    if (rpcModules.length === 0) {
+      throw new Error('Invalid config: rpc.modules must include at least one module.');
+    }
+    if (rpcModules.some((moduleName) => moduleName.trim().length === 0)) {
+      throw new Error('Invalid config: rpc.modules must not contain empty module names.');
+    }
+
+    const supportProtocols = requirePath(
+      ckb,
+      ['network', 'support_protocols'],
+      isStringArray,
+      'Invalid config: network.support_protocols must be an array of strings.',
+    );
+    if (!supportProtocols.includes('Sync') || !supportProtocols.includes('Identify')) {
+      throw new Error('Invalid config: network.support_protocols must include both Sync and Identify.');
+    }
+    if (supportProtocols.some((protocol) => protocol.trim().length === 0)) {
+      throw new Error('Invalid config: network.support_protocols must not contain empty protocol names.');
+    }
+
+    const minerRpcUrl = requirePath(
+      miner,
+      ['miner', 'client', 'rpc_url'],
+      isNonEmptyString,
+      'Invalid config: miner.client.rpc_url must be a non-empty string.',
+    );
+    if (!validateHttpUrl(minerRpcUrl)) {
+      throw new Error('Invalid config: miner.client.rpc_url must be a valid HTTP/HTTPS URL.');
+    }
+  }
+
   save(): void {
+    this.validateBeforeSave();
     writeTomlFileAtomic(this.ckbTomlPath, this.documents.ckb.data as unknown as Record<string, unknown>);
     writeTomlFileAtomic(this.minerTomlPath, this.documents.miner.data as unknown as Record<string, unknown>);
   }

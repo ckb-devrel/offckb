@@ -21,10 +21,12 @@ function writeFixtureConfig(configPath: string) {
         listen_address: '0.0.0.0:8114',
         max_request_body_size: 10_485_760,
         enable_deprecated_rpc: false,
+        modules: ['Net', 'Pool', 'Miner', 'Chain', 'Stats', 'Subscription', 'Experiment', 'Debug', 'Indexer'],
       },
       network: {
         max_peers: 125,
         bootnodes: ['node-a', 'node-b'],
+        support_protocols: ['Ping', 'Discovery', 'Identify', 'Sync'],
       },
     }),
     'utf8',
@@ -182,5 +184,35 @@ describe('DevnetConfigEditor', () => {
     >;
 
     expect(ckbToml.network.bootnodes).toEqual(['node-b', 'node-a', 'node-x']);
+  });
+
+  it('allows custom rpc modules and preserves them on save', () => {
+    const editor = createDevnetConfigEditor(configPath);
+
+    editor.setArrayValues('ckb', ['rpc', 'modules'], ['Net', 'Indexer', 'CustomModuleX']);
+    editor.save();
+
+    const ckbToml = toml.parse(fs.readFileSync(path.join(configPath, 'ckb.toml'), 'utf8')) as unknown as Record<
+      string,
+      any
+    >;
+
+    expect(ckbToml.rpc.modules).toEqual(['Net', 'Indexer', 'CustomModuleX']);
+  });
+
+  it('rejects saving when support_protocols misses mandatory protocols', () => {
+    const editor = createDevnetConfigEditor(configPath);
+
+    editor.setArrayValues('ckb', ['network', 'support_protocols'], ['Ping', 'Discovery']);
+
+    expect(() => editor.save()).toThrow('network.support_protocols must include both Sync and Identify');
+  });
+
+  it('rejects saving when rpc.modules is empty', () => {
+    const editor = createDevnetConfigEditor(configPath);
+
+    editor.setArrayValues('ckb', ['rpc', 'modules'], []);
+
+    expect(() => editor.save()).toThrow('rpc.modules must include at least one module');
   });
 });

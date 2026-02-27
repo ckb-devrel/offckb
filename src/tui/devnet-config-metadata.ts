@@ -42,7 +42,7 @@ const CONFIG_DOCS: ConfigDocRule[] = [
   {
     pathPattern: 'rpc.modules',
     doc: {
-      summary: 'Enabled RPC module names exposed by this node.',
+      summary: 'Enabled RPC modules; known defaults plus custom module names if supported.',
       source: 'CKB configure docs',
     },
   },
@@ -91,7 +91,7 @@ const CONFIG_DOCS: ConfigDocRule[] = [
   {
     pathPattern: 'network.support_protocols',
     doc: {
-      summary: 'Enabled CKB p2p protocol list.',
+      summary: 'Enabled CKB p2p protocols; must include Sync and Identify.',
       source: 'CKB configure docs / CKB protocol definitions',
     },
   },

@@ -13,8 +13,12 @@ export async function waitForFixedArraySelection(
   currentValues: string[],
 ): Promise<string[] | null> {
   return new Promise((resolve) => {
+    const knownOptions = [...spec.options];
+    const customCurrentValues = currentValues.filter((value) => !knownOptions.includes(value));
+    const optionList = [...knownOptions, ...customCurrentValues];
+
     const maxVisibleRows = 14;
-    const visibleRows = Math.min(Math.max(spec.options.length, 1), maxVisibleRows);
+    const visibleRows = Math.min(Math.max(optionList.length, 1), maxVisibleRows);
     const listHeight = visibleRows + 2;
     const dialogHeight = listHeight + 6;
 
@@ -69,13 +73,14 @@ export async function waitForFixedArraySelection(
       width: '100%-4',
       height: 2,
       tags: true,
-      content: 'Space toggle  Enter apply  Esc cancel  Ctrl/Alt+a all  Ctrl/Alt+d none',
+      content: `Space toggle  Enter apply  Esc cancel  Ctrl/Alt+a all  Ctrl/Alt+d none${spec.allowCustom ? '  c add custom' : ''}`,
     });
 
     const renderList = () => {
-      const items = spec.options.map((option) => {
+      const items = optionList.map((option) => {
         const checked = selectedValues.has(option) ? 'x' : ' ';
-        return `[${checked}] ${option}`;
+        const suffix = knownOptions.includes(option) ? '' : ' (custom)';
+        return `[${checked}] ${option}${suffix}`;
       });
       list.setItems(items);
     };
@@ -102,11 +107,11 @@ export async function waitForFixedArraySelection(
 
     const selectedOption = () => {
       const selectedIndex = getListSelected(list);
-      return spec.options[selectedIndex] ?? null;
+      return optionList[selectedIndex] ?? null;
     };
 
     const applySelection = () => {
-      const values = spec.options.filter((option) => selectedValues.has(option));
+      const values = optionList.filter((option) => selectedValues.has(option));
       cleanup(values);
     };
 
@@ -128,7 +133,7 @@ export async function waitForFixedArraySelection(
     list.key(['space'], () => toggleSelectedOption());
     list.key(['escape'], () => cleanup(null));
     list.key(['C-a', 'A-a', 'M-a'], () => {
-      spec.options.forEach((option) => selectedValues.add(option));
+      optionList.forEach((option) => selectedValues.add(option));
       renderList();
       screen.render();
     });
@@ -140,7 +145,7 @@ export async function waitForFixedArraySelection(
 
     dialog.key(['escape'], () => cleanup(null));
     dialog.key(['C-a', 'A-a', 'M-a'], () => {
-      spec.options.forEach((option) => selectedValues.add(option));
+      optionList.forEach((option) => selectedValues.add(option));
       renderList();
       screen.render();
     });
@@ -148,6 +153,45 @@ export async function waitForFixedArraySelection(
       selectedValues.clear();
       renderList();
       screen.render();
+    });
+
+    const addCustomValue = async () => {
+      if (!spec.allowCustom) return;
+
+      const answer = await waitForInput(screen, `${title} (${spec.label})`, 'Custom value:', '');
+      if (answer == null) {
+        list.focus();
+        screen.render();
+        return;
+      }
+
+      const customValue = answer.trim();
+      if (!customValue) {
+        list.focus();
+        screen.render();
+        return;
+      }
+
+      if (!optionList.includes(customValue)) {
+        optionList.push(customValue);
+      }
+      selectedValues.add(customValue);
+
+      renderList();
+      const index = optionList.findIndex((option) => option === customValue);
+      if (index >= 0) {
+        list.select(index);
+      }
+      list.focus();
+      screen.render();
+    };
+
+    list.key(['c'], () => {
+      void addCustomValue();
+    });
+
+    dialog.key(['c'], () => {
+      void addCustomValue();
     });
 
     list.focus();

@@ -284,7 +284,9 @@ offckb devnet config
 
 The editor supports full key browsing/editing for `ckb.toml` and `ckb-miner.toml`, including primitive value edits, object key add, array append/insert/move, search filter, and path delete.
 
-Common shortcuts: `Enter` edit primitive, `a` add key/item, `i` insert array item, `m` move array item, `d` delete path, `/` search filter, `n`/`N` next/previous search match, `s` save, `q` quit.
+Common shortcuts: `Enter` edit primitive, `a` add key/item, `i` insert array item, `m` move array item, `d` delete path, `/` search filter, `n`/`N` next/previous search match, `c` add custom value in fixed-array dialog (when allowed), `s` save, `q` quit.
+
+Note: saving rewrites `ckb.toml` / `ckb-miner.toml` into canonical TOML format; upstream comments and original formatting are not preserved after save.
 
 You can also update the same fields non-interactively (useful for scripts/CI):
 
@@ -301,7 +303,7 @@ offckb node
 ```
 
 1. (Advanced) Locate your Devnet config folder for manual edits:
-    
+
 ```sh
 offckb config list
 ```
@@ -317,12 +319,12 @@ Example result:
   }
 }
 ```
-Pay attention to the `devnet.configPath` and `devnet.dataPath`.
-    
-1. `cd` into the `devnet.configPath` . Modify the config files as needed. See [Custom Devnet Setup](https://docs.nervos.org/docs/node/run-devnet-node#custom-devnet-setup) and [Configure CKB](https://github.com/nervosnetwork/ckb/blob/develop/docs/configure.md) for details.
-1. After modifications, run `offckb clean -d` to remove the chain data if needed while keeping the updated config files.
-1. Restart local blockchain by running `offckb node`
 
+Pay attention to the `devnet.configPath` and `devnet.dataPath`.
+
+1. `cd` into the `devnet.configPath` . Modify the config files as needed. See [Custom Devnet Setup](https://docs.nervos.org/docs/node/run-devnet-node#custom-devnet-setup) and [Configure CKB](https://github.com/nervosnetwork/ckb/blob/develop/docs/configure.md) for details.
+2. After modifications, run `offckb clean -d` to remove the chain data if needed while keeping the updated config files.
+3. Restart local blockchain by running `offckb node`
 
 ## Config Setting
 
