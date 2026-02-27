@@ -189,7 +189,7 @@ function valuePreview(value: unknown): string {
     return `[${value.length}]`;
   }
   if (isPlainObject(value)) {
-    return `{${Object.keys(value).length}}`;
+    return `[${Object.keys(value).length} keys]`;
   }
   if (typeof value === 'string') {
     if (value.length > 80) {
@@ -360,7 +360,7 @@ export class DevnetConfigEditor {
           path: currentPath,
           pathText: currentPath.join('.'),
           type: entryType,
-          valuePreview: valuePreview(value),
+          valuePreview: entryType === 'object' ? '' : valuePreview(value),
           editable: entryType === 'string' || entryType === 'number' || entryType === 'boolean',
         });
       }

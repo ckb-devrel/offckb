@@ -143,7 +143,6 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
           text: formatFixedArrayDetailLine(
             Math.max(0, entry.path.length - 1),
             entryValue.map((value) => String(value)),
-            fixedArraySpec.options,
           ),
           entryIndex,
           selectable: false,
