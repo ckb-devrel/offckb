@@ -69,7 +69,7 @@ export async function waitForFixedArraySelection(
       width: '100%-4',
       height: 2,
       tags: true,
-      content: 'Space toggle  Enter apply  Esc cancel  Alt+a all  Alt+d none',
+      content: 'Space toggle  Enter apply  Esc cancel  Ctrl/Alt+a all  Ctrl/Alt+d none',
     });
 
     const renderList = () => {
@@ -125,17 +125,26 @@ export async function waitForFixedArraySelection(
     };
 
     list.key(['enter'], () => applySelection());
-    list.key(['up', 'k'], () => { list.up(1); screen.render(); });
-    list.key(['down', 'j'], () => { list.down(1); screen.render(); });
     list.key(['space'], () => toggleSelectedOption());
-
-    dialog.key(['escape'], () => cleanup(null));
-    dialog.key(['A-a'], () => {
+    list.key(['escape'], () => cleanup(null));
+    list.key(['C-a', 'A-a', 'M-a'], () => {
       spec.options.forEach((option) => selectedValues.add(option));
       renderList();
       screen.render();
     });
-    dialog.key(['A-d'], () => {
+    list.key(['C-d', 'A-d', 'M-d'], () => {
+      selectedValues.clear();
+      renderList();
+      screen.render();
+    });
+
+    dialog.key(['escape'], () => cleanup(null));
+    dialog.key(['C-a', 'A-a', 'M-a'], () => {
+      spec.options.forEach((option) => selectedValues.add(option));
+      renderList();
+      screen.render();
+    });
+    dialog.key(['C-d', 'A-d', 'M-d'], () => {
       selectedValues.clear();
       renderList();
       screen.render();
@@ -296,8 +305,21 @@ export function waitForConfirm(
   screen: Widgets.Screen,
   title: string,
   text: string,
+  options?: {
+    confirmLabel?: string;
+    cancelLabel?: string;
+    defaultFocus?: 'confirm' | 'cancel';
+  },
 ): Promise<boolean> {
   return new Promise((resolve) => {
+    const confirmLabel = options?.confirmLabel ?? 'OK';
+    const cancelLabel = options?.cancelLabel ?? 'Cancel';
+    const defaultFocus: 'ok' | 'cancel' = options?.defaultFocus === 'confirm' ? 'ok' : 'cancel';
+    const buttonGap = 3;
+    const buttonWidth = Math.max(confirmLabel.length, cancelLabel.length) + 4;
+    const leftHalfOffset = buttonWidth + Math.ceil(buttonGap / 2);
+    const rightHalfOffset = Math.floor(buttonGap / 2);
+
     const dialog = blessed.box({
       parent: screen,
       label: ` ${title} `,
@@ -325,11 +347,12 @@ export function waitForConfirm(
       parent: dialog,
       mouse: true,
       keys: true,
-      shrink: true,
+      shrink: false,
       top: 5,
-      left: '40%-8',
+      left: `50%-${leftHalfOffset}`,
+      width: buttonWidth,
       height: 1,
-      content: '  OK  ',
+      content: ` ${confirmLabel} `,
       style: { bg: 'blue', focus: { bg: 'blue' } },
     });
 
@@ -337,11 +360,12 @@ export function waitForConfirm(
       parent: dialog,
       mouse: true,
       keys: true,
-      shrink: true,
+      shrink: false,
       top: 5,
-      left: '40%+4',
+      left: `50%+${rightHalfOffset}`,
+      width: buttonWidth,
       height: 1,
-      content: ' Cancel ',
+      content: ` ${cancelLabel} `,
       style: { bg: 'gray', focus: { bg: 'gray' } },
     });
 
@@ -371,16 +395,51 @@ export function waitForConfirm(
       screen.render();
     };
 
-    okButton.on('press', () => cleanup(true));
-    cancelButton.on('press', () => cleanup(false));
-
-    dialog.key(['escape'], () => cleanup(false));
-    dialog.key(['tab', 'left', 'right'], () => {
+    const toggleFocus = () => {
       setFocus(focusButton === 'ok' ? 'cancel' : 'ok');
-    });
-    dialog.key(['enter'], () => cleanup(focusButton === 'ok'));
+    };
 
-    setFocus('cancel');
+    okButton.on('focus', () => {
+      if (resolved) return;
+      focusButton = 'ok';
+      okButton.style.bg = 'cyan';
+      cancelButton.style.bg = 'gray';
+      screen.render();
+    });
+
+    cancelButton.on('focus', () => {
+      if (resolved) return;
+      focusButton = 'cancel';
+      okButton.style.bg = 'blue';
+      cancelButton.style.bg = 'cyan';
+      screen.render();
+    });
+
+    const accept = () => cleanup(true);
+    const cancel = () => cleanup(false);
+
+    okButton.on('press', () => accept());
+    cancelButton.on('press', () => cancel());
+
+    dialog.key(['escape'], () => cancel());
+    dialog.key(['tab', 'left', 'right'], () => toggleFocus());
+    dialog.key(['S-tab'], () => toggleFocus());
+    dialog.key(['enter', 'return', 'C-m'], () => {
+      if (focusButton === 'ok') {
+        accept();
+      } else {
+        cancel();
+      }
+    });
+
+    okButton.key(['tab', 'right', 'left', 'S-tab'], () => toggleFocus());
+    cancelButton.key(['tab', 'right', 'left', 'S-tab'], () => toggleFocus());
+    okButton.key(['escape'], () => cancel());
+    cancelButton.key(['escape'], () => cancel());
+    okButton.key(['enter', 'return', 'C-m'], () => accept());
+    cancelButton.key(['enter', 'return', 'C-m'], () => cancel());
+
+    setFocus(defaultFocus);
     screen.render();
   });
 }

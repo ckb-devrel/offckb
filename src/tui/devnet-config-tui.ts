@@ -251,16 +251,6 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
     syncEntrySelectionFromEntriesList();
   });
 
-  entriesList.on('action', () => {
-    if (state.dialogLock) return;
-    syncEntrySelectionFromEntriesList();
-    const entry = state.visibleEntries[state.selectedEntryIndex];
-    if (entry == null) return;
-    if (getFixedArraySpecFromEntryPath(entry.path) != null) {
-      withDialogLock(() => editCurrentEntry(ctx));
-    }
-  });
-
   const NAV_KEYS = ['up', 'down', 'k', 'j', 'pageup', 'pagedown', 'home', 'end'];
 
   entriesList.on('keypress', (_: unknown, key: { name?: string }) => {
@@ -308,7 +298,7 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
 
   guardedKey(['s'], () => saveAndExit(ctx));
 
-  guardedKeyAsync(['q', 'C-c'], () => quitFlow(ctx));
+  guardedKeyAsync(['q', 'C-c', 'escape'], () => quitFlow(ctx));
 
   guardedKeyAsync(['enter'], () => {
     syncEntrySelectionFromEntriesList();

@@ -453,7 +453,16 @@ export async function quitFlow(ctx: ActionContext): Promise<void> {
     return;
   }
 
-  const shouldDiscard = await waitForConfirm(widgets.screen, 'Discard Changes', 'Discard unsaved changes?');
+  const shouldDiscard = await waitForConfirm(
+    widgets.screen,
+    'Unsaved Changes',
+    'You have unsaved changes. Press S to save and exit, or discard changes and exit.',
+    {
+      confirmLabel: 'Discard & Exit',
+      cancelLabel: 'Keep Editing',
+      defaultFocus: 'cancel',
+    },
+  );
   if (shouldDiscard) {
     widgets.screen.destroy();
     return;
