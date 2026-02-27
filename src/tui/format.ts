@@ -1,5 +1,5 @@
 import { TomlEntry } from '../devnet/config-editor';
-import { getConfigDoc, getFixedArraySpecFromEntryPath } from './devnet-config-metadata';
+import { getConfigDoc } from './devnet-config-metadata';
 
 function formatFixedArrayInline(values: string[]): string {
   if (values.length === 0) {
@@ -14,7 +14,7 @@ export function formatFixedArrayDetailLine(depth: number, values: string[]): str
   return `${detailIndent}${formatFixedArrayInline(values)}`;
 }
 
-export function formatEntryLine(entry: TomlEntry, entryValue?: unknown): string {
+export function formatEntryLine(entry: TomlEntry, _entryValue?: unknown): string {
   const depth = Math.max(0, entry.path.length - 1);
   const lastPathPart = entry.path[entry.path.length - 1] ?? '';
   const nodeName = /^\d+$/.test(lastPathPart) ? `[${lastPathPart}]` : lastPathPart;
@@ -30,7 +30,6 @@ export function formatEntryLine(entry: TomlEntry, entryValue?: unknown): string 
   }
 
   if (entry.type === 'array') {
-    const fixedArraySpec = getFixedArraySpecFromEntryPath(entry.path);
     return `${treeIndent}${branch}{magenta-fg}▾ ${nodeName}{/magenta-fg} {white-fg}${entry.valuePreview}{/white-fg}${docText}`;
   }
 
