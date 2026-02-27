@@ -24,7 +24,7 @@ importers:
         specifier: ^0.5.10
         version: 0.5.16
       blessed:
-        specifier: ^0.1.81
+        specifier: 0.1.81
         version: 0.1.81
       chalk:
         specifier: 4.1.2
@@ -61,7 +61,7 @@ importers:
         specifier: ^0.5.5
         version: 0.5.7
       '@types/blessed':
-        specifier: ^0.1.27
+        specifier: 0.1.27
         version: 0.1.27
       '@types/jest':
         specifier: ^30.0.0
