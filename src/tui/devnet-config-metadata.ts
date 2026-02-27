@@ -129,7 +129,19 @@ const FIXED_ARRAY_SPECS: FixedArraySpec[] = [
   {
     pathPattern: 'network.support_protocols',
     label: 'Network Protocols',
-    options: ['Ping', 'Discovery', 'Identify', 'Feeler', 'DisconnectMessage', 'Sync', 'Relay', 'Time', 'Alert', 'LightClient', 'Filter'],
+    options: [
+      'Ping',
+      'Discovery',
+      'Identify',
+      'Feeler',
+      'DisconnectMessage',
+      'Sync',
+      'Relay',
+      'Time',
+      'Alert',
+      'LightClient',
+      'Filter',
+    ],
     unique: true,
     allowCustom: false,
     source: 'CKB protocol definitions',
@@ -137,7 +149,18 @@ const FIXED_ARRAY_SPECS: FixedArraySpec[] = [
   {
     pathPattern: 'rpc.modules',
     label: 'RPC Modules',
-    options: ['Net', 'Pool', 'Miner', 'Chain', 'Stats', 'Experiment', 'Debug', 'IntegrationTest', 'Indexer', 'Subscription'],
+    options: [
+      'Net',
+      'Pool',
+      'Miner',
+      'Chain',
+      'Stats',
+      'Experiment',
+      'Debug',
+      'IntegrationTest',
+      'Indexer',
+      'Subscription',
+    ],
     unique: true,
     allowCustom: true,
     source: 'CKB configure docs',
@@ -175,11 +198,13 @@ function wildcardScore(patternSegments: string[]): number {
 }
 
 export function getConfigDoc(pathSegments: string[]): ConfigDoc | null {
-  const matches = CONFIG_DOCS.filter((rule) => matchPattern(pathSegments, splitPattern(rule.pathPattern))).sort((a, b) => {
-    const aScore = wildcardScore(splitPattern(a.pathPattern));
-    const bScore = wildcardScore(splitPattern(b.pathPattern));
-    return aScore - bScore;
-  });
+  const matches = CONFIG_DOCS.filter((rule) => matchPattern(pathSegments, splitPattern(rule.pathPattern))).sort(
+    (a, b) => {
+      const aScore = wildcardScore(splitPattern(a.pathPattern));
+      const bScore = wildcardScore(splitPattern(b.pathPattern));
+      return aScore - bScore;
+    },
+  );
 
   if (matches.length === 0) {
     return null;

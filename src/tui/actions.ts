@@ -185,7 +185,8 @@ export function jumpSearchMatch(ctx: ActionContext, direction: 'next' | 'prev'):
     state.selectedEntryIndex = (state.selectedEntryIndex + 1) % state.visibleEntries.length;
     state.statusMessage = `Jumped to next match (${state.selectedEntryIndex + 1}/${state.visibleEntries.length}).`;
   } else {
-    state.selectedEntryIndex = (state.selectedEntryIndex - 1 + state.visibleEntries.length) % state.visibleEntries.length;
+    state.selectedEntryIndex =
+      (state.selectedEntryIndex - 1 + state.visibleEntries.length) % state.visibleEntries.length;
     state.statusMessage = `Jumped to previous match (${state.selectedEntryIndex + 1}/${state.visibleEntries.length}).`;
   }
 
@@ -196,9 +197,10 @@ export async function addEntry(ctx: ActionContext): Promise<void> {
   const { state, widgets, refreshUi } = ctx;
   const doc = currentDocument(ctx);
 
-  const targetEntry = state.visibleEntries.length > 0
-    ? state.visibleEntries[Math.min(state.selectedEntryIndex, state.visibleEntries.length - 1)]
-    : null;
+  const targetEntry =
+    state.visibleEntries.length > 0
+      ? state.visibleEntries[Math.min(state.selectedEntryIndex, state.visibleEntries.length - 1)]
+      : null;
 
   const targetPath = targetEntry?.path ?? [];
   const targetValue = state.editor.getEntryValue(doc.id, targetPath);
@@ -209,7 +211,10 @@ export async function addEntry(ctx: ActionContext): Promise<void> {
     return;
   }
 
-  if (targetEntry?.type === 'object' || (targetEntry == null && targetValue != null && typeof targetValue === 'object')) {
+  if (
+    targetEntry?.type === 'object' ||
+    (targetEntry == null && targetValue != null && typeof targetValue === 'object')
+  ) {
     const keyAnswer = await waitForInput(widgets.screen, 'Add Object Key', 'New key name:', '');
     if (keyAnswer == null) {
       state.statusMessage = 'Add canceled.';
@@ -328,9 +333,10 @@ export async function insertArrayEntry(ctx: ActionContext): Promise<void> {
 
   try {
     const indexInput = indexAnswer.trim();
-    const insertIndex = indexInput === '' && target.suggestedIndex != null
-      ? target.suggestedIndex
-      : parseNonNegativeInteger(indexAnswer, 'Insert index');
+    const insertIndex =
+      indexInput === '' && target.suggestedIndex != null
+        ? target.suggestedIndex
+        : parseNonNegativeInteger(indexAnswer, 'Insert index');
 
     state.editor.insertArrayEntry(doc.id, target.arrayPath, insertIndex, valueAnswer);
     state.hasUnsavedChanges = true;
@@ -395,9 +401,10 @@ export async function moveArrayEntry(ctx: ActionContext): Promise<void> {
 
   try {
     const fromInput = fromAnswer.trim();
-    const fromIndex = fromInput === '' && target.suggestedIndex != null
-      ? target.suggestedIndex
-      : parseNonNegativeInteger(fromAnswer, 'Source index');
+    const fromIndex =
+      fromInput === '' && target.suggestedIndex != null
+        ? target.suggestedIndex
+        : parseNonNegativeInteger(fromAnswer, 'Source index');
     const toIndex = parseNonNegativeInteger(toAnswer, 'Target index');
 
     state.editor.moveArrayEntry(doc.id, target.arrayPath, fromIndex, toIndex);

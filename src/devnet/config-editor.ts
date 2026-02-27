@@ -454,11 +454,7 @@ export class DevnetConfigEditor {
     }
 
     this.values[fieldId] = parsedBoolean;
-    setByPath(
-      this.getDocument(definition.file).data as Record<string, unknown>,
-      definition.path,
-      this.values[fieldId],
-    );
+    setByPath(this.getDocument(definition.file).data as Record<string, unknown>, definition.path, this.values[fieldId]);
     return this.values[fieldId];
   }
 
@@ -514,12 +510,7 @@ export class DevnetConfigEditor {
     return parsedValue;
   }
 
-  insertArrayEntry(
-    documentId: 'ckb' | 'miner',
-    pathParts: string[],
-    index: number,
-    rawValue: string,
-  ): TomlPrimitive {
+  insertArrayEntry(documentId: 'ckb' | 'miner', pathParts: string[], index: number, rawValue: string): TomlPrimitive {
     const target = getByPath(this.getDocument(documentId).data as Record<string, unknown>, pathParts);
     if (!Array.isArray(target)) {
       throw new Error('Target path is not an array.');
@@ -600,11 +591,7 @@ export class DevnetConfigEditor {
 
     const nextValue = !field.value;
     this.values[fieldId] = nextValue;
-    setByPath(
-      this.getDocument(field.file).data as Record<string, unknown>,
-      field.path,
-      nextValue,
-    );
+    setByPath(this.getDocument(field.file).data as Record<string, unknown>, field.path, nextValue);
     return nextValue;
   }
 

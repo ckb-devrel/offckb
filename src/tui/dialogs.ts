@@ -261,14 +261,26 @@ export function waitForInput(
     };
 
     const nextFocus = () => {
-      if (currentFocus === 'input') { setFocus('ok'); return; }
-      if (currentFocus === 'ok') { setFocus('cancel'); return; }
+      if (currentFocus === 'input') {
+        setFocus('ok');
+        return;
+      }
+      if (currentFocus === 'ok') {
+        setFocus('cancel');
+        return;
+      }
       setFocus('input');
     };
 
     const prevFocus = () => {
-      if (currentFocus === 'cancel') { setFocus('ok'); return; }
-      if (currentFocus === 'ok') { setFocus('input'); return; }
+      if (currentFocus === 'cancel') {
+        setFocus('ok');
+        return;
+      }
+      if (currentFocus === 'ok') {
+        setFocus('input');
+        return;
+      }
       setFocus('cancel');
     };
 
@@ -280,11 +292,21 @@ export function waitForInput(
     dialog.key(['escape'], () => cleanup(null));
     dialog.key(['tab', 'down'], () => nextFocus());
     dialog.key(['S-tab', 'up'], () => prevFocus());
-    dialog.key(['left'], () => { if (currentFocus !== 'input') prevFocus(); });
-    dialog.key(['right'], () => { if (currentFocus !== 'input') nextFocus(); });
+    dialog.key(['left'], () => {
+      if (currentFocus !== 'input') prevFocus();
+    });
+    dialog.key(['right'], () => {
+      if (currentFocus !== 'input') nextFocus();
+    });
     dialog.key(['enter'], () => {
-      if (currentFocus === 'input') { cleanup(getInputValue()); return; }
-      if (currentFocus === 'ok') { cleanup(getInputValue()); return; }
+      if (currentFocus === 'input') {
+        cleanup(getInputValue());
+        return;
+      }
+      if (currentFocus === 'ok') {
+        cleanup(getInputValue());
+        return;
+      }
       cleanup(null);
     });
 
