@@ -61,6 +61,7 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
     smartCSR: true,
     title: 'OffCKB Devnet Config Editor',
     fullUnicode: true,
+    terminal: 'xterm',
   });
 
   const filesList = blessed.list({
