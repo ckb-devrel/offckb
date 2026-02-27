@@ -15,7 +15,7 @@
 ## Current State
 
 Three files, ~2060 lines total:
-- `src/node/devnet-config-editor.ts` (628 lines) — data layer, well structured
+- `src/devnet/config-editor.ts` (628 lines) — data layer, well structured
 - `src/tui/devnet-config-metadata.ts` (213 lines) — metadata, fine as-is
 - `src/tui/devnet-config-tui.ts` (1220 lines) — **needs refactoring**
 
@@ -44,7 +44,7 @@ Total: ~835 lines (down from 1220), no function over ~70 lines.
 
 ```typescript
 import { Widgets } from 'blessed';
-import { DevnetConfigEditor, TomlEntry, TomlDocument } from '../node/devnet-config-editor';
+import { DevnetConfigEditor, TomlEntry, TomlDocument } from '../devnet/config-editor';
 
 export type FocusPane = 'files' | 'entries';
 

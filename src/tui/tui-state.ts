@@ -1,5 +1,5 @@
 import { Widgets } from 'blessed';
-import { DevnetConfigEditor, TomlDocument, TomlEntry } from '../node/devnet-config-editor';
+import { DevnetConfigEditor, TomlDocument, TomlEntry } from '../devnet/config-editor';
 
 export type FocusPane = 'files' | 'entries';
 

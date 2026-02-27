@@ -2,7 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import toml from '@iarna/toml';
-import { createDevnetConfigEditor } from '../src/node/devnet-config-editor';
+import { createDevnetConfigEditor } from '../src/devnet/config-editor';
 import { applySetItems, parseSetItem } from '../src/cmd/devnet-config';
 
 function writeFixtureConfig(configPath: string) {

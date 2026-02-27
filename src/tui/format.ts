@@ -1,4 +1,4 @@
-import { TomlEntry } from '../node/devnet-config-editor';
+import { TomlEntry } from '../devnet/config-editor';
 import { getConfigDoc, getFixedArraySpecFromEntryPath } from './devnet-config-metadata';
 
 function formatFixedArrayInline(values: string[]): string {

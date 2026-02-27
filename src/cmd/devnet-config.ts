@@ -1,6 +1,6 @@
 import { readSettings } from '../cfg/setting';
 import { logger } from '../util/logger';
-import { createDevnetConfigEditor } from '../node/devnet-config-editor';
+import { createDevnetConfigEditor } from '../devnet/config-editor';
 import { runDevnetConfigTui } from '../tui/devnet-config-tui';
 
 export interface DevnetConfigOptions {

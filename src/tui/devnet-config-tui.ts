@@ -1,5 +1,5 @@
 import blessed from 'blessed';
-import { DevnetConfigEditor, TomlEntry } from '../node/devnet-config-editor';
+import { DevnetConfigEditor, TomlEntry } from '../devnet/config-editor';
 import { getConfigDoc, getFixedArraySpecFromEntryPath } from './devnet-config-metadata';
 import { formatEntryLine, formatFixedArrayDetailLine } from './format';
 import { createTuiState, TuiWidgets } from './tui-state';

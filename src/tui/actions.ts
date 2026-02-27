@@ -1,4 +1,4 @@
-import { TomlEntry } from '../node/devnet-config-editor';
+import { TomlEntry } from '../devnet/config-editor';
 import { getFixedArraySpecFromEntryPath, FixedArraySpec } from './devnet-config-metadata';
 import { waitForInput, waitForConfirm, waitForFixedArraySelection, waitForArrayValue } from './dialogs';
 import { TuiState, TuiWidgets } from './tui-state';
