@@ -286,7 +286,12 @@ function writeTomlFileAtomic(filePath: string, data: Record<string, unknown>) {
   fs.renameSync(tempFilePath, filePath);
 }
 
-function requirePath<T>(target: Record<string, unknown>, pathParts: string[], guard: (value: unknown) => value is T, message: string): T {
+function requirePath<T>(
+  target: Record<string, unknown>,
+  pathParts: string[],
+  guard: (value: unknown) => value is T,
+  message: string,
+): T {
   const value = getByPath(target, pathParts);
   if (!guard(value)) {
     throw new Error(message);

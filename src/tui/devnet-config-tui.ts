@@ -1,4 +1,5 @@
 import blessed from 'blessed';
+import path from 'path';
 import { DevnetConfigEditor, TomlEntry } from '../devnet/config-editor';
 import { getConfigDoc, getFixedArraySpecFromEntryPath } from './devnet-config-metadata';
 import { formatEntryLine, formatFixedArrayDetailLine } from './format';
@@ -97,7 +98,7 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
     bottom: 0,
     left: 0,
     width: '100%',
-    height: '10%',
+    height: 4,
     border: 'line',
     tags: true,
     content: '',
@@ -167,15 +168,11 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
     }
 
     const dirtyText = state.hasUnsavedChanges ? '{yellow-fg}yes{/yellow-fg}' : '{green-fg}no{/green-fg}';
-    const selectedEntry = state.visibleEntries[state.selectedEntryIndex];
-    const keyDoc = selectedEntry != null ? getConfigDoc(selectedEntry.path) : null;
-    const docLine = keyDoc != null ? `${keyDoc.summary} (${keyDoc.source})` : 'No inline doc for this key yet.';
+    const selectedFilePath = path.join(state.configPath, doc.title);
     statusBar.setContent(
       [
-        `Path: ${state.configPath}`,
-        `File: ${doc.title} | Focus: ${state.focusPane} | Search: ${state.searchTerm || '(none)'} | Unsaved: ${dirtyText}`,
-        `Status: ${state.statusMessage}`,
-        `Doc: ${docLine}`,
+        `Path: ${selectedFilePath}`,
+        `Keys: Enter Edit | a Add | d Delete | i Insert | m Move | / Search | n/N Jump | s Save | q Quit | Unsaved: ${dirtyText}`,
       ].join('\n'),
     );
 
