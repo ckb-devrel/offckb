@@ -1,8 +1,8 @@
 import blessed from 'blessed';
-import fs from 'node:fs';
 import path from 'path';
 import { DevnetConfigEditor, TomlEntry } from '../devnet/config-editor';
 import { getFixedArraySpecFromEntryPath } from './devnet-config-metadata';
+import { getEmbeddedReferenceTemplate } from './devnet-reference-templates';
 import { formatEntryLine, formatFixedArrayDetailLine } from './format';
 import { createTuiState, TuiWidgets } from './tui-state';
 import { getListSelected } from './blessed-helpers';
@@ -174,20 +174,6 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
   const widgets: TuiWidgets = { screen, filesList, entriesList, referenceBox, statusBar };
   let renderedRows: EntryRenderRow[] = [];
   let entryToRowIndex: number[] = [];
-  const referenceTemplatesRoot = path.resolve(__dirname, '../../ckb/devnet');
-
-  const getReferenceTemplateTitle = (documentId: 'ckb' | 'miner') =>
-    documentId === 'ckb' ? 'ckb.toml' : 'ckb-miner.toml';
-
-  const loadReferenceTemplate = (documentId: 'ckb' | 'miner'): string => {
-    const title = getReferenceTemplateTitle(documentId);
-    const filePath = path.join(referenceTemplatesRoot, title);
-    try {
-      return fs.readFileSync(filePath, 'utf-8');
-    } catch (error) {
-      return `Failed to load reference template:\n${filePath}\n\n${(error as Error).message}`;
-    }
-  };
 
   // ---- refresh ----
   const refreshUi = () => {
@@ -238,7 +224,7 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
     entriesList.style.border = { fg: state.focusPane === 'entries' ? 'cyan' : 'gray' };
     referenceBox.style.border = { fg: state.focusPane === 'reference' ? 'cyan' : 'gray' };
 
-    const referenceContent = styleTomlReference(loadReferenceTemplate(doc.id));
+    const referenceContent = styleTomlReference(getEmbeddedReferenceTemplate(doc.id));
     referenceBox.setContent(referenceContent);
 
     if (state.visibleEntries.length === 0 || renderedRows.length === 0) {
