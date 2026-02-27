@@ -53,6 +53,15 @@ export async function devnetConfig(options: DevnetConfigOptions = {}) {
       return;
     }
 
+    if (!process.stdin.isTTY || !process.stdout.isTTY) {
+      logger.error('Interactive devnet config editor requires a TTY terminal.');
+      logger.info('Use non-interactive mode instead, e.g.:');
+      logger.info('  offckb devnet config --set ckb.logger.filter=info');
+      logger.info('  offckb devnet config --set miner.client.poll_interval=1500');
+      process.exitCode = 1;
+      return;
+    }
+
     const isSaved = await runDevnetConfigTui(editor, configPath);
 
     if (isSaved) {

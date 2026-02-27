@@ -297,6 +297,8 @@ offckb devnet config --set ckb.logger.filter=info
 offckb devnet config --set ckb.rpc.enable_deprecated_rpc=true --set miner.client.poll_interval=1500
 ```
 
+If your terminal is non-interactive (no TTY, e.g. CI/remote pipeline), use `--set` mode directly instead of the full-screen editor.
+
 1. Save changes and restart devnet:
 
 ```sh
