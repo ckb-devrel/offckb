@@ -1,7 +1,8 @@
 import blessed from 'blessed';
+import fs from 'node:fs';
 import path from 'path';
 import { DevnetConfigEditor, TomlEntry } from '../devnet/config-editor';
-import { getConfigDoc, getFixedArraySpecFromEntryPath } from './devnet-config-metadata';
+import { getFixedArraySpecFromEntryPath } from './devnet-config-metadata';
 import { formatEntryLine, formatFixedArrayDetailLine } from './format';
 import { createTuiState, TuiWidgets } from './tui-state';
 import { getListSelected } from './blessed-helpers';
@@ -45,6 +46,53 @@ function getVisibleEntries(entries: TomlEntry[], searchTerm: string): TomlEntry[
   });
 }
 
+function escapeBlessedTags(text: string): string {
+  return text.replace(/\{/g, '\\{').replace(/\}/g, '\\}');
+}
+
+function styleTomlReferenceLine(line: string): string {
+  const escapedLine = escapeBlessedTags(line);
+  const trimmed = line.trim();
+
+  if (trimmed.length === 0) {
+    return escapedLine;
+  }
+
+  if (/^\[\[[^\]]+\]\]$/.test(trimmed)) {
+    return `{magenta-fg}{bold}${escapedLine}{/bold}{/magenta-fg}`;
+  }
+
+  if (/^\[[^\]]+\]$/.test(trimmed)) {
+    return `{cyan-fg}{bold}${escapedLine}{/bold}{/cyan-fg}`;
+  }
+
+  if (trimmed.startsWith('#')) {
+    return `{250-fg}${escapedLine}{/250-fg}`;
+  }
+
+  const keyValueMatch = line.match(/^(\s*[^=\s][^=]*?\s*=\s*)(.*)$/);
+  if (keyValueMatch != null) {
+    const keyPart = escapeBlessedTags(keyValueMatch[1]);
+    const rawValuePart = keyValueMatch[2] ?? '';
+
+    const inlineCommentStart = rawValuePart.indexOf(' #');
+    if (inlineCommentStart >= 0) {
+      const valuePart = escapeBlessedTags(rawValuePart.slice(0, inlineCommentStart));
+      const commentPart = escapeBlessedTags(rawValuePart.slice(inlineCommentStart));
+      return `{yellow-fg}${keyPart}{/yellow-fg}{green-fg}${valuePart}{/green-fg}{250-fg}${commentPart}{/250-fg}`;
+    }
+
+    const valuePart = escapeBlessedTags(rawValuePart);
+    return `{yellow-fg}${keyPart}{/yellow-fg}{green-fg}${valuePart}{/green-fg}`;
+  }
+
+  return escapedLine;
+}
+
+function styleTomlReference(source: string): string {
+  return source.split('\n').map(styleTomlReferenceLine).join('\n');
+}
+
 // ---------------------------------------------------------------------------
 // Main entry point
 // ---------------------------------------------------------------------------
@@ -70,8 +118,8 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
     label: ' Files ',
     top: 0,
     left: 0,
-    width: '22%',
-    height: '90%',
+    width: '20%',
+    height: '100%-4',
     border: 'line',
     keys: true,
     vi: true,
@@ -83,14 +131,32 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
     parent: screen,
     label: ' Config ',
     top: 0,
-    left: '22%',
-    width: '78%',
-    height: '90%',
+    left: '20%',
+    width: '55%',
+    height: '100%-4',
     border: 'line',
     keys: true,
     vi: true,
     style: { selected: { bg: 'blue' }, border: { fg: 'gray' } },
     tags: true,
+  });
+
+  const referenceBox = blessed.box({
+    parent: screen,
+    label: ' Reference (Read-Only) ',
+    top: 0,
+    left: '75%',
+    width: '25%',
+    height: '100%-4',
+    border: 'line',
+    scrollable: true,
+    alwaysScroll: true,
+    keys: true,
+    vi: true,
+    mouse: true,
+    tags: true,
+    style: { border: { fg: 'gray' } },
+    content: '',
   });
 
   const statusBar = blessed.box({
@@ -105,9 +171,23 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
     style: { border: { fg: 'gray' } },
   });
 
-  const widgets: TuiWidgets = { screen, filesList, entriesList, statusBar };
+  const widgets: TuiWidgets = { screen, filesList, entriesList, referenceBox, statusBar };
   let renderedRows: EntryRenderRow[] = [];
   let entryToRowIndex: number[] = [];
+  const referenceTemplatesRoot = path.resolve(__dirname, '../../ckb/devnet');
+
+  const getReferenceTemplateTitle = (documentId: 'ckb' | 'miner') =>
+    documentId === 'ckb' ? 'ckb.toml' : 'ckb-miner.toml';
+
+  const loadReferenceTemplate = (documentId: 'ckb' | 'miner'): string => {
+    const title = getReferenceTemplateTitle(documentId);
+    const filePath = path.join(referenceTemplatesRoot, title);
+    try {
+      return fs.readFileSync(filePath, 'utf-8');
+    } catch (error) {
+      return `Failed to load reference template:\n${filePath}\n\n${(error as Error).message}`;
+    }
+  };
 
   // ---- refresh ----
   const refreshUi = () => {
@@ -156,6 +236,10 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
 
     filesList.style.border = { fg: state.focusPane === 'files' ? 'cyan' : 'gray' };
     entriesList.style.border = { fg: state.focusPane === 'entries' ? 'cyan' : 'gray' };
+    referenceBox.style.border = { fg: state.focusPane === 'reference' ? 'cyan' : 'gray' };
+
+    const referenceContent = styleTomlReference(loadReferenceTemplate(doc.id));
+    referenceBox.setContent(referenceContent);
 
     if (state.visibleEntries.length === 0 || renderedRows.length === 0) {
       state.selectedEntryIndex = 0;
@@ -178,8 +262,10 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
 
     if (state.focusPane === 'files') {
       filesList.focus();
-    } else {
+    } else if (state.focusPane === 'entries') {
       entriesList.focus();
+    } else {
+      referenceBox.focus();
     }
 
     screen.render();
@@ -202,6 +288,7 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
     if (listIndex !== state.selectedDocumentIndex) {
       state.selectedDocumentIndex = listIndex;
       state.selectedEntryIndex = 0;
+      referenceBox.setScroll(0);
       state.statusMessage = `Switched to ${state.documents[state.selectedDocumentIndex].title}.`;
       refreshUi();
     }
@@ -241,6 +328,7 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
     if (index == null) return;
     state.selectedDocumentIndex = index;
     state.selectedEntryIndex = 0;
+    referenceBox.setScroll(0);
     refreshUi();
   });
 
@@ -276,7 +364,7 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
 
   // ---- key bindings ----
   guardedKey(['tab'], () => {
-    state.focusPane = state.focusPane === 'files' ? 'entries' : 'files';
+    state.focusPane = state.focusPane === 'files' ? 'entries' : state.focusPane === 'entries' ? 'reference' : 'files';
     refreshUi();
   });
 
@@ -284,12 +372,22 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
     if (state.focusPane === 'entries') {
       state.focusPane = 'files';
       refreshUi();
+      return;
+    }
+    if (state.focusPane === 'reference') {
+      state.focusPane = 'entries';
+      refreshUi();
     }
   });
 
   guardedKey(['right', 'l'], () => {
     if (state.focusPane === 'files') {
       state.focusPane = 'entries';
+      refreshUi();
+      return;
+    }
+    if (state.focusPane === 'entries') {
+      state.focusPane = 'reference';
       refreshUi();
     }
   });
@@ -327,12 +425,6 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
 
   guardedKey(['n'], () => jumpSearchMatch(ctx, 'next'));
   guardedKey(['N'], () => jumpSearchMatch(ctx, 'prev'));
-
-  filesList.key(['enter'], () => {
-    if (state.dialogLock) return;
-    state.focusPane = 'entries';
-    refreshUi();
-  });
 
   // ---- start ----
   refreshUi();

@@ -1,7 +1,7 @@
 import { Widgets } from 'blessed';
 import { DevnetConfigEditor, TomlDocument, TomlEntry } from '../devnet/config-editor';
 
-export type FocusPane = 'files' | 'entries';
+export type FocusPane = 'files' | 'entries' | 'reference';
 
 export interface TuiState {
   readonly editor: DevnetConfigEditor;
@@ -22,6 +22,7 @@ export interface TuiWidgets {
   screen: Widgets.Screen;
   filesList: Widgets.ListElement;
   entriesList: Widgets.ListElement;
+  referenceBox: Widgets.BoxElement;
   statusBar: Widgets.BoxElement;
 }
 

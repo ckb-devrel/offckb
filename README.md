@@ -282,7 +282,9 @@ By default, OffCKB use a fixed Devnet config. You can customize it, for example 
 offckb devnet config
 ```
 
-The editor supports full key browsing/editing for `ckb.toml` and `ckb-miner.toml`, including primitive value edits, object key add, array append/insert/move, search filter, and path delete.
+The editor uses a three-column layout: first-column file switcher (`ckb.toml` / `ckb-miner.toml`), a middle primary editing pane, and a smaller right read-only reference pane that shows the full built-in template for the currently selected file.
+
+The left editing pane supports full key browsing/editing, including primitive value edits, object key add, array append/insert/move, search filter, and path delete.
 
 Common shortcuts: `Enter` edit primitive, `a` add key/item, `i` insert array item, `m` move array item, `d` delete path, `/` search filter, `n`/`N` next/previous search match, `c` add custom value in fixed-array dialog (when allowed), `s` save, `q` quit.
 

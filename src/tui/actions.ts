@@ -109,7 +109,7 @@ function currentEntry(ctx: ActionContext): TomlEntry | null {
 export async function editCurrentEntry(ctx: ActionContext): Promise<void> {
   const { state, widgets, refreshUi } = ctx;
 
-  if (state.focusPane === 'files') {
+  if (state.focusPane !== 'entries') {
     state.focusPane = 'entries';
     refreshUi();
     return;
