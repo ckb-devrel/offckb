@@ -369,6 +369,9 @@ export function waitForConfirm(
       style: { bg: 'gray', focus: { bg: 'gray' } },
     });
 
+    const focusNavKeys = ['tab', 'right', 'left', 'S-tab'];
+    const confirmKeys = ['enter', 'return', 'C-m'];
+
     let focusButton: 'ok' | 'cancel' = 'cancel';
 
     let resolved = false;
@@ -380,16 +383,23 @@ export function waitForConfirm(
       resolve(answer);
     };
 
-    const setFocus = (focus: 'ok' | 'cancel') => {
-      if (resolved) return;
-      focusButton = focus;
+    const applyFocusStyles = (focus: 'ok' | 'cancel') => {
       if (focus === 'ok') {
         okButton.style.bg = 'cyan';
         cancelButton.style.bg = 'gray';
-        okButton.focus();
       } else {
         okButton.style.bg = 'blue';
         cancelButton.style.bg = 'cyan';
+      }
+    };
+
+    const setFocus = (focus: 'ok' | 'cancel') => {
+      if (resolved) return;
+      focusButton = focus;
+      applyFocusStyles(focus);
+      if (focus === 'ok') {
+        okButton.focus();
+      } else {
         cancelButton.focus();
       }
       screen.render();
@@ -402,16 +412,14 @@ export function waitForConfirm(
     okButton.on('focus', () => {
       if (resolved) return;
       focusButton = 'ok';
-      okButton.style.bg = 'cyan';
-      cancelButton.style.bg = 'gray';
+      applyFocusStyles('ok');
       screen.render();
     });
 
     cancelButton.on('focus', () => {
       if (resolved) return;
       focusButton = 'cancel';
-      okButton.style.bg = 'blue';
-      cancelButton.style.bg = 'cyan';
+      applyFocusStyles('cancel');
       screen.render();
     });
 
@@ -424,7 +432,7 @@ export function waitForConfirm(
     dialog.key(['escape'], () => cancel());
     dialog.key(['tab', 'left', 'right'], () => toggleFocus());
     dialog.key(['S-tab'], () => toggleFocus());
-    dialog.key(['enter', 'return', 'C-m'], () => {
+    dialog.key(confirmKeys, () => {
       if (focusButton === 'ok') {
         accept();
       } else {
@@ -432,12 +440,13 @@ export function waitForConfirm(
       }
     });
 
-    okButton.key(['tab', 'right', 'left', 'S-tab'], () => toggleFocus());
-    cancelButton.key(['tab', 'right', 'left', 'S-tab'], () => toggleFocus());
-    okButton.key(['escape'], () => cancel());
-    cancelButton.key(['escape'], () => cancel());
-    okButton.key(['enter', 'return', 'C-m'], () => accept());
-    cancelButton.key(['enter', 'return', 'C-m'], () => cancel());
+    const buttons = [okButton, cancelButton];
+    buttons.forEach((button) => {
+      button.key(focusNavKeys, () => toggleFocus());
+      button.key(['escape'], () => cancel());
+    });
+    okButton.key(confirmKeys, () => accept());
+    cancelButton.key(confirmKeys, () => cancel());
 
     setFocus(defaultFocus);
     screen.render();
