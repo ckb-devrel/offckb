@@ -1,7 +1,29 @@
 import { TomlEntry } from '../node/devnet-config-editor';
 import { getConfigDoc, getFixedArraySpecFromEntryPath } from './devnet-config-metadata';
 
-export function formatEntryLine(entry: TomlEntry): string {
+function formatFixedArrayInline(values: string[], options: string[]): string {
+  const selectedSet = new Set(values);
+  const optionSet = new Set(options);
+  const customCount = values.filter((value) => !optionSet.has(value)).length;
+
+  const optionChunks = options.map((option) => {
+    const marker = selectedSet.has(option) ? '{green-fg}[x]{/green-fg}' : '{245-fg}[ ]{/245-fg}';
+    return `${marker}${option}`;
+  });
+
+  if (customCount > 0) {
+    optionChunks.push(`{yellow-fg}[+${customCount} custom]{/yellow-fg}`);
+  }
+
+  return optionChunks.join(' ');
+}
+
+export function formatFixedArrayDetailLine(depth: number, values: string[], options: string[]): string {
+  const detailIndent = `${'│ '.repeat(Math.max(0, depth))}  `;
+  return `${detailIndent}${formatFixedArrayInline(values, options)}`;
+}
+
+export function formatEntryLine(entry: TomlEntry, entryValue?: unknown): string {
   const depth = Math.max(0, entry.path.length - 1);
   const lastPathPart = entry.path[entry.path.length - 1] ?? '';
   const nodeName = /^\d+$/.test(lastPathPart) ? `[${lastPathPart}]` : lastPathPart;

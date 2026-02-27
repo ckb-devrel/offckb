@@ -1,7 +1,7 @@
 import blessed from 'blessed';
 import { DevnetConfigEditor, TomlEntry } from '../node/devnet-config-editor';
 import { getConfigDoc, getFixedArraySpecFromEntryPath } from './devnet-config-metadata';
-import { formatEntryLine } from './format';
+import { formatEntryLine, formatFixedArrayDetailLine } from './format';
 import { createTuiState, TuiWidgets } from './tui-state';
 import { getListSelected } from './blessed-helpers';
 import {
@@ -16,6 +16,12 @@ import {
   quitFlow,
   saveAndExit,
 } from './actions';
+
+interface EntryRenderRow {
+  text: string;
+  entryIndex: number;
+  selectable: boolean;
+}
 
 // ---------------------------------------------------------------------------
 // Visible-entry filter (compact fixed-array items + search term)
@@ -98,6 +104,8 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
   });
 
   const widgets: TuiWidgets = { screen, filesList, entriesList, statusBar };
+  let renderedRows: EntryRenderRow[] = [];
+  let entryToRowIndex: number[] = [];
 
   // ---- refresh ----
   const refreshUi = () => {
@@ -108,18 +116,54 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
     const doc = state.documents[state.selectedDocumentIndex];
     const entries = state.editor.getEntriesForDocument(doc.id);
     state.visibleEntries = getVisibleEntries(entries, state.searchTerm);
-    entriesList.setItems(state.visibleEntries.map(formatEntryLine));
+
+    renderedRows = [];
+    entryToRowIndex = [];
+    let hasSeenTopLevelSection = false;
+
+    state.visibleEntries.forEach((entry, entryIndex) => {
+      if (entry.path.length === 1 && hasSeenTopLevelSection) {
+        renderedRows.push({ text: ' ', entryIndex: -1, selectable: false });
+      }
+      if (entry.path.length === 1) {
+        hasSeenTopLevelSection = true;
+      }
+
+      const entryValue = state.editor.getEntryValue(doc.id, entry.path);
+      entryToRowIndex[entryIndex] = renderedRows.length;
+      renderedRows.push({
+        text: formatEntryLine(entry, entryValue),
+        entryIndex,
+        selectable: true,
+      });
+
+      const fixedArraySpec = entry.type === 'array' ? getFixedArraySpecFromEntryPath(entry.path) : null;
+      if (fixedArraySpec != null && Array.isArray(entryValue)) {
+        renderedRows.push({
+          text: formatFixedArrayDetailLine(
+            Math.max(0, entry.path.length - 1),
+            entryValue.map((value) => String(value)),
+            fixedArraySpec.options,
+          ),
+          entryIndex,
+          selectable: false,
+        });
+      }
+    });
+
+    entriesList.setItems(renderedRows.map((row) => row.text));
 
     filesList.style.border = { fg: state.focusPane === 'files' ? 'cyan' : 'gray' };
     entriesList.style.border = { fg: state.focusPane === 'entries' ? 'cyan' : 'gray' };
 
-    if (state.visibleEntries.length === 0) {
+    if (state.visibleEntries.length === 0 || renderedRows.length === 0) {
       state.selectedEntryIndex = 0;
     } else {
       if (state.selectedEntryIndex >= state.visibleEntries.length) {
         state.selectedEntryIndex = state.visibleEntries.length - 1;
       }
-      entriesList.select(state.selectedEntryIndex);
+      const selectedRowIndex = entryToRowIndex[state.selectedEntryIndex] ?? 0;
+      entriesList.select(selectedRowIndex);
     }
 
     const dirtyText = state.hasUnsavedChanges ? '{yellow-fg}yes{/yellow-fg}' : '{green-fg}no{/green-fg}';
@@ -167,10 +211,30 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
   };
 
   const syncEntrySelectionFromEntriesList = () => {
-    const listIndex = getListSelected(entriesList);
-    if (listIndex < 0 || listIndex >= state.visibleEntries.length) return;
-    if (listIndex !== state.selectedEntryIndex) {
-      state.selectedEntryIndex = listIndex;
+    const rowIndex = getListSelected(entriesList);
+    if (rowIndex < 0 || rowIndex >= renderedRows.length) return;
+
+    let mappedEntryIndex = renderedRows[rowIndex]?.entryIndex ?? -1;
+    if (mappedEntryIndex < 0) {
+      for (let i = rowIndex - 1; i >= 0; i--) {
+        if (renderedRows[i].selectable) {
+          mappedEntryIndex = renderedRows[i].entryIndex;
+          break;
+        }
+      }
+    }
+    if (mappedEntryIndex < 0) {
+      for (let i = rowIndex + 1; i < renderedRows.length; i++) {
+        if (renderedRows[i].selectable) {
+          mappedEntryIndex = renderedRows[i].entryIndex;
+          break;
+        }
+      }
+    }
+
+    if (mappedEntryIndex < 0 || mappedEntryIndex >= state.visibleEntries.length) return;
+    if (mappedEntryIndex !== state.selectedEntryIndex) {
+      state.selectedEntryIndex = mappedEntryIndex;
       refreshUi();
     }
   };
@@ -185,8 +249,7 @@ export async function runDevnetConfigTui(editor: DevnetConfigEditor, configPath:
 
   entriesList.on('select', (_: unknown, index: number) => {
     if (index == null) return;
-    state.selectedEntryIndex = index;
-    refreshUi();
+    syncEntrySelectionFromEntriesList();
   });
 
   entriesList.on('action', () => {
