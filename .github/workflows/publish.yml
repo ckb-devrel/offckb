@@ -21,6 +21,17 @@ jobs:
       - name: Install dependencies
         run: npm install -g pnpm && pnpm i 
 
+      - name: Verify changesets are consumed
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          pnpm changeset version
+          if ! git diff --quiet; then
+            echo "Error: 'pnpm changeset version' produced uncommitted changes on a tag build."
+            echo "Please run 'pnpm changeset version' locally, commit the resulting changes, and re-create the tag."
+            git diff
+            exit 1
+          fi
+
       - name: Build
         run: pnpm build
 
