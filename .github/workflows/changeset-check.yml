@@ -1,0 +1,36 @@
+name: Changeset Check
+
+on:
+  pull_request:
+    branches: [master, develop]
+
+jobs:
+  changeset:
+    name: Require changeset
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check for changeset
+        run: |
+          echo "Checking for changeset files in this PR..."
+          echo "If this fails, run 'pnpm changeset' to add a changeset describing your changes."
+          echo "For changes that don't need a changelog entry (docs, CI, refactoring), use 'pnpm changeset --empty'."
+          pnpm changeset status --since=origin/${{ github.base_ref }}
