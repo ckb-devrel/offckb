@@ -8,6 +8,8 @@ jobs:
   changeset:
     name: Require changeset
     runs-on: ubuntu-latest
+    # Skip changeset check for PRs with 'skip-changeset' label
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-changeset') }}
 
     steps:
       - name: Checkout repository
