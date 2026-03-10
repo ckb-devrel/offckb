@@ -143,6 +143,12 @@ function getOS(): string {
 }
 
 function getArch(): string {
+  // CKB only provides x86_64 binaries for Windows
+  // Return x86_64 for all Windows systems (works on ARM via emulation)
+  if (os.platform() === 'win32') {
+    return 'x86_64';
+  }
+
   const arch = os.arch();
   if (arch === 'x64') {
     return 'x86_64';
