@@ -81,7 +81,7 @@ export class CkbDebuggerWasi {
     if (!CkbDebuggerWasi.wasiModule) {
       try {
         CkbDebuggerWasi.wasiModule = await import('node:wasi');
-      } catch (error) {
+      } catch (_error) {
         throw new Error('Failed to load WASI module. Node.js >= 20.0.0 is required for WASM debugger support.');
       }
     }
