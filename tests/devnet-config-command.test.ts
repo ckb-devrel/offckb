@@ -13,6 +13,12 @@ jest.mock('../src/cfg/setting', () => ({
 
 jest.mock('../src/devnet/config-editor', () => ({
   createDevnetConfigEditor: jest.fn(),
+  InitializationError: class InitializationError extends Error {
+    constructor(message: string) {
+      super(message);
+      this.name = 'InitializationError';
+    }
+  },
 }));
 
 jest.mock('../src/tui/devnet-config-tui', () => ({
@@ -75,6 +81,94 @@ describe('devnet config command fallback behavior', () => {
     expect(logger.error).toHaveBeenCalledWith('Interactive devnet config editor requires a TTY terminal.');
     expect(logger.info).toHaveBeenCalledWith('Use non-interactive mode instead, e.g.:');
     expect(logger.info).toHaveBeenCalledWith('  offckb devnet config --set ckb.logger.filter=info');
+    expect(process.exitCode).toBe(1);
+  });
+});
+
+describe('error handling with init hint', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.exitCode = undefined;
+  });
+
+  afterEach(() => {
+    process.exitCode = undefined;
+  });
+
+  it('should NOT show init hint for parse errors (--set invalid)', async () => {
+    await devnetConfig({ set: ['invalid'] });
+
+    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('Invalid --set item'));
+    expect(logger.info).not.toHaveBeenCalledWith(
+      'Tip: run `offckb node` once to initialize devnet config files first.',
+    );
+    expect(process.exitCode).toBe(1);
+  });
+
+  it('should NOT show init hint for unknown field errors', async () => {
+    (createDevnetConfigEditor as jest.Mock).mockImplementation(() => {
+      throw new Error("Unknown field 'unknown.field'.");
+    });
+
+    await devnetConfig({ set: ['unknown.field=value'] });
+
+    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('Unknown field'));
+    expect(logger.info).not.toHaveBeenCalledWith(
+      'Tip: run `offckb node` once to initialize devnet config files first.',
+    );
+    expect(process.exitCode).toBe(1);
+  });
+
+  it('should NOT show init hint for validation errors', async () => {
+    (createDevnetConfigEditor as jest.Mock).mockImplementation(() => {
+      throw new Error('Value must be a positive integer.');
+    });
+
+    await devnetConfig({ set: ['miner.client.poll_interval=0'] });
+
+    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('Value must be a positive integer'));
+    expect(logger.info).not.toHaveBeenCalledWith(
+      'Tip: run `offckb node` once to initialize devnet config files first.',
+    );
+    expect(process.exitCode).toBe(1);
+  });
+
+  it('should show init hint for missing config path (InitializationError)', async () => {
+    const { InitializationError } = require('../src/devnet/config-editor');
+    (createDevnetConfigEditor as jest.Mock).mockImplementation(() => {
+      throw new InitializationError('Devnet config path does not exist: /missing/path');
+    });
+
+    await devnetConfig({ set: ['ckb.logger.filter=info'] });
+
+    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('Devnet config path does not exist'));
+    expect(logger.info).toHaveBeenCalledWith('Tip: run `offckb node` once to initialize devnet config files first.');
+    expect(process.exitCode).toBe(1);
+  });
+
+  it('should show init hint for missing ckb.toml (InitializationError)', async () => {
+    const { InitializationError } = require('../src/devnet/config-editor');
+    (createDevnetConfigEditor as jest.Mock).mockImplementation(() => {
+      throw new InitializationError('Missing file: /path/ckb.toml');
+    });
+
+    await devnetConfig({ set: ['ckb.logger.filter=info'] });
+
+    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('Missing file'));
+    expect(logger.info).toHaveBeenCalledWith('Tip: run `offckb node` once to initialize devnet config files first.');
+    expect(process.exitCode).toBe(1);
+  });
+
+  it('should show init hint for missing miner.toml (InitializationError)', async () => {
+    const { InitializationError } = require('../src/devnet/config-editor');
+    (createDevnetConfigEditor as jest.Mock).mockImplementation(() => {
+      throw new InitializationError('Missing file: /path/ckb-miner.toml');
+    });
+
+    await devnetConfig({ set: ['ckb.logger.filter=info'] });
+
+    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('Missing file'));
+    expect(logger.info).toHaveBeenCalledWith('Tip: run `offckb node` once to initialize devnet config files first.');
     expect(process.exitCode).toBe(1);
   });
 });
