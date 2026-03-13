@@ -89,6 +89,10 @@ describe('error handling with init hint', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     process.exitCode = undefined;
+    (createDevnetConfigEditor as jest.Mock).mockReturnValue({
+      setFieldValue: jest.fn(),
+      save: jest.fn(),
+    });
   });
 
   afterEach(() => {
