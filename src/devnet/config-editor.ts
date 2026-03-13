@@ -679,13 +679,13 @@ export function createDevnetConfigEditor(configPath: string): DevnetConfigEditor
   const minerTomlPath = path.join(configPath, 'ckb-miner.toml');
 
   if (!fs.existsSync(configPath)) {
-    throw new Error(`Devnet config path does not exist: ${configPath}`);
+    throw new InitializationError(`Devnet config path does not exist: ${configPath}`);
   }
   if (!fs.existsSync(ckbTomlPath)) {
-    throw new Error(`Missing file: ${ckbTomlPath}`);
+    throw new InitializationError(`Missing file: ${ckbTomlPath}`);
   }
   if (!fs.existsSync(minerTomlPath)) {
-    throw new Error(`Missing file: ${minerTomlPath}`);
+    throw new InitializationError(`Missing file: ${minerTomlPath}`);
   }
 
   const ckbConfig = readTomlFile(ckbTomlPath);
