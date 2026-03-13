@@ -1,6 +1,6 @@
 import { readSettings } from '../cfg/setting';
 import { logger } from '../util/logger';
-import { createDevnetConfigEditor } from '../devnet/config-editor';
+import { createDevnetConfigEditor, InitializationError } from '../devnet/config-editor';
 import { runDevnetConfigTui } from '../tui/devnet-config-tui';
 
 export interface DevnetConfigOptions {
@@ -72,8 +72,13 @@ export async function devnetConfig(options: DevnetConfigOptions = {}) {
 
     logger.info('No changes saved.');
   } catch (error) {
-    logger.error((error as Error).message);
-    logger.info('Tip: run `offckb node` once to initialize devnet config files first.');
+    const message = error instanceof Error ? error.message : String(error);
+    logger.error(message);
+
+    if (error instanceof InitializationError) {
+      logger.info('Tip: run `offckb node` once to initialize devnet config files first.');
+    }
+
     process.exitCode = 1;
   }
 }
