@@ -1,6 +1,6 @@
 {
   "name": "@offckb/cli",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "description": "ckb development network for your first try",
   "author": "CKB EcoFund",
   "license": "MIT",
@@ -39,24 +39,27 @@
     "fmt": "prettier --write '{src,templates,account}/**/*.{js,jsx,ts,tsx,md,json}'",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage"
-  },
-  "husky": {
-    "hooks": {
-      "pre-commit": "lint-staged"
-    }
+    "test:coverage": "jest --coverage",
+    "test:ci": "jest --coverage --ci",
+    "typecheck": "tsc --noEmit",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "changeset publish",
+    "prepare": "husky"
   },
   "lint-staged": {
-    "{src,templates,account}/**/*.{js,jsx,ts,tsx,md,json}": "prettier --ignore-unknown --write"
-  },
-  "eslintConfig": {
-    "extends": [
-      "eslint:recommended",
-      "plugin:@typescript-eslint/recommended"
+    "src/**/*.ts": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "{templates,account}/**/*.{js,jsx,ts,tsx,md,json}": [
+      "prettier --ignore-unknown --write"
     ]
   },
   "devDependencies": {
+    "@changesets/cli": "^2.29.8",
     "@types/adm-zip": "^0.5.5",
+    "@types/blessed": "0.1.27",
     "@types/jest": "^30.0.0",
     "@types/node": "^20.17.24",
     "@types/node-fetch": "^2.6.11",
@@ -65,7 +68,7 @@
     "@typescript-eslint/eslint-plugin": "^7.0.2",
     "@typescript-eslint/parser": "^7.0.2",
     "@vercel/ncc": "^0.38.3",
-    "eslint": "^8.57.0",
+    "eslint": "^9.26.0",
     "husky": "^9.0.11",
     "jest": "^30.2.0",
     "lint-staged": "^15.2.2",
@@ -80,6 +83,7 @@
     "@inquirer/prompts": "^7.8.6",
     "@types/http-proxy": "^1.17.15",
     "adm-zip": "^0.5.10",
+    "blessed": "0.1.81",
     "chalk": "4.1.2",
     "child_process": "^1.0.2",
     "ckb-transaction-dumper": "^0.4.2",

@@ -23,7 +23,6 @@
  */
 
 import * as fs from 'node:fs';
-import * as wasi from 'node:wasi';
 import * as path from 'node:path';
 
 /**
@@ -60,6 +59,7 @@ export class CkbDebuggerWasi {
   private env: Record<string, string>;
   private captureOutput: boolean;
   private wasm: WebAssembly.Module | null = null;
+  private static wasiModule: typeof import('node:wasi') | null = null;
 
   constructor(options: CkbDebuggerOptions = {}) {
     this.wasmPath = options.wasmPath || './ckb-debugger.wasm';
@@ -75,6 +75,17 @@ export class CkbDebuggerWasi {
       }
       this.wasm = await WebAssembly.compile(fs.readFileSync(this.wasmPath));
     }
+  }
+
+  private async getWasiModule(): Promise<typeof import('node:wasi')> {
+    if (!CkbDebuggerWasi.wasiModule) {
+      try {
+        CkbDebuggerWasi.wasiModule = await import('node:wasi');
+      } catch (_error) {
+        throw new Error('Failed to load WASI module. Node.js >= 20.0.0 is required for WASM debugger support.');
+      }
+    }
+    return CkbDebuggerWasi.wasiModule;
   }
 
   private extractFilePathPreopens(args: string[]): Record<string, string> {
@@ -99,6 +110,7 @@ export class CkbDebuggerWasi {
 
   async run(args: string[] = [], preopens: Record<string, string> = {}): Promise<CkbDebuggerResult> {
     await this.initialize();
+    const wasiModule = await this.getWasiModule();
 
     return new Promise((resolve, reject) => {
       try {
@@ -136,7 +148,7 @@ export class CkbDebuggerWasi {
         // For output capture, we'll handle it differently since WASI expects file descriptors
         // We'll use the default stdout/stderr and capture via different means if needed
 
-        const wasihost = new wasi.WASI(wasiOptions);
+        const wasihost = new wasiModule.WASI(wasiOptions);
 
         // Instantiate the WebAssembly module
         WebAssembly.instantiate(this.wasm!, wasihost.getImportObject() as WebAssembly.Imports)

@@ -10,6 +10,7 @@ import { TransferOptions, transfer } from './cmd/transfer';
 import { BalanceOption, balanceOf } from './cmd/balance';
 import { createScriptProject, CreateScriptProjectOptions } from './cmd/create';
 import { Config, ConfigItem } from './cmd/config';
+import { devnetConfig } from './cmd/devnet-config';
 import { debugSingleScript, debugTransaction, parseSingleScriptOption } from './cmd/debug';
 import { printSystemScripts } from './cmd/system-scripts';
 import { transferAll } from './cmd/transfer-all';
@@ -163,6 +164,19 @@ program
   .command('config <action> [item] [value]')
   .description('do a configuration action')
   .action((action, item, value) => Config(action, item as ConfigItem, value));
+
+const devnetCommand = program.command('devnet').description('Devnet utility commands');
+
+devnetCommand
+  .command('config')
+  .description('Open a full-screen editor to tweak devnet config files')
+  .option(
+    '-s, --set <key=value>',
+    'Set a devnet config field non-interactively (repeatable), e.g. --set ckb.logger.filter=info',
+    (value: string, previous: string[] = []) => [...previous, value],
+    [],
+  )
+  .action(devnetConfig);
 
 program.parse(process.argv);
 

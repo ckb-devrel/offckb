@@ -1,0 +1,119 @@
+name: Changeset Check
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review, labeled]
+    branches: [master, develop]
+
+jobs:
+  verify:
+    name: Verify Changeset
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-changeset') && !contains(github.event.pull_request.labels.*.name, 'dependencies') }}
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check for changeset
+        id: check
+        run: |
+          if pnpm changeset status --since=origin/${{ github.base_ref }}; then
+            echo "has_changeset=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_changeset=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: Comment on PR (success)
+        if: steps.check.outputs.has_changeset == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const marker = '<!-- changeset-check -->';
+            const body = marker + '\n✅ Changeset file detected.';
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number
+            });
+
+            const existing = comments.find(c => c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body
+              });
+            }
+
+      - name: Comment on PR (failure)
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const marker = '<!-- changeset-check -->';
+            const body = [
+              marker,
+              '❌ **Missing Changeset**',
+              '',
+              'Please add a changeset describing your changes:',
+              '```bash',
+              'pnpm changeset',
+              '```',
+              '',
+              'If your changes do not need a version bump (docs, CI, refactoring),',
+              'add the `skip-changeset` label to this PR.',
+              '',
+              'For dependency updates, use the `dependencies` label.'
+            ].join('\n');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number
+            });
+
+            const existing = comments.find(c => c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body
+              });
+            }
+
+  skipped:
+    name: Changeset Check (Skipped)
+    if: ${{ contains(github.event.pull_request.labels.*.name, 'skip-changeset') || contains(github.event.pull_request.labels.*.name, 'dependencies') }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "⏭️ Changeset check skipped via label"
