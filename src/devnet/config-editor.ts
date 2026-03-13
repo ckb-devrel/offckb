@@ -693,3 +693,10 @@ export function createDevnetConfigEditor(configPath: string): DevnetConfigEditor
 
   return new DevnetConfigEditor(configPath, ckbConfig, minerConfig);
 }
+
+export class InitializationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InitializationError';
+  }
+}
