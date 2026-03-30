@@ -105,6 +105,9 @@ export async function createScriptProject(name?: string, options: CreateScriptPr
 
     const _settings = readSettings();
 
+    await _installCKBBinary(_settings.bins.defaultCKBVersion);
+    await _initChainIfNeeded();
+
     // Generate system-scripts.json
     logger.info('🔧 Generating system scripts configuration...');
     try {
