@@ -207,10 +207,16 @@ async function resolveInputs(client: ccc.Client, inputs: ccc.CellInput[]): Promi
 
 export async function dumpTransaction({ rpc, txJsonFilePath, outputFilePath }: DumpOption) {
   try {
-    const client = new ccc.ClientPublicTestnet({
-      url: rpc,
-      fallbacks: [],
-    });
+    const isTestnet = /testnet/i.test(rpc);
+    const client = isTestnet
+      ? new ccc.ClientPublicTestnet({
+          url: rpc,
+          fallbacks: [],
+        })
+      : new ccc.ClientPublicMainnet({
+          url: rpc,
+          fallbacks: [],
+        });
 
     const txJson = JSON.parse(fs.readFileSync(txJsonFilePath, 'utf-8'));
     const tx = cccA.JsonRpcTransformers.transactionTo(txJson);
@@ -257,7 +263,7 @@ export async function dumpTransaction({ rpc, txJsonFilePath, outputFilePath }: D
     fs.writeFileSync(outputFilePath, JSON.stringify(mockTx, null, 2));
     logger.debug('Dump transaction successfully');
   } catch (error: unknown) {
-    logger.error('Failed to dump transaction:', (error as Error).message);
+    logger.error('Failed to dump transaction:', error instanceof Error ? error.message : String(error));
     throw error;
   }
 }
