@@ -6,6 +6,9 @@ import { InteractivePrompts } from '../templates/prompts';
 import { genSystemScriptsJsonFile } from '../scripts/gen';
 import { CKBDebugger } from '../tools/ckb-debugger';
 import { logger } from '../util/logger';
+import { installCKBBinary as _installCKBBinary } from '../node/install';
+import { initChainIfNeeded as _initChainIfNeeded } from '../node/init-chain';
+import { readSettings } from '../cfg/setting';
 
 export interface CreateScriptProjectOptions {
   manager?: 'pnpm' | 'yarn' | 'npm';
@@ -99,6 +102,11 @@ export async function createScriptProject(name?: string, options: CreateScriptPr
     };
 
     await processor.generateProject(fullProjectPath, contextWithPath);
+
+    const _settings = readSettings();
+
+    await _installCKBBinary(_settings.bins.defaultCKBVersion);
+    await _initChainIfNeeded();
 
     // Generate system-scripts.json
     logger.info('🔧 Generating system scripts configuration...');
