@@ -1,6 +1,5 @@
-import path from 'path';
-import { execSync } from 'child_process';
-import { packageRootPath } from '../cfg/setting';
+import fs from 'fs';
+import { ccc } from '@ckb-ccc/core';
 import { logger } from '../util/logger';
 
 export interface DumpOption {
@@ -9,15 +8,228 @@ export interface DumpOption {
   outputFilePath: string;
 }
 
-export function dumpTransaction({ rpc, txJsonFilePath, outputFilePath }: DumpOption) {
-  const ckbTransactionDumperPath = path.resolve(packageRootPath, 'node_modules/.bin/ckb-transaction-dumper');
+const OutPointCodec = ccc.mol.struct({
+  txHash: ccc.mol.Byte32,
+  index: ccc.mol.Uint32LE,
+});
 
-  const command = `${ckbTransactionDumperPath} --rpc ${rpc} --tx "${txJsonFilePath}" --output "${outputFilePath}"`;
+const OutPointVecCodec = ccc.mol.vector(OutPointCodec);
 
+interface MockCellDep {
+  cell_dep: {
+    out_point: {
+      tx_hash: string;
+      index: string;
+    };
+    dep_type: string;
+  };
+  output: MockOutput;
+  data: string;
+}
+
+interface MockInput {
+  input: {
+    previous_output: {
+      tx_hash: string;
+      index: string;
+    };
+    since: string;
+  };
+  output: MockOutput;
+  data: string;
+}
+
+interface MockOutput {
+  capacity: string;
+  lock: MockScript;
+  type?: MockScript | null;
+}
+
+interface MockScript {
+  code_hash: string;
+  hash_type: string;
+  args: string;
+}
+
+interface MockTransaction {
+  mock_info: {
+    inputs: MockInput[];
+    cell_deps: MockCellDep[];
+    header_deps: string[];
+  };
+  tx: {
+    version: string;
+    cell_deps: {
+      out_point: {
+        tx_hash: string;
+        index: string;
+      };
+      dep_type: string;
+    }[];
+    header_deps: string[];
+    inputs: {
+      previous_output: {
+        tx_hash: string;
+        index: string;
+      };
+      since: string;
+    }[];
+    outputs: MockOutput[];
+    outputs_data: string[];
+    witnesses: string[];
+  };
+}
+
+function toMockScript(script: ccc.Script | undefined): MockScript | undefined {
+  if (!script) return undefined;
+  return {
+    code_hash: script.codeHash,
+    hash_type: script.hashType,
+    args: script.args,
+  };
+}
+
+async function resolveCellDeps(client: ccc.Client, cellDeps: ccc.CellDep[]): Promise<MockCellDep[]> {
+  const resolved: MockCellDep[] = [];
+
+  for (const cellDep of cellDeps) {
+    const cell = await client.getCell(cellDep.outPoint);
+    if (!cell) {
+      throw new Error(`Cell not found: ${JSON.stringify(cellDep.outPoint)}`);
+    }
+
+    if (cellDep.depType === 'depGroup') {
+      const data = cell.outputData;
+      if (data && data !== '0x') {
+        const outpoints = OutPointVecCodec.decode(data);
+        for (const op of outpoints) {
+          const outPoint = ccc.OutPoint.from({
+            txHash: op.txHash,
+            index: '0x' + op.index.toString(16),
+          });
+          const refCell = await client.getCell(outPoint);
+          if (refCell) {
+            resolved.push({
+              cell_dep: {
+                out_point: {
+                  tx_hash: outPoint.txHash,
+                  index: outPoint.index.toString(),
+                },
+                dep_type: 'code',
+              },
+              output: {
+                capacity: refCell.cellOutput.capacity.toString(),
+                lock: toMockScript(refCell.cellOutput.lock)!,
+                type: toMockScript(refCell.cellOutput.type),
+              },
+              data: refCell.outputData,
+            });
+          }
+        }
+      }
+    } else {
+      resolved.push({
+        cell_dep: {
+          out_point: {
+            tx_hash: cellDep.outPoint.txHash,
+            index: cellDep.outPoint.index.toString(),
+          },
+          dep_type: cellDep.depType,
+        },
+        output: {
+          capacity: cell.cellOutput.capacity.toString(),
+          lock: toMockScript(cell.cellOutput.lock)!,
+          type: toMockScript(cell.cellOutput.type),
+        },
+        data: cell.outputData,
+      });
+    }
+  }
+
+  return resolved;
+}
+
+async function resolveInputs(client: ccc.Client, inputs: ccc.CellInput[]): Promise<MockInput[]> {
+  const resolved: MockInput[] = [];
+
+  for (const input of inputs) {
+    const cell = await client.getCell(input.previousOutput);
+    if (!cell) {
+      throw new Error(`Input cell not found: ${JSON.stringify(input.previousOutput)}`);
+    }
+
+    resolved.push({
+      input: {
+        previous_output: {
+          tx_hash: input.previousOutput.txHash,
+          index: input.previousOutput.index.toString(),
+        },
+        since: input.since.toString(),
+      },
+      output: {
+        capacity: cell.cellOutput.capacity.toString(),
+        lock: toMockScript(cell.cellOutput.lock)!,
+        type: toMockScript(cell.cellOutput.type),
+      },
+      data: cell.outputData,
+    });
+  }
+
+  return resolved;
+}
+
+export async function dumpTransaction({ rpc, txJsonFilePath, outputFilePath }: DumpOption) {
   try {
-    execSync(command, { stdio: 'inherit' });
+    const client = new ccc.ClientPublicTestnet({
+      url: rpc,
+      fallbacks: [],
+    });
+
+    const txJson = JSON.parse(fs.readFileSync(txJsonFilePath, 'utf-8'));
+    const tx = ccc.Transaction.from(txJson);
+
+    const [cell_deps, inputs] = await Promise.all([
+      resolveCellDeps(client, tx.cellDeps),
+      resolveInputs(client, tx.inputs),
+    ]);
+
+    const mockTx: MockTransaction = {
+      mock_info: {
+        inputs,
+        cell_deps,
+        header_deps: tx.headerDeps.map((h) => h.toString()),
+      },
+      tx: {
+        version: tx.version.toString(),
+        cell_deps: tx.cellDeps.map((dep) => ({
+          out_point: {
+            tx_hash: dep.outPoint.txHash,
+            index: dep.outPoint.index.toString(),
+          },
+          dep_type: dep.depType,
+        })),
+        header_deps: tx.headerDeps.map((h) => h.toString()),
+        inputs: tx.inputs.map((input) => ({
+          previous_output: {
+            tx_hash: input.previousOutput.txHash,
+            index: input.previousOutput.index.toString(),
+          },
+          since: input.since.toString(),
+        })),
+        outputs: tx.outputs.map((output) => ({
+          capacity: output.capacity.toString(),
+          lock: toMockScript(output.lock)!,
+          type: toMockScript(output.type),
+        })),
+        outputs_data: tx.outputsData,
+        witnesses: tx.witnesses.map((w) => w.toString()),
+      },
+    };
+
+    fs.writeFileSync(outputFilePath, JSON.stringify(mockTx, null, 2));
     logger.debug('Dump transaction successfully');
   } catch (error: unknown) {
-    logger.error('Command failed:', (error as Error).message);
+    logger.error('Failed to dump transaction:', (error as Error).message);
+    throw error;
   }
 }
