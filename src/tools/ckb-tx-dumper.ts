@@ -1,5 +1,7 @@
 import fs from 'fs';
+import path from 'path';
 import { ccc } from '@ckb-ccc/core';
+import { cccA } from '@ckb-ccc/core/advanced';
 import { logger } from '../util/logger';
 
 export interface DumpOption {
@@ -105,6 +107,21 @@ async function resolveCellDeps(client: ccc.Client, cellDeps: ccc.CellDep[]): Pro
     }
 
     if (cellDep.depType === 'depGroup') {
+      resolved.push({
+        cell_dep: {
+          out_point: {
+            tx_hash: cellDep.outPoint.txHash,
+            index: '0x' + cellDep.outPoint.index.toString(16),
+          },
+          dep_type: toDepType(cellDep.depType),
+        },
+        output: {
+          capacity: '0x' + cell.cellOutput.capacity.toString(16),
+          lock: toMockScript(cell.cellOutput.lock)!,
+          type: toMockScript(cell.cellOutput.type),
+        },
+        data: cell.outputData,
+      });
       const data = cell.outputData;
       if (data && data !== '0x') {
         const outpoints = OutPointVecCodec.decode(data);
@@ -124,12 +141,12 @@ async function resolveCellDeps(client: ccc.Client, cellDeps: ccc.CellDep[]): Pro
             cell_dep: {
               out_point: {
                 tx_hash: outPoint.txHash,
-                index: outPoint.index.toString(),
+                index: '0x' + outPoint.index.toString(16),
               },
               dep_type: 'code',
             },
             output: {
-              capacity: refCell.cellOutput.capacity.toString(),
+              capacity: '0x' + refCell.cellOutput.capacity.toString(16),
               lock: toMockScript(refCell.cellOutput.lock)!,
               type: toMockScript(refCell.cellOutput.type),
             },
@@ -142,12 +159,12 @@ async function resolveCellDeps(client: ccc.Client, cellDeps: ccc.CellDep[]): Pro
         cell_dep: {
           out_point: {
             tx_hash: cellDep.outPoint.txHash,
-            index: cellDep.outPoint.index.toString(),
+            index: '0x' + cellDep.outPoint.index.toString(16),
           },
           dep_type: toDepType(cellDep.depType),
         },
         output: {
-          capacity: cell.cellOutput.capacity.toString(),
+          capacity: '0x' + cell.cellOutput.capacity.toString(16),
           lock: toMockScript(cell.cellOutput.lock)!,
           type: toMockScript(cell.cellOutput.type),
         },
@@ -172,12 +189,12 @@ async function resolveInputs(client: ccc.Client, inputs: ccc.CellInput[]): Promi
       input: {
         previous_output: {
           tx_hash: input.previousOutput.txHash,
-          index: input.previousOutput.index.toString(),
+          index: '0x' + input.previousOutput.index.toString(16),
         },
-        since: input.since.toString(),
+        since: '0x' + input.since.toString(16),
       },
       output: {
-        capacity: cell.cellOutput.capacity.toString(),
+        capacity: '0x' + cell.cellOutput.capacity.toString(16),
         lock: toMockScript(cell.cellOutput.lock)!,
         type: toMockScript(cell.cellOutput.type),
       },
@@ -196,7 +213,7 @@ export async function dumpTransaction({ rpc, txJsonFilePath, outputFilePath }: D
     });
 
     const txJson = JSON.parse(fs.readFileSync(txJsonFilePath, 'utf-8'));
-    const tx = ccc.Transaction.from(txJson);
+    const tx = cccA.JsonRpcTransformers.transactionTo(txJson);
 
     const [cell_deps, inputs] = await Promise.all([
       resolveCellDeps(client, tx.cellDeps),
@@ -210,11 +227,11 @@ export async function dumpTransaction({ rpc, txJsonFilePath, outputFilePath }: D
         header_deps: tx.headerDeps.map((h) => h.toString()),
       },
       tx: {
-        version: tx.version.toString(),
+        version: '0x' + tx.version.toString(16),
         cell_deps: tx.cellDeps.map((dep) => ({
           out_point: {
             tx_hash: dep.outPoint.txHash,
-            index: dep.outPoint.index.toString(),
+            index: '0x' + dep.outPoint.index.toString(16),
           },
           dep_type: toDepType(dep.depType),
         })),
@@ -222,12 +239,12 @@ export async function dumpTransaction({ rpc, txJsonFilePath, outputFilePath }: D
         inputs: tx.inputs.map((input) => ({
           previous_output: {
             tx_hash: input.previousOutput.txHash,
-            index: input.previousOutput.index.toString(),
+            index: '0x' + input.previousOutput.index.toString(16),
           },
-          since: input.since.toString(),
+          since: '0x' + input.since.toString(16),
         })),
         outputs: tx.outputs.map((output) => ({
-          capacity: output.capacity.toString(),
+          capacity: '0x' + output.capacity.toString(16),
           lock: toMockScript(output.lock)!,
           type: toMockScript(output.type),
         })),
@@ -236,6 +253,7 @@ export async function dumpTransaction({ rpc, txJsonFilePath, outputFilePath }: D
       },
     };
 
+    fs.mkdirSync(path.dirname(outputFilePath), { recursive: true });
     fs.writeFileSync(outputFilePath, JSON.stringify(mockTx, null, 2));
     logger.debug('Dump transaction successfully');
   } catch (error: unknown) {
