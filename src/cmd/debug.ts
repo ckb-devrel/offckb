@@ -8,8 +8,8 @@ import { Network } from '../type/base';
 import { encodeBinPathForTerminal } from '../util/encoding';
 import { logger } from '../util/logger';
 
-export function debugTransaction(txHash: string, network: Network) {
-  const txFile = buildTxFileOptionBy(txHash, network);
+export async function debugTransaction(txHash: string, network: Network) {
+  const txFile = await buildTxFileOptionBy(txHash, network);
   const opts = buildTransactionDebugOptions(txHash, network);
   for (const opt of opts) {
     logger.section(opt.name, [], 'info');
@@ -48,7 +48,7 @@ export function buildTransactionDebugOptions(txHash: string, network: Network) {
   return result;
 }
 
-export function debugSingleScript(
+export async function debugSingleScript(
   txHash: string,
   cellIndex: number,
   cellType: 'input' | 'output',
@@ -56,7 +56,7 @@ export function debugSingleScript(
   network: Network,
   bin?: string,
 ) {
-  const txFile = buildTxFileOptionBy(txHash, network);
+  const txFile = await buildTxFileOptionBy(txHash, network);
   let opt = `--cell-index ${cellIndex} --cell-type ${cellType} --script-group-type ${scriptType}`;
   if (bin) {
     opt = opt + ` --bin ${bin}`;
@@ -81,7 +81,7 @@ export function parseSingleScriptOption(value: string) {
   };
 }
 
-export function buildTxFileOptionBy(txHash: string, network: Network) {
+export async function buildTxFileOptionBy(txHash: string, network: Network) {
   const settings = readSettings();
   const outputFilePath = buildDebugFullTransactionFilePath(network, txHash);
   if (!fs.existsSync(outputFilePath)) {
@@ -90,7 +90,7 @@ export function buildTxFileOptionBy(txHash: string, network: Network) {
     if (!fs.existsSync(outputFilePath)) {
       fs.mkdirSync(path.dirname(outputFilePath), { recursive: true });
     }
-    dumpTransaction({ rpc, txJsonFilePath, outputFilePath });
+    await dumpTransaction({ rpc, txJsonFilePath, outputFilePath });
   }
   const opt = `--tx-file ${encodeBinPathForTerminal(outputFilePath)}`;
   return opt;

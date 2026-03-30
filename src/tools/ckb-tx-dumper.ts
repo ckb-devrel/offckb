@@ -42,7 +42,7 @@ interface MockInput {
 interface MockOutput {
   capacity: string;
   lock: MockScript;
-  type?: MockScript | null;
+  type: MockScript | null;
 }
 
 interface MockScript {
@@ -80,13 +80,19 @@ interface MockTransaction {
   };
 }
 
-function toMockScript(script: ccc.Script | undefined): MockScript | undefined {
-  if (!script) return undefined;
+function toMockScript(script: ccc.Script | undefined): MockScript | null {
+  if (!script) return null;
   return {
     code_hash: script.codeHash,
     hash_type: script.hashType,
     args: script.args,
   };
+}
+
+function toDepType(depType: string): string {
+  // Convert camelCase to snake_case for CKB JSON format
+  if (depType === 'depGroup') return 'dep_group';
+  return depType;
 }
 
 async function resolveCellDeps(client: ccc.Client, cellDeps: ccc.CellDep[]): Promise<MockCellDep[]> {
@@ -108,23 +114,27 @@ async function resolveCellDeps(client: ccc.Client, cellDeps: ccc.CellDep[]): Pro
             index: '0x' + op.index.toString(16),
           });
           const refCell = await client.getCell(outPoint);
-          if (refCell) {
-            resolved.push({
-              cell_dep: {
-                out_point: {
-                  tx_hash: outPoint.txHash,
-                  index: outPoint.index.toString(),
-                },
-                dep_type: 'code',
-              },
-              output: {
-                capacity: refCell.cellOutput.capacity.toString(),
-                lock: toMockScript(refCell.cellOutput.lock)!,
-                type: toMockScript(refCell.cellOutput.type),
-              },
-              data: refCell.outputData,
-            });
+          if (!refCell) {
+            logger.error(
+              `Failed to resolve cell for depGroup out_point: tx_hash=${outPoint.txHash}, index=${outPoint.index.toString()}`,
+            );
+            throw new Error('Failed to resolve all cells referenced by depGroup.');
           }
+          resolved.push({
+            cell_dep: {
+              out_point: {
+                tx_hash: outPoint.txHash,
+                index: outPoint.index.toString(),
+              },
+              dep_type: 'code',
+            },
+            output: {
+              capacity: refCell.cellOutput.capacity.toString(),
+              lock: toMockScript(refCell.cellOutput.lock)!,
+              type: toMockScript(refCell.cellOutput.type),
+            },
+            data: refCell.outputData,
+          });
         }
       }
     } else {
@@ -134,7 +144,7 @@ async function resolveCellDeps(client: ccc.Client, cellDeps: ccc.CellDep[]): Pro
             tx_hash: cellDep.outPoint.txHash,
             index: cellDep.outPoint.index.toString(),
           },
-          dep_type: cellDep.depType,
+          dep_type: toDepType(cellDep.depType),
         },
         output: {
           capacity: cell.cellOutput.capacity.toString(),
@@ -206,7 +216,7 @@ export async function dumpTransaction({ rpc, txJsonFilePath, outputFilePath }: D
             tx_hash: dep.outPoint.txHash,
             index: dep.outPoint.index.toString(),
           },
-          dep_type: dep.depType,
+          dep_type: toDepType(dep.depType),
         })),
         header_deps: tx.headerDeps.map((h) => h.toString()),
         inputs: tx.inputs.map((input) => ({

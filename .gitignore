@@ -12,3 +12,6 @@ package-lock.json
 # Test coverage
 coverage/
 *.lcov
+
+# Sisyphus plans and sessions
+.sisyphus/
