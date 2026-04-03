@@ -75,10 +75,12 @@ export function isValidVersion(version: unknown): boolean {
 }
 
 export function normalizePrivKey(privKey: string): string {
-  if (!privKey) return privKey;
-
   // Trim surrounding whitespaces
-  let key = privKey.trim();
+  let key = privKey ? privKey.trim() : '';
+
+  if (!key) {
+    throw new Error('Private key is required.');
+  }
 
   // Strip surrounding quotes
   if (key.startsWith('"') && key.endsWith('"')) {
@@ -88,8 +90,11 @@ export function normalizePrivKey(privKey: string): string {
     key = key.slice(1, -1);
   }
 
-  // Remove standard 0x prefix if exists manually for normalization
-  if (key.startsWith('0x')) {
+  // Trim again to normalize whitespace that was inside surrounding quotes
+  key = key.trim();
+
+  // Remove standard 0x/0X prefix if it exists manually for normalization
+  if (/^0x/i.test(key)) {
     key = key.slice(2);
   }
 
