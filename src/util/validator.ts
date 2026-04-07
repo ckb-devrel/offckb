@@ -73,3 +73,43 @@ export function isValidVersion(version: unknown): boolean {
   // Test the version against the regex
   return versionRegex.test(version);
 }
+
+export function normalizePrivKey(privKey: string): string {
+  // Trim surrounding whitespaces
+  let key = privKey ? privKey.trim() : '';
+
+  if (!key) {
+    throw new Error('Private key is required.');
+  }
+
+  // Strip surrounding quotes
+  if (key.startsWith('"') && key.endsWith('"')) {
+    key = key.slice(1, -1);
+  }
+  if (key.startsWith("'") && key.endsWith("'")) {
+    key = key.slice(1, -1);
+  }
+
+  // Trim again to normalize whitespace that was inside surrounding quotes
+  key = key.trim();
+
+  // Remove standard 0x/0X prefix if it exists manually for normalization
+  if (/^0x/i.test(key)) {
+    key = key.slice(2);
+  }
+
+  // Validate only hex characters are left
+  if (!/^[0-9a-fA-F]+$/.test(key)) {
+    throw new Error('Invalid private key: contains non-hexadecimal characters.');
+  }
+
+  // Enforce exactly 32 bytes length
+  if (key.length !== 64) {
+    throw new Error(
+      `Invalid private key length: expected 32 bytes (64 hex characters), but got ${key.length} characters (excluding 0x prefix).`,
+    );
+  }
+
+  // Return the formally strictly padded ckb format `0x` string
+  return '0x' + key;
+}
