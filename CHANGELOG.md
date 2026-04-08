@@ -1,5 +1,32 @@
 # @offckb/cli
 
+## 0.4.6
+
+### Patch Changes
+
+- a5592dc: Upgrade default CKB version from 0.201.0 to 0.205.0
+
+  CKB v0.205.0 includes:
+
+  - Terminal module for CKB-TUI
+  - Proxy protocol support
+  - RPC logs subscription
+  - Rust toolchain upgrade to 1.92.0
+
+- 8da140d: fix(cli): standardize private key inputs and fix 0x prefix parsing error (#422)
+- fb506f4: fix(create): ensure CKB binary and devnet config before generating scripts
+
+  Fix issue #396 where `offckb create` failed if user hasn't run `offckb node` first.
+
+  **Changes:**
+
+  - Add imports for `installCKBBinary`, `initChainIfNeeded`, and `readSettings`
+  - Call `installCKBBinary` to download CKB binary if not exists
+  - Call `initChainIfNeeded` to initialize devnet config if not exists
+  - Both calls happen before `genSystemScriptsJsonFile` to ensure dependencies are ready
+
+  This makes `offckb create` self-sufficient and doesn't require prior `offckb node` execution.
+
 ## 0.4.5
 
 ### Patch Changes
