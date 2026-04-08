@@ -2,7 +2,7 @@
 // to replace lumos with ccc
 
 import { ccc, ClientPublicMainnet, ClientPublicTestnet, OutPointLike, Script } from '@ckb-ccc/core';
-import { isValidNetworkString } from '../util/validator';
+import { isValidNetworkString, normalizePrivKey } from '../util/validator';
 import { networks } from './network';
 import { buildCCCDevnetKnownScripts } from '../scripts/private';
 import { Migration } from '../deploy/migration';
@@ -81,7 +81,8 @@ export class CKB {
   }
 
   buildSigner(privateKey: HexString) {
-    const signer = new ccc.SignerCkbPrivateKey(this.client, privateKey);
+    const normalizedKey = normalizePrivKey(privateKey);
+    const signer = new ccc.SignerCkbPrivateKey(this.client, normalizedKey);
     return signer;
   }
 
