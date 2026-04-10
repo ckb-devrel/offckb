@@ -81,9 +81,9 @@ program
     const txHash = option.txHash;
     if (option.singleScript) {
       const { cellType, cellIndex, scriptType } = parseSingleScriptOption(option.singleScript);
-      return debugSingleScript(txHash, cellIndex, cellType, scriptType, option.network, option.bin);
+      return await debugSingleScript(txHash, cellIndex, cellType, scriptType, option.network, option.bin);
     }
-    return debugTransaction(txHash, option.network);
+    return await debugTransaction(txHash, option.network);
   });
 
 program
