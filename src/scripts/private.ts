@@ -1,4 +1,5 @@
 import { ccc, CellDepInfoLike, KnownScript, Script } from '@ckb-ccc/core';
+import { TESTNET_SCRIPTS } from '@ckb-ccc/core/advanced';
 import { readSettings } from '../cfg/setting';
 import { systemCellToScriptInfo } from '../cmd/system-scripts';
 import { getDevnetListHashes, ListHashes, SpecHashes } from '../util/list-hashes';
@@ -72,6 +73,13 @@ export function toCCCKnownScripts(scripts: SystemScriptsRecord) {
       codeHash: '0x00000000000000000000000000000000000000000000000000545950455f4944',
       hashType: 'type',
       cellDeps: [],
+    },
+    // ccc >= 1.14.0 calls getKnownScript(NervosDao) during completeFeeBy
+    // for all inputs. Devnet has no NervosDao deployment, so we reuse the
+    // testnet definition purely for the type comparison; devnet cells will
+    // never match it and isNervosDao will return false.
+    [KnownScript.NervosDao]: TESTNET_SCRIPTS.NervosDao as unknown as Pick<Script, 'codeHash' | 'hashType'> & {
+      cellDeps: CellDepInfoLike[];
     },
   };
   return DEVNET_SCRIPTS;
