@@ -1,5 +1,12 @@
 # @offckb/cli
 
+## 0.4.8
+
+### Patch Changes
+
+- Override `form-data@>=4.0.0 <4.0.6` to `4.0.6` to fix CRLF injection (GHSA).
+- Override `hono@<4.12.25` to `4.12.25` to fix CORS origin reflection with credentials.
+
 ## 0.4.7
 
 ### Patch Changes
