@@ -1,6 +1,6 @@
 {
   "name": "@offckb/cli",
-  "version": "0.4.7",
+  "version": "0.4.8",
   "description": "ckb development network for your first try",
   "author": "CKB EcoFund",
   "license": "MIT",
@@ -24,11 +24,6 @@
   },
   "publishConfig": {
     "access": "public"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "secp256k1"
-    ]
   },
   "scripts": {
     "build": "node scripts/build.js",
