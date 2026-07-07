@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
-import { startNode } from './cmd/node';
+import { startNode, stopNode } from './cmd/node';
 import { accounts } from './cmd/accounts';
 import { clean } from './cmd/clean';
 import { setUTF8EncodingForWindows } from './util/encoding';
@@ -36,7 +36,7 @@ program.hook('preAction', (thisCommand) => {
   }
 });
 
-program
+const nodeCommand = program
   .command('node [CKB-Version]')
   .description('Use the CKB to start devnet')
   .option('--network <network>', 'Specify the network to deploy to', 'devnet')
@@ -48,6 +48,8 @@ program
   .action(async (version: string, options: { network: Network; binaryPath?: string; daemon?: boolean }) => {
     return startNode({ version, network: options.network, binaryPath: options.binaryPath, daemon: options.daemon });
   });
+
+nodeCommand.command('stop').description('Stop the running CKB devnet daemon').action(async () => stopNode());
 
 program
   .command('create [project-name]')

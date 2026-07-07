@@ -130,7 +130,86 @@ function startDaemon() {
   logger.success(`CKB devnet daemon started with PID ${child.pid}.`);
   logger.info(`Logs: ${logFile}`);
   logger.info(`PID file: ${pidFile}`);
-  logger.info('Stop the daemon with: kill $(cat ' + pidFile + ')');
+  logger.info('Stop the daemon with: offckb node stop');
+}
+
+export async function stopNode() {
+  const settings = readSettings();
+  const pidFile = path.join(settings.devnet.dataPath, 'logs', 'daemon.pid');
+
+  if (!fs.existsSync(pidFile)) {
+    logger.warn(`No daemon PID file found at ${pidFile}. Is the devnet daemon running?`);
+    return;
+  }
+
+  const pid = Number(fs.readFileSync(pidFile, 'utf8').trim());
+  if (!Number.isInteger(pid) || pid <= 0) {
+    logger.error(`Invalid PID in ${pidFile}: ${pid}`);
+    return;
+  }
+
+  if (!isProcessAlive(pid)) {
+    logger.warn(`Daemon process ${pid} is not running.`);
+    cleanupPidFile(pidFile);
+    return;
+  }
+
+  logger.info(`Stopping CKB devnet daemon (PID ${pid})...`);
+  const signalTarget = process.platform === 'win32' ? pid : -pid;
+  try {
+    process.kill(signalTarget, 'SIGTERM');
+  } catch (error) {
+    logger.error(`Failed to send SIGTERM to daemon process ${pid}:`, error);
+    return;
+  }
+
+  const exited = await waitForProcessExit(pid, 5000);
+  if (!exited) {
+    logger.warn(`Daemon process ${pid} did not exit gracefully, sending SIGKILL...`);
+    try {
+      process.kill(signalTarget, 'SIGKILL');
+    } catch (error) {
+      logger.error(`Failed to send SIGKILL to daemon process ${pid}:`, error);
+    }
+  }
+
+  cleanupPidFile(pidFile);
+  logger.success('CKB devnet daemon stopped.');
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function cleanupPidFile(pidFile: string) {
+  try {
+    fs.unlinkSync(pidFile);
+  } catch (error) {
+    logger.warn(`Failed to remove PID file ${pidFile}:`, error);
+  }
+}
+
+function waitForProcessExit(pid: number, timeoutMs: number): Promise<boolean> {
+  const start = Date.now();
+  return new Promise((resolve) => {
+    const check = () => {
+      if (!isProcessAlive(pid)) {
+        resolve(true);
+        return;
+      }
+      if (Date.now() - start >= timeoutMs) {
+        resolve(false);
+        return;
+      }
+      setTimeout(check, 100);
+    };
+    check();
+  });
 }
 
 export async function nodeTestnet() {

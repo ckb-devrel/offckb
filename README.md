@@ -70,6 +70,7 @@ Options:
 
 Commands:
   node [CKB-Version]                            Use the CKB to start devnet
+  node stop                                     Stop the running CKB devnet daemon
   create [options] [project-name]               Create a new CKB Smart Contract project in JavaScript.
   deploy [options]                              Deploy contracts to different networks, only supports devnet and testnet
   debug [options]                               Quickly debug transaction with tx-hash
@@ -134,7 +135,7 @@ The daemon writes its logs and PID to the devnet data folder, for example:
 Stop the daemon later with:
 
 ```sh
-kill $(cat ~/Library/Application Support/offckb-nodejs/devnet/data/logs/daemon.pid)
+offckb node stop
 ```
 
 **Agent-Friendly JSON Output**

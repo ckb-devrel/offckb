@@ -1,10 +1,13 @@
-import { startNode } from '../src/cmd/node';
+import { startNode, stopNode } from '../src/cmd/node';
 import { Network } from '../src/type/base';
 
 const mockSpawn = jest.fn();
 const mockOpenSync = jest.fn();
 const mockWriteFileSync = jest.fn();
 const mockMkdirSync = jest.fn();
+const mockReadFileSync = jest.fn();
+const mockExistsSync = jest.fn();
+const mockUnlinkSync = jest.fn();
 
 jest.mock('child_process', () => ({
   ...jest.requireActual('child_process'),
@@ -16,6 +19,9 @@ jest.mock('fs', () => ({
   openSync: (...args: unknown[]) => mockOpenSync(...args),
   writeFileSync: (...args: unknown[]) => mockWriteFileSync(...args),
   mkdirSync: (...args: unknown[]) => mockMkdirSync(...args),
+  readFileSync: (...args: unknown[]) => mockReadFileSync(...args),
+  existsSync: (...args: unknown[]) => mockExistsSync(...args),
+  unlinkSync: (...args: unknown[]) => mockUnlinkSync(...args),
 }));
 
 jest.mock('../src/tools/rpc-proxy', () => ({
@@ -96,5 +102,81 @@ describe('node command daemon mode', () => {
 
     expect(logger.warn).toHaveBeenCalledWith('Daemon mode is only supported for devnet. The daemon flag will be ignored.');
     expect(mockSpawn).not.toHaveBeenCalled();
+  });
+});
+
+describe('node command stop', () => {
+  let killSpy: jest.SpyInstance;
+  let processAlive = true;
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.clearAllMocks();
+    processAlive = true;
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue('12345');
+    killSpy = jest.spyOn(process, 'kill').mockImplementation((pid: number, signal?: NodeJS.Signals | number) => {
+      if (signal === 0) {
+        if (!processAlive) {
+          throw new Error('ESRCH');
+        }
+        return true;
+      }
+      if (signal === 'SIGTERM' || signal === 'SIGKILL') {
+        processAlive = false;
+        return true;
+      }
+      return true;
+    });
+  });
+
+  afterEach(() => {
+    killSpy.mockRestore();
+    jest.useRealTimers();
+  });
+
+  it('warns when no PID file exists', async () => {
+    mockExistsSync.mockReturnValue(false);
+    await stopNode();
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('No daemon PID file found'));
+    expect(killSpy).not.toHaveBeenCalled();
+  });
+
+  it('errors when the PID file contains an invalid PID', async () => {
+    mockReadFileSync.mockReturnValue('not-a-number');
+    await stopNode();
+    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('Invalid PID'));
+    expect(killSpy).not.toHaveBeenCalled();
+  });
+
+  it('removes the PID file when the daemon is not running', async () => {
+    processAlive = false;
+    await stopNode();
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('is not running'));
+    expect(mockUnlinkSync).toHaveBeenCalledWith('/tmp/offckb-devnet-data/logs/daemon.pid');
+  });
+
+  it('stops the daemon gracefully with SIGTERM', async () => {
+    await stopNode();
+    expect(killSpy).toHaveBeenCalledWith(expect.any(Number), 'SIGTERM');
+    expect(mockUnlinkSync).toHaveBeenCalledWith('/tmp/offckb-devnet-data/logs/daemon.pid');
+    expect(logger.success).toHaveBeenCalledWith('CKB devnet daemon stopped.');
+  });
+
+  it('falls back to SIGKILL when the daemon does not exit gracefully', async () => {
+    // Simulate a process that ignores SIGTERM
+    killSpy.mockImplementation((pid: number, signal?: NodeJS.Signals | number) => {
+      if (signal === 0) {
+        return true;
+      }
+      return true;
+    });
+
+    const stopPromise = stopNode();
+    jest.advanceTimersByTime(5000);
+    await stopPromise;
+
+    expect(killSpy).toHaveBeenCalledWith(expect.any(Number), 'SIGKILL');
+    expect(mockUnlinkSync).toHaveBeenCalledWith('/tmp/offckb-devnet-data/logs/daemon.pid');
   });
 });
