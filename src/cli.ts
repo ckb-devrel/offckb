@@ -8,6 +8,7 @@ import { DepositOptions, deposit } from './cmd/deposit';
 import { DeployOptions, deploy } from './cmd/deploy';
 import { TransferOptions, transfer } from './cmd/transfer';
 import { BalanceOption, balanceOf } from './cmd/balance';
+import { udtBalance, udtTransfer, UdtBalanceOption, UdtTransferOption } from './cmd/udt';
 import { createScriptProject, CreateScriptProjectOptions } from './cmd/create';
 import { Config, ConfigItem } from './cmd/config';
 import { devnetConfig } from './cmd/devnet-config';
@@ -162,6 +163,27 @@ program
   .option('--network <network>', 'Specify the network to check', 'devnet')
   .action(async (toAddress: string, options: BalanceOption) => {
     return balanceOf(toAddress, options);
+  });
+
+program
+  .command('udt-balance [toAddress]')
+  .description('Check UDT balance of an address, only devnet and testnet')
+  .option('--network <network>', 'Specify the network to check', 'devnet')
+  .option('--kind <kind>', 'Specify the UDT kind: sudt or xudt', 'sudt')
+  .requiredOption('--type-args <typeArgs>', 'Specify the UDT type script args')
+  .action(async (toAddress: string, options: UdtBalanceOption) => {
+    return udtBalance(toAddress, options);
+  });
+
+program
+  .command('udt-transfer [toAddress] [amount]')
+  .description('Transfer UDT tokens to address, only devnet and testnet')
+  .option('--network <network>', 'Specify the network to transfer to', 'devnet')
+  .option('--kind <kind>', 'Specify the UDT kind: sudt or xudt', 'sudt')
+  .requiredOption('--type-args <typeArgs>', 'Specify the UDT type script args')
+  .option('--privkey <privkey>', 'Specify the private key to transfer UDT')
+  .action(async (toAddress: string, amount: string, options: UdtTransferOption) => {
+    return udtTransfer(toAddress, amount, options);
   });
 
 program
