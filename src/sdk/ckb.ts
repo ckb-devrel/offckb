@@ -6,6 +6,7 @@ import { isValidNetworkString, normalizePrivKey } from '../util/validator';
 import { networks } from './network';
 import { buildCCCDevnetKnownScripts, getDevnetSystemScriptsFromListHashes } from '../scripts/private';
 import { MAINNET_SYSTEM_SCRIPTS, TESTNET_SYSTEM_SCRIPTS } from '../scripts/public';
+import { SystemScriptsRecord } from '../scripts/type';
 import { Migration } from '../deploy/migration';
 import { Network, HexNumber, HexString } from '../type/base';
 import { logger } from '../util/logger';
@@ -39,6 +40,29 @@ export interface UdtTransferOption {
   toAddress: string;
   amount: HexNumber;
   udtType: ccc.Script;
+}
+
+export interface UdtIssueOption {
+  privateKey: HexString;
+  kind: UdtKind;
+  amount: HexNumber;
+  typeArgs?: HexString;
+  toAddress?: string;
+}
+
+export interface UdtDestroyOption {
+  privateKey: HexString;
+  kind: UdtKind;
+  typeArgs: HexString;
+  amount: HexNumber;
+}
+
+export interface UdtBalanceInfo {
+  kind: UdtKind;
+  codeHash: HexString;
+  hashType: string;
+  args: HexString;
+  balance: string;
 }
 
 export class CKB {
@@ -175,19 +199,27 @@ export class CKB {
     return txHash;
   }
 
+  private getSystemScripts(): SystemScriptsRecord {
+    if (this.network === Network.mainnet) {
+      return MAINNET_SYSTEM_SCRIPTS;
+    }
+    if (this.network === Network.testnet) {
+      return TESTNET_SYSTEM_SCRIPTS;
+    }
+    const scripts = getDevnetSystemScriptsFromListHashes();
+    if (!scripts) {
+      throw new Error(`Failed to load devnet system scripts`);
+    }
+    return scripts;
+  }
+
   async buildUdtTypeScript(kind: UdtKind, args: HexString): Promise<ccc.Script> {
     if (kind === 'xudt') {
       return ccc.Script.fromKnownScript(this.client, ccc.KnownScript.XUdt, args);
     }
 
-    const systemScripts =
-      this.network === Network.mainnet
-        ? MAINNET_SYSTEM_SCRIPTS
-        : this.network === Network.testnet
-          ? TESTNET_SYSTEM_SCRIPTS
-          : getDevnetSystemScriptsFromListHashes();
-
-    const sudtScript = systemScripts?.sudt?.script;
+    const systemScripts = this.getSystemScripts();
+    const sudtScript = systemScripts.sudt?.script;
     if (!sudtScript) {
       throw new Error(`SUDT script not found on ${this.network}`);
     }
@@ -197,6 +229,59 @@ export class CKB {
       hashType: sudtScript.hashType,
       args,
     });
+  }
+
+  async detectUdtBalances(address: string): Promise<UdtBalanceInfo[]> {
+    const lock = (await ccc.Address.fromString(address, this.client)).script;
+    const systemScripts = this.getSystemScripts();
+    const sudtScript = systemScripts.sudt?.script;
+    const xudtInfo = await this.client.getKnownScript(ccc.KnownScript.XUdt);
+
+    const balances = new Map<
+      string,
+      { kind: UdtKind; codeHash: HexString; hashType: string; args: HexString; balance: bigint }
+    >();
+
+    const matches = (type: ccc.ScriptLike, codeHash: HexString, hashType: string) =>
+      type.codeHash === codeHash && String(type.hashType) === hashType;
+
+    for await (const cell of this.client.findCellsByLock(lock, undefined, true, 'asc', 500)) {
+      const type = cell.cellOutput.type;
+      if (!type) {
+        continue;
+      }
+
+      let kind: UdtKind | null = null;
+      if (sudtScript && matches(type, sudtScript.codeHash, sudtScript.hashType)) {
+        kind = 'sudt';
+      } else if (matches(type, xudtInfo.codeHash, xudtInfo.hashType)) {
+        kind = 'xudt';
+      }
+
+      if (!kind) {
+        continue;
+      }
+
+      const key = `${kind}:${type.codeHash}:${type.hashType}:${type.args}`;
+      const entry = balances.get(key);
+      const cellBalance = BigInt(ccc.udtBalanceFrom(cell.outputData));
+      if (entry) {
+        entry.balance += cellBalance;
+      } else {
+        balances.set(key, {
+          kind,
+          codeHash: type.codeHash as HexString,
+          hashType: String(type.hashType),
+          args: type.args as HexString,
+          balance: cellBalance,
+        });
+      }
+    }
+
+    return Array.from(balances.values()).map((item) => ({
+      ...item,
+      balance: item.balance.toString(),
+    }));
   }
 
   async udtBalance(address: string, udtType: ccc.Script): Promise<string> {
@@ -241,6 +326,94 @@ export class CKB {
       tx.outputsData.push(ccc.hexFrom(ccc.numToBytes(changeAmount, 16)));
     }
 
+    await tx.completeFeeBy(signer, this.feeRate);
+    const txHash = await signer.sendTransaction(tx);
+    return txHash;
+  }
+
+  async udtIssue({ privateKey, kind, amount, typeArgs, toAddress }: UdtIssueOption): Promise<HexString> {
+    const signer = this.buildSigner(privateKey);
+    const signerAddress = await signer.getAddressObjSecp256k1();
+    const to = toAddress ? await ccc.Address.fromString(toAddress, this.client) : signerAddress;
+    const amountBigInt = BigInt(amount);
+
+    let resolvedTypeArgs: HexString;
+    if (kind === 'sudt') {
+      const issuerLockHash = signerAddress.script.hash();
+      resolvedTypeArgs = ('0x' + issuerLockHash.slice(2, 42)) as HexString;
+    } else {
+      if (!typeArgs) {
+        const issuerLockHash = signerAddress.script.hash();
+        resolvedTypeArgs = issuerLockHash as HexString;
+      } else {
+        resolvedTypeArgs = typeArgs;
+      }
+    }
+
+    const udtType = await this.buildUdtTypeScript(kind, resolvedTypeArgs);
+
+    const tx = ccc.Transaction.from({
+      outputs: [
+        {
+          lock: to.script,
+          type: udtType,
+          capacity: ccc.fixedPointFrom('61'),
+        },
+      ],
+      outputsData: [ccc.hexFrom(ccc.numToBytes(amountBigInt, 16))],
+    });
+
+    const systemScripts = this.getSystemScripts();
+    const scriptInfo =
+      kind === 'sudt' ? systemScripts.sudt!.script : await this.client.getKnownScript(ccc.KnownScript.XUdt);
+    tx.addCellDeps(scriptInfo.cellDeps.map((dep) => dep.cellDep));
+
+    await tx.completeInputsByCapacity(signer);
+    await tx.completeFeeBy(signer, this.feeRate);
+    const txHash = await signer.sendTransaction(tx);
+    return txHash;
+  }
+
+  async udtDestroy({ privateKey, kind, typeArgs, amount }: UdtDestroyOption): Promise<HexString> {
+    const signer = this.buildSigner(privateKey);
+    const from = await signer.getAddressObjSecp256k1();
+    const udtType = await this.buildUdtTypeScript(kind, typeArgs);
+    const destroyAmount = BigInt(amount);
+
+    const cells: ccc.Cell[] = [];
+    let totalBalance = BigInt(0);
+    for await (const cell of this.client.findCellsByLock(from.script, udtType, true)) {
+      cells.push(cell);
+      totalBalance += BigInt(ccc.udtBalanceFrom(cell.outputData));
+    }
+
+    if (totalBalance < destroyAmount) {
+      throw new Error(`Insufficient UDT balance: ${totalBalance} < ${destroyAmount}`);
+    }
+
+    const tx = ccc.Transaction.from({});
+    for (const cell of cells) {
+      tx.addInput({ previousOutput: cell.outPoint });
+    }
+
+    const remaining = totalBalance - destroyAmount;
+    if (remaining > BigInt(0)) {
+      tx.addOutput(
+        {
+          lock: from.script,
+          type: udtType,
+          capacity: ccc.fixedPointFrom('61'),
+        },
+        ccc.hexFrom(ccc.numToBytes(remaining, 16)),
+      );
+    }
+
+    const systemScripts = this.getSystemScripts();
+    const scriptInfo =
+      kind === 'sudt' ? systemScripts.sudt!.script : await this.client.getKnownScript(ccc.KnownScript.XUdt);
+    tx.addCellDeps(scriptInfo.cellDeps.map((dep) => dep.cellDep));
+
+    await tx.completeInputsByCapacity(signer);
     await tx.completeFeeBy(signer, this.feeRate);
     const txHash = await signer.sendTransaction(tx);
     return txHash;

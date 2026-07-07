@@ -4,32 +4,22 @@ import { buildTestnetTxLink } from '../util/link';
 import { validateNetworkOpt } from '../util/validator';
 import { logger } from '../util/logger';
 
-export interface UdtBalanceOption extends NetworkOption {
+export interface UdtIssueOption extends NetworkOption {
   kind: UdtKind;
-  typeArgs: string;
+  typeArgs?: string;
+  to?: string;
+  privkey: string;
 }
 
-export interface UdtTransferOption extends NetworkOption {
+export interface UdtDestroyOption extends NetworkOption {
   kind: UdtKind;
   typeArgs: string;
   privkey: string;
 }
 
-export async function udtBalance(address: string, opt: UdtBalanceOption = { network: Network.devnet, kind: 'sudt', typeArgs: '' }) {
-  const network = opt.network;
-  validateNetworkOpt(network);
-
-  const ckb = new CKB({ network });
-  const udtType = await ckb.buildUdtTypeScript(opt.kind, opt.typeArgs);
-  const balance = await ckb.udtBalance(address, udtType);
-  logger.info(`UDT Balance: ${balance}`);
-  process.exit(0);
-}
-
-export async function udtTransfer(
-  toAddress: string,
+export async function udtIssue(
   amount: string,
-  opt: UdtTransferOption = { network: Network.devnet, kind: 'sudt', typeArgs: '', privkey: '' },
+  opt: UdtIssueOption = { network: Network.devnet, kind: 'sudt', privkey: '' },
 ) {
   const network = opt.network;
   validateNetworkOpt(network);
@@ -39,18 +29,43 @@ export async function udtTransfer(
   }
 
   const ckb = new CKB({ network });
-  const udtType = await ckb.buildUdtTypeScript(opt.kind, opt.typeArgs);
-  const txHash = await ckb.udtTransfer({
-    toAddress,
-    amount,
+  const txHash = await ckb.udtIssue({
     privateKey: opt.privkey,
-    udtType,
+    kind: opt.kind,
+    amount,
+    typeArgs: opt.typeArgs,
+    toAddress: opt.to,
   });
 
   if (network === 'testnet') {
-    logger.info(`Successfully transfer UDT, check ${buildTestnetTxLink(txHash)} for details.`);
+    logger.info(`Successfully issued UDT, check ${buildTestnetTxLink(txHash)} for details.`);
     return;
   }
+  logger.info('Successfully issued UDT, txHash:', txHash);
+}
 
-  logger.info('Successfully transfer UDT, txHash:', txHash);
+export async function udtDestroy(
+  amount: string,
+  opt: UdtDestroyOption = { network: Network.devnet, kind: 'sudt', typeArgs: '', privkey: '' },
+) {
+  const network = opt.network;
+  validateNetworkOpt(network);
+
+  if (!opt.privkey) {
+    throw new Error('--privkey is required!');
+  }
+
+  const ckb = new CKB({ network });
+  const txHash = await ckb.udtDestroy({
+    privateKey: opt.privkey,
+    kind: opt.kind,
+    amount,
+    typeArgs: opt.typeArgs,
+  });
+
+  if (network === 'testnet') {
+    logger.info(`Successfully destroyed UDT, check ${buildTestnetTxLink(txHash)} for details.`);
+    return;
+  }
+  logger.info('Successfully destroyed UDT, txHash:', txHash);
 }

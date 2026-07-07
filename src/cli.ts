@@ -8,7 +8,7 @@ import { DepositOptions, deposit } from './cmd/deposit';
 import { DeployOptions, deploy } from './cmd/deploy';
 import { TransferOptions, transfer } from './cmd/transfer';
 import { BalanceOption, balanceOf } from './cmd/balance';
-import { udtBalance, udtTransfer, UdtBalanceOption, UdtTransferOption } from './cmd/udt';
+import { udtIssue, udtDestroy, UdtIssueOption, UdtDestroyOption } from './cmd/udt';
 import { createScriptProject, CreateScriptProjectOptions } from './cmd/create';
 import { Config, ConfigItem } from './cmd/config';
 import { devnetConfig } from './cmd/devnet-config';
@@ -138,13 +138,15 @@ program
   });
 
 program
-  .command('transfer [toAddress] [amountInCKB]')
-  .description('Transfer CKB tokens to address, only devnet and testnet')
+  .command('transfer [toAddress] [amount]')
+  .description('Transfer CKB or UDT tokens to address, only devnet and testnet')
   .option('--network <network>', 'Specify the network to transfer to', 'devnet')
-  .option('--privkey <privkey>', 'Specify the private key to transfer CKB')
+  .option('--privkey <privkey>', 'Specify the private key to transfer')
+  .option('--udt-kind <kind>', 'Specify the UDT kind: sudt or xudt (used with --udt-type-args)', 'sudt')
+  .option('--udt-type-args <typeArgs>', 'Specify the UDT type script args to transfer UDT')
   .option('-r, --proxy-rpc', 'Use Proxy RPC to connect to blockchain')
-  .action(async (toAddress: string, amountInCKB: string, options: TransferOptions) => {
-    return transfer(toAddress, amountInCKB, options);
+  .action(async (toAddress: string, amount: string, options: TransferOptions) => {
+    return transfer(toAddress, amount, options);
   });
 
 program
@@ -159,31 +161,37 @@ program
 
 program
   .command('balance [toAddress]')
-  .description('Check account balance, only devnet and testnet')
+  .description('Check account balance (CKB + detected SUDT/xUDT), only devnet and testnet')
   .option('--network <network>', 'Specify the network to check', 'devnet')
+  .option('--udt-kind <kind>', 'Filter by UDT kind: sudt or xudt (used with --udt-type-args)')
+  .option('--udt-type-args <typeArgs>', 'Filter by UDT type script args')
   .action(async (toAddress: string, options: BalanceOption) => {
     return balanceOf(toAddress, options);
   });
 
-program
-  .command('udt-balance [toAddress]')
-  .description('Check UDT balance of an address, only devnet and testnet')
-  .option('--network <network>', 'Specify the network to check', 'devnet')
+const udtCommand = program.command('udt').description('UDT token commands');
+
+udtCommand
+  .command('issue <amount>')
+  .description('Issue new UDT tokens, only devnet and testnet')
+  .option('--network <network>', 'Specify the network', 'devnet')
   .option('--kind <kind>', 'Specify the UDT kind: sudt or xudt', 'sudt')
-  .requiredOption('--type-args <typeArgs>', 'Specify the UDT type script args')
-  .action(async (toAddress: string, options: UdtBalanceOption) => {
-    return udtBalance(toAddress, options);
+  .option('--type-args <typeArgs>', 'Specify the UDT type script args (xudt only; defaults to signer lock hash)')
+  .option('--to <toAddress>', 'Specify the receiver address (defaults to signer)')
+  .option('--privkey <privkey>', 'Specify the private key to issue UDT')
+  .action(async (amount: string, options: UdtIssueOption) => {
+    return udtIssue(amount, options);
   });
 
-program
-  .command('udt-transfer [toAddress] [amount]')
-  .description('Transfer UDT tokens to address, only devnet and testnet')
-  .option('--network <network>', 'Specify the network to transfer to', 'devnet')
+udtCommand
+  .command('destroy <amount>')
+  .description('Destroy UDT tokens, only devnet and testnet')
+  .option('--network <network>', 'Specify the network', 'devnet')
   .option('--kind <kind>', 'Specify the UDT kind: sudt or xudt', 'sudt')
   .requiredOption('--type-args <typeArgs>', 'Specify the UDT type script args')
-  .option('--privkey <privkey>', 'Specify the private key to transfer UDT')
-  .action(async (toAddress: string, amount: string, options: UdtTransferOption) => {
-    return udtTransfer(toAddress, amount, options);
+  .option('--privkey <privkey>', 'Specify the private key to destroy UDT')
+  .action(async (amount: string, options: UdtDestroyOption) => {
+    return udtDestroy(amount, options);
   });
 
 program
