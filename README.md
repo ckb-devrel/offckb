@@ -118,6 +118,40 @@ offckb node --binary-path /path/to/your/ckb/binary
 
 When using `--binary-path`, it will ignore the specified version and network, and only work for devnet.
 
+**Run in Daemon Mode**
+
+Start the devnet in the background so your terminal stays free:
+
+```sh
+offckb node --daemon
+```
+
+The daemon writes its logs and PID to the devnet data folder, for example:
+
+- Logs: `~/Library/Application Support/offckb-nodejs/devnet/data/logs/daemon.log`
+- PID file: `~/Library/Application Support/offckb-nodejs/devnet/data/logs/daemon.pid`
+
+Stop the daemon later with:
+
+```sh
+kill $(cat ~/Library/Application Support/offckb-nodejs/devnet/data/logs/daemon.pid)
+```
+
+**Agent-Friendly JSON Output**
+
+For programmatic consumption or agent integration, add `--json` to any command to emit structured JSON logs:
+
+```sh
+offckb node --json
+offckb node --daemon --json
+```
+
+Each log line is a single JSON object:
+
+```json
+{"level":"info","message":"Launching CKB devnet Node...","timestamp":"2026-07-07T07:10:00.000Z"}
+```
+
 **RPC & Proxy RPC**
 
 When the Devnet starts:

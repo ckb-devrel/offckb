@@ -1,4 +1,6 @@
-import { exec } from 'child_process';
+import { exec, spawn } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
 import { initChainIfNeeded } from '../node/init-chain';
 import { installCKBBinary } from '../node/install';
 import { getCKBBinaryPath, readSettings } from '../cfg/setting';
@@ -11,16 +13,20 @@ export interface NodeProp {
   version?: string;
   network?: Network;
   binaryPath?: string;
+  daemon?: boolean;
 }
 
-export function startNode({ version, network = Network.devnet, binaryPath }: NodeProp) {
+export function startNode({ version, network = Network.devnet, binaryPath, daemon }: NodeProp) {
   if (binaryPath && network !== Network.devnet) {
     logger.warn('Custom binaryPath is only supported for devnet. The provided binaryPath will be ignored.');
+  }
+  if (daemon && network !== Network.devnet) {
+    logger.warn('Daemon mode is only supported for devnet. The daemon flag will be ignored.');
   }
 
   switch (network) {
     case Network.devnet:
-      return nodeDevnet({ version, binaryPath });
+      return nodeDevnet({ version, binaryPath, daemon });
     case Network.testnet:
       return nodeTestnet();
     case Network.mainnet:
@@ -30,7 +36,11 @@ export function startNode({ version, network = Network.devnet, binaryPath }: Nod
   }
 }
 
-export async function nodeDevnet({ version, binaryPath }: NodeProp) {
+export async function nodeDevnet({ version, binaryPath, daemon }: NodeProp) {
+  if (daemon) {
+    return startDaemon();
+  }
+
   const settings = readSettings();
   const ckbVersion = version || settings.bins.defaultCKBVersion;
   let ckbBinPath = '';
@@ -84,6 +94,43 @@ export async function nodeDevnet({ version, binaryPath }: NodeProp) {
   } catch (error) {
     logger.error('Error:', error);
   }
+}
+
+function startDaemon() {
+  const settings = readSettings();
+  const daemonLogDir = path.join(settings.devnet.dataPath, 'logs');
+  fs.mkdirSync(daemonLogDir, { recursive: true });
+
+  const logFile = path.join(daemonLogDir, 'daemon.log');
+  const pidFile = path.join(daemonLogDir, 'daemon.pid');
+
+  const out = fs.openSync(logFile, 'a');
+  const err = fs.openSync(logFile, 'a');
+
+  // Re-launch the current CLI without the --daemon flag so the child process
+  // runs the normal foreground node logic in a detached background process.
+  const scriptPath = process.argv[1] || require.main?.filename;
+  if (!scriptPath) {
+    logger.error('Unable to determine the CLI entry point for daemon mode.');
+    return;
+  }
+  const childArgs = process.argv.slice(2).filter((arg) => arg !== '--daemon');
+  const childEnv = { ...process.env, OFFCKB_DAEMON_CHILD: '1' };
+
+  const child = spawn(process.execPath, [scriptPath, ...childArgs], {
+    detached: true,
+    stdio: ['ignore', out, err],
+    env: childEnv,
+  });
+
+  child.unref();
+
+  fs.writeFileSync(pidFile, String(child.pid));
+
+  logger.success(`CKB devnet daemon started with PID ${child.pid}.`);
+  logger.info(`Logs: ${logFile}`);
+  logger.info(`PID file: ${pidFile}`);
+  logger.info('Stop the daemon with: kill $(cat ' + pidFile + ')');
 }
 
 export async function nodeTestnet() {

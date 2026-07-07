@@ -28,6 +28,14 @@ setUTF8EncodingForWindows();
 const program = new Command();
 program.name('offckb').description(description).version(version).enablePositionalOptions();
 
+program.option('--json', 'Output logs in JSON format for agent/programmatic consumption');
+program.hook('preAction', (thisCommand) => {
+  const opts = thisCommand.opts();
+  if (opts.json) {
+    logger.setJsonMode(true);
+  }
+});
+
 program
   .command('node [CKB-Version]')
   .description('Use the CKB to start devnet')
@@ -36,8 +44,9 @@ program
     '-b, --binary-path <binaryPath>',
     'Specify the CKB binary path to use, only for devnet, when set, will ignore version and network',
   )
-  .action(async (version: string, options: { network: Network; binaryPath?: string }) => {
-    return startNode({ version, network: options.network, binaryPath: options.binaryPath });
+  .option('--daemon', 'Run the node in the background as a daemon (devnet only)')
+  .action(async (version: string, options: { network: Network; binaryPath?: string; daemon?: boolean }) => {
+    return startNode({ version, network: options.network, binaryPath: options.binaryPath, daemon: options.daemon });
   });
 
 program
