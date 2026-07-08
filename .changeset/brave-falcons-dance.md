@@ -1,5 +1,5 @@
 ---
-"@offckb/cli": minor
+"@offckb/cli": patch
 ---
 
 Add daemon mode and structured JSON output for agent-friendly usage, plus a `node stop` command to terminate the daemon.
