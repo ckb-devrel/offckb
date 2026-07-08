@@ -77,8 +77,13 @@ const logFile = path.join(logDir, 'daemon.log');
 
 function mockDaemonCommandLine(scriptPath: string) {
   mockExec.mockImplementation((cmd: string, callback: (err: Error | null, stdout?: string) => void) => {
-    if (cmd.startsWith('ps ') || cmd.startsWith('wmic ')) {
+    if (cmd.startsWith('ps ')) {
       callback(null, `/usr/bin/node ${scriptPath} node`);
+      return undefined as unknown as ReturnType<typeof mockExec>;
+    }
+    if (cmd.startsWith('wmic ')) {
+      // WMIC returns key/value pairs, e.g. "CommandLine=..."
+      callback(null, `CommandLine=/usr/bin/node ${scriptPath} node`);
       return undefined as unknown as ReturnType<typeof mockExec>;
     }
     callback(null, '');
@@ -119,9 +124,10 @@ describe('node command daemon mode', () => {
     startNode({ network: Network.devnet, daemon: true });
 
     expect(mockMkdirSync).toHaveBeenCalledWith(logDir, { recursive: true });
+    const resolvedScriptPath = path.resolve('/path/to/offckb');
     expect(mockSpawn).toHaveBeenCalledWith(
       process.execPath,
-      ['/path/to/offckb', 'node'],
+      [resolvedScriptPath, 'node'],
       expect.objectContaining({
         detached: true,
         stdio: ['ignore', 3, 3],
@@ -131,7 +137,7 @@ describe('node command daemon mode', () => {
 
     const writtenMetadata = JSON.parse(mockWriteFileSync.mock.calls[0][1]);
     expect(writtenMetadata.pid).toBe(12345);
-    expect(writtenMetadata.scriptPath).toBe('/path/to/offckb');
+    expect(writtenMetadata.scriptPath).toBe(resolvedScriptPath);
     expect(writtenMetadata.startedAt).toBeDefined();
 
     expect(logger.success).toHaveBeenCalledWith('CKB devnet daemon started with PID 12345.');
@@ -226,6 +232,11 @@ describe('node command stop', () => {
   let killSpy: jest.SpyInstance;
   let processAlive = true;
   const scriptPath = '/path/to/offckb';
+  const originalPlatform = process.platform;
+
+  function setPlatform(value: string) {
+    Object.defineProperty(process, 'platform', { value });
+  }
 
   beforeEach(() => {
     jest.useFakeTimers();
@@ -235,6 +246,11 @@ describe('node command stop', () => {
     mockStatSync.mockReturnValue({ isFile: () => true });
     mockReadFileSync.mockReturnValue(JSON.stringify({ pid: 12345, scriptPath, startedAt: new Date().toISOString() }));
     mockDaemonCommandLine(scriptPath);
+
+    // Normalize to POSIX for deterministic signal-based assertions.  The
+    // implementation has a separate Windows path (taskkill) that is exercised
+    // by the daemon-mode spawn tests above and by integration tests.
+    setPlatform('linux');
 
     killSpy = jest.spyOn(process, 'kill').mockImplementation((pid: number, signal?: NodeJS.Signals | number) => {
       if (signal === 0) {
@@ -255,6 +271,7 @@ describe('node command stop', () => {
 
   afterEach(() => {
     killSpy.mockRestore();
+    setPlatform(originalPlatform);
     jest.useRealTimers();
   });
 
