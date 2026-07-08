@@ -10,11 +10,7 @@ export interface TransferOptions extends NetworkOption {
   udtTypeArgs?: string;
 }
 
-export async function transfer(
-  toAddress: string,
-  amount: string,
-  opt: TransferOptions = { network: Network.devnet },
-) {
+export async function transfer(toAddress: string, amount: string, opt: TransferOptions = { network: Network.devnet }) {
   const network = opt.network;
   validateNetworkOpt(network);
 
