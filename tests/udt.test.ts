@@ -5,7 +5,8 @@ import { udtIssue, udtDestroy } from '../src/cmd/udt';
 import { CKB } from '../src/sdk/ckb';
 import { logger } from '../src/util/logger';
 
-const mockUdtType = { codeHash: '0x1234', hashType: 'type', args: '0xabcd' };
+const mockTypeArgs = '0x' + 'ab'.repeat(20);
+const mockUdtType = { codeHash: '0x1234', hashType: 'type', args: mockTypeArgs };
 
 jest.mock('../src/sdk/ckb', () => {
   return {
@@ -18,7 +19,7 @@ jest.mock('../src/sdk/ckb', () => {
           kind: 'sudt',
           codeHash: '0x1234',
           hashType: 'type',
-          args: '0xabcd',
+          args: mockTypeArgs,
           balance: '1000',
         },
       ]),
@@ -45,8 +46,6 @@ describe('balance command', () => {
   });
 
   it('should print CKB and detected UDT balances by default', async () => {
-    const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => undefined as never);
-
     await balanceOf('ckt1q9gry5zgmceslalm9x6s5xgnqe9cjn6y0q3c9', {
       network: Network.devnet,
     });
@@ -56,26 +55,19 @@ describe('balance command', () => {
     expect(ckbInstance.detectUdtBalances).toHaveBeenCalled();
     expect(logger.info).toHaveBeenCalledWith('CKB: 1234.5678');
     expect(logger.info).toHaveBeenCalledWith('UDT:');
-    expect(logger.info).toHaveBeenCalledWith('  sudt (args=0xabcd): 1000');
-    expect(mockExit).toHaveBeenCalledWith(0);
-
-    mockExit.mockRestore();
+    expect(logger.info).toHaveBeenCalledWith(`  sudt (args=${mockTypeArgs}): 1000`);
   });
 
   it('should filter UDT balances by kind and type args', async () => {
-    const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => undefined as never);
-
     await balanceOf('ckt1q9gry5zgmceslalm9x6s5xgnqe9cjn6y0q3c9', {
       network: Network.devnet,
       udtKind: 'sudt',
-      udtTypeArgs: '0xabcd',
+      udtTypeArgs: mockTypeArgs,
     });
 
     const ckbInstance = (CKB as jest.Mock).mock.results[0].value;
     expect(ckbInstance.detectUdtBalances).toHaveBeenCalled();
-    expect(logger.info).toHaveBeenCalledWith('  sudt (args=0xabcd): 1000');
-
-    mockExit.mockRestore();
+    expect(logger.info).toHaveBeenCalledWith(`  sudt (args=${mockTypeArgs}): 1000`);
   });
 });
 
@@ -100,12 +92,12 @@ describe('transfer command', () => {
     await transfer('ckt1q9gry5zgmceslalm9x6s5xgnqe9cjn6y0q3c9', '100', {
       network: Network.devnet,
       privkey: '0x1234567812345678123456781234567812345678123456781234567812345678',
-      udtTypeArgs: '0xabcd',
+      udtTypeArgs: mockTypeArgs,
       udtKind: 'sudt',
     });
 
     const ckbInstance = (CKB as jest.Mock).mock.results[0].value;
-    expect(ckbInstance.buildUdtTypeScript).toHaveBeenCalledWith('sudt', '0xabcd');
+    expect(ckbInstance.buildUdtTypeScript).toHaveBeenCalledWith('sudt', mockTypeArgs);
     expect(ckbInstance.udtTransfer).toHaveBeenCalled();
     expect(logger.info).toHaveBeenCalledWith('Successfully transfer UDT, txHash:', '0xtxhash');
   });
@@ -155,7 +147,7 @@ describe('udt command', () => {
         udtDestroy('100', {
           network: Network.devnet,
           kind: 'sudt',
-          typeArgs: '0xabcd',
+          typeArgs: mockTypeArgs,
           privkey: '',
         }),
       ).rejects.toThrow('--privkey is required!');
@@ -165,7 +157,7 @@ describe('udt command', () => {
       await udtDestroy('100', {
         network: Network.devnet,
         kind: 'sudt',
-        typeArgs: '0xabcd',
+        typeArgs: mockTypeArgs,
         privkey: '0x1234567812345678123456781234567812345678123456781234567812345678',
       });
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { Command } from 'commander';
+import { Command, Option } from 'commander';
 import { startNode, stopNode } from './cmd/node';
 import { accounts } from './cmd/accounts';
 import { clean } from './cmd/clean';
@@ -142,7 +142,7 @@ program
   .description('Transfer CKB or UDT tokens to address, only devnet and testnet')
   .option('--network <network>', 'Specify the network to transfer to', 'devnet')
   .option('--privkey <privkey>', 'Specify the private key to transfer')
-  .option('--udt-kind <kind>', 'Specify the UDT kind: sudt or xudt (used with --udt-type-args)', 'sudt')
+  .addOption(new Option('--udt-kind <kind>', 'Specify the UDT kind').choices(['sudt', 'xudt']).default('sudt'))
   .option('--udt-type-args <typeArgs>', 'Specify the UDT type script args to transfer UDT')
   .option('-r, --proxy-rpc', 'Use Proxy RPC to connect to blockchain')
   .action(async (toAddress: string, amount: string, options: TransferOptions) => {
@@ -163,7 +163,7 @@ program
   .command('balance [toAddress]')
   .description('Check account balance (CKB + detected SUDT/xUDT), only devnet and testnet')
   .option('--network <network>', 'Specify the network to check', 'devnet')
-  .option('--udt-kind <kind>', 'Filter by UDT kind: sudt or xudt (used with --udt-type-args)')
+  .addOption(new Option('--udt-kind <kind>', 'Filter by UDT kind').choices(['sudt', 'xudt']))
   .option('--udt-type-args <typeArgs>', 'Filter by UDT type script args')
   .action(async (toAddress: string, options: BalanceOption) => {
     return balanceOf(toAddress, options);
@@ -175,7 +175,7 @@ udtCommand
   .command('issue <amount>')
   .description('Issue new UDT tokens, only devnet and testnet')
   .option('--network <network>', 'Specify the network', 'devnet')
-  .option('--kind <kind>', 'Specify the UDT kind: sudt or xudt', 'sudt')
+  .addOption(new Option('--kind <kind>', 'Specify the UDT kind').choices(['sudt', 'xudt']).default('sudt'))
   .option('--type-args <typeArgs>', 'Specify the UDT type script args (xudt only; defaults to signer lock hash)')
   .option('--to <toAddress>', 'Specify the receiver address (defaults to signer)')
   .option('--privkey <privkey>', 'Specify the private key to issue UDT')
@@ -187,7 +187,7 @@ udtCommand
   .command('destroy <amount>')
   .description('Destroy UDT tokens, only devnet and testnet')
   .option('--network <network>', 'Specify the network', 'devnet')
-  .option('--kind <kind>', 'Specify the UDT kind: sudt or xudt', 'sudt')
+  .addOption(new Option('--kind <kind>', 'Specify the UDT kind').choices(['sudt', 'xudt']).default('sudt'))
   .requiredOption('--type-args <typeArgs>', 'Specify the UDT type script args')
   .option('--privkey <privkey>', 'Specify the private key to destroy UDT')
   .action(async (amount: string, options: UdtDestroyOption) => {

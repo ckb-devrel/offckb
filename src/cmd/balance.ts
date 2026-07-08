@@ -26,17 +26,16 @@ export async function balanceOf(address: string, opt: BalanceOption = { network:
       logger.info(`  ${udt.kind} (args=${udt.args}): ${udt.balance}`);
     }
   }
-
-  process.exit(0);
 }
 
 function filterUdtBalances(balances: UdtBalanceInfo[], opt: BalanceOption): UdtBalanceInfo[] {
-  if (!opt.udtTypeArgs) {
+  if (!opt.udtKind && !opt.udtTypeArgs) {
     return balances;
   }
 
   return balances.filter((udt) => {
     const kindMatch = opt.udtKind ? udt.kind === opt.udtKind : true;
-    return kindMatch && udt.args === opt.udtTypeArgs;
+    const argsMatch = opt.udtTypeArgs ? udt.args === opt.udtTypeArgs : true;
+    return kindMatch && argsMatch;
   });
 }

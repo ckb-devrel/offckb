@@ -1,7 +1,7 @@
 import { CKB, UdtKind } from '../sdk/ckb';
 import { NetworkOption, Network } from '../type/base';
 import { buildTestnetTxLink } from '../util/link';
-import { validateNetworkOpt } from '../util/validator';
+import { validateNetworkOpt, validateUdtKind, validateUdtTypeArgs } from '../util/validator';
 import { logger } from '../util/logger';
 
 export interface TransferOptions extends NetworkOption {
@@ -23,7 +23,9 @@ export async function transfer(toAddress: string, amount: string, opt: TransferO
 
   if (opt.udtTypeArgs) {
     const kind = opt.udtKind ?? 'sudt';
-    const udtType = await ckb.buildUdtTypeScript(kind, opt.udtTypeArgs);
+    validateUdtKind(kind);
+    const udtTypeArgs = validateUdtTypeArgs(kind, opt.udtTypeArgs);
+    const udtType = await ckb.buildUdtTypeScript(kind, udtTypeArgs);
     const txHash = await ckb.udtTransfer({
       toAddress,
       amount,

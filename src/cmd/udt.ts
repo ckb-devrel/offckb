@@ -1,7 +1,7 @@
 import { CKB, UdtKind } from '../sdk/ckb';
 import { NetworkOption, Network } from '../type/base';
 import { buildTestnetTxLink } from '../util/link';
-import { validateNetworkOpt } from '../util/validator';
+import { validateNetworkOpt, validateUdtKind, validateUdtTypeArgs } from '../util/validator';
 import { logger } from '../util/logger';
 
 export interface UdtIssueOption extends NetworkOption {
@@ -23,6 +23,7 @@ export async function udtIssue(
 ) {
   const network = opt.network;
   validateNetworkOpt(network);
+  validateUdtKind(opt.kind);
 
   if (!opt.privkey) {
     throw new Error('--privkey is required!');
@@ -33,7 +34,7 @@ export async function udtIssue(
     privateKey: opt.privkey,
     kind: opt.kind,
     amount,
-    typeArgs: opt.typeArgs,
+    typeArgs: opt.typeArgs ? validateUdtTypeArgs(opt.kind, opt.typeArgs) : undefined,
     toAddress: opt.to,
   });
 
@@ -50,6 +51,7 @@ export async function udtDestroy(
 ) {
   const network = opt.network;
   validateNetworkOpt(network);
+  validateUdtKind(opt.kind);
 
   if (!opt.privkey) {
     throw new Error('--privkey is required!');
@@ -60,7 +62,7 @@ export async function udtDestroy(
     privateKey: opt.privkey,
     kind: opt.kind,
     amount,
-    typeArgs: opt.typeArgs,
+    typeArgs: validateUdtTypeArgs(opt.kind, opt.typeArgs),
   });
 
   if (network === 'testnet') {
