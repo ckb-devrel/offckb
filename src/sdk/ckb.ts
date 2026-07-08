@@ -8,10 +8,19 @@ import { buildCCCDevnetKnownScripts, getDevnetSystemScriptsFromListHashes } from
 import { MAINNET_SYSTEM_SCRIPTS, TESTNET_SYSTEM_SCRIPTS } from '../scripts/public';
 import { SystemScriptsRecord } from '../scripts/type';
 import { Migration } from '../deploy/migration';
-import { Network, HexNumber, HexString } from '../type/base';
+import { Network, HexNumber, HexString, UdtKind } from '../type/base';
+
+export { UdtKind } from '../type/base';
 import { logger } from '../util/logger';
 
-export type UdtKind = 'sudt' | 'xudt';
+const DEFAULT_UDT_SCAN_MAX_CELLS = 1000;
+const DEFAULT_UDT_DESTROY_MAX_INPUT_CELLS = 100;
+
+interface UdtScriptInfo {
+  codeHash: HexString;
+  hashType: string;
+  cellDeps: ccc.CellDepInfoLike[];
+}
 
 export class CKBProps {
   network?: Network;
@@ -40,6 +49,7 @@ export interface UdtTransferOption {
   toAddress: string;
   amount: HexNumber;
   udtType: ccc.Script;
+  kind: UdtKind;
 }
 
 export interface UdtIssueOption {
@@ -226,76 +236,96 @@ export class CKB {
       return ccc.Script.fromKnownScript(this.client, ccc.KnownScript.XUdt, args);
     }
 
+    const scriptInfo = await this.getUdtScriptInfo(kind);
+    return ccc.Script.from({
+      codeHash: scriptInfo.codeHash,
+      hashType: scriptInfo.hashType,
+      args,
+    });
+  }
+
+  private async getUdtScriptInfo(kind: UdtKind): Promise<UdtScriptInfo> {
+    if (kind === 'xudt') {
+      return this.client.getKnownScript(ccc.KnownScript.XUdt);
+    }
+
     const systemScripts = this.getSystemScripts();
     const sudtScript = systemScripts.sudt?.script;
     if (!sudtScript) {
       throw new Error(`SUDT script not found on ${this.network}`);
     }
-
-    return ccc.Script.from({
-      codeHash: sudtScript.codeHash,
-      hashType: sudtScript.hashType,
-      args,
-    });
+    return sudtScript;
   }
 
-  async detectUdtBalances(address: string, { maxCells = 1000 }: { maxCells?: number } = {}): Promise<UdtBalanceInfo[]> {
+  async detectUdtBalances(
+    address: string,
+    { maxCells = DEFAULT_UDT_SCAN_MAX_CELLS }: { maxCells?: number } = {},
+  ): Promise<UdtBalanceInfo[]> {
     const lock = (await ccc.Address.fromString(address, this.client)).script;
-    const systemScripts = this.getSystemScripts();
-    const sudtScript = systemScripts.sudt?.script;
-    const xudtInfo = await this.client.getKnownScript(ccc.KnownScript.XUdt);
+
+    const sudtScriptInfo = await this.getUdtScriptInfo('sudt').catch(() => null);
+    const xudtScriptInfo = await this.getUdtScriptInfo('xudt').catch(() => null);
 
     const balances = new Map<
       string,
       { kind: UdtKind; codeHash: HexString; hashType: string; args: HexString; balance: bigint }
     >();
 
-    const matches = (type: ccc.ScriptLike, codeHash: HexString, hashType: string) =>
-      type.codeHash === codeHash && String(type.hashType) === hashType;
-
     let scanned = 0;
-    for await (const cell of this.client.findCellsByLock(lock, undefined, true, 'asc')) {
-      scanned++;
-      if (scanned > maxCells) {
-        logger.warn(`UDT balance scan stopped after ${maxCells} cells; balances may be incomplete`);
-        break;
-      }
 
-      const type = cell.cellOutput.type;
-      if (!type) {
-        continue;
-      }
+    const scan = async (scriptInfo: UdtScriptInfo, kind: UdtKind) => {
+      for await (const cell of this.client.findCells(
+        {
+          script: {
+            codeHash: scriptInfo.codeHash,
+            hashType: scriptInfo.hashType,
+            args: '0x',
+          },
+          scriptType: 'type',
+          scriptSearchMode: 'prefix',
+          filter: { script: lock },
+          withData: true,
+        },
+        'asc',
+      )) {
+        if (scanned >= maxCells) {
+          logger.warn(`UDT balance scan stopped after ${maxCells} cells; balances may be incomplete`);
+          break;
+        }
+        scanned++;
 
-      let kind: UdtKind | null = null;
-      if (sudtScript && matches(type, sudtScript.codeHash, sudtScript.hashType)) {
-        kind = 'sudt';
-      } else if (matches(type, xudtInfo.codeHash, xudtInfo.hashType)) {
-        kind = 'xudt';
-      }
+        const type = cell.cellOutput.type;
+        if (!type) {
+          continue;
+        }
 
-      if (!kind) {
-        continue;
-      }
+        const cellBalance = readUdtBalance(cell.outputData);
+        if (cellBalance == null) {
+          logger.debug(`Skipping corrupted UDT cell ${cell.outPoint?.txHash}:${cell.outPoint?.index}`);
+          continue;
+        }
 
-      const cellBalance = readUdtBalance(cell.outputData);
-      if (cellBalance == null) {
-        logger.debug(`Skipping corrupted UDT cell ${cell.outPoint?.txHash}:${cell.outPoint?.index}`);
-        continue;
+        const key = `${kind}:${type.codeHash}:${type.hashType}:${type.args}`;
+        const entry = balances.get(key);
+        if (entry) {
+          entry.balance += cellBalance;
+        } else {
+          balances.set(key, {
+            kind,
+            codeHash: type.codeHash as HexString,
+            hashType: String(type.hashType),
+            args: type.args as HexString,
+            balance: cellBalance,
+          });
+        }
       }
+    };
 
-      const key = `${kind}:${type.codeHash}:${type.hashType}:${type.args}`;
-      const entry = balances.get(key);
-      if (entry) {
-        entry.balance += cellBalance;
-      } else {
-        balances.set(key, {
-          kind,
-          codeHash: type.codeHash as HexString,
-          hashType: String(type.hashType),
-          args: type.args as HexString,
-          balance: cellBalance,
-        });
-      }
+    if (sudtScriptInfo) {
+      await scan(sudtScriptInfo, 'sudt');
+    }
+    if (xudtScriptInfo) {
+      await scan(xudtScriptInfo, 'xudt');
     }
 
     return Array.from(balances.values()).map((item) => ({
@@ -304,10 +334,20 @@ export class CKB {
     }));
   }
 
-  async udtBalance(address: string, udtType: ccc.Script): Promise<string> {
+  async udtBalance(
+    address: string,
+    udtType: ccc.Script,
+    { maxCells = DEFAULT_UDT_SCAN_MAX_CELLS }: { maxCells?: number } = {},
+  ): Promise<string> {
     const lock = (await ccc.Address.fromString(address, this.client)).script;
     let balance = BigInt(0);
+    let scanned = 0;
     for await (const cell of this.client.findCellsByLock(lock, udtType, true)) {
+      scanned++;
+      if (scanned > maxCells) {
+        logger.warn(`UDT balance scan stopped after ${maxCells} cells; balances may be incomplete`);
+        break;
+      }
       const cellBalance = readUdtBalance(cell.outputData);
       if (cellBalance != null) {
         balance += cellBalance;
@@ -316,7 +356,7 @@ export class CKB {
     return balance.toString();
   }
 
-  async udtTransfer({ privateKey, toAddress, amount, udtType }: UdtTransferOption): Promise<HexString> {
+  async udtTransfer({ privateKey, toAddress, amount, udtType, kind }: UdtTransferOption): Promise<HexString> {
     const signer = this.buildSigner(privateKey);
     const to = await ccc.Address.fromString(toAddress, this.client);
     const amountBigInt = validateUdtAmount(amount);
@@ -333,12 +373,7 @@ export class CKB {
       outputsData,
     });
 
-    const systemScripts = this.getSystemScripts();
-    const scriptInfo =
-      udtType.codeHash === systemScripts.sudt?.script.codeHash &&
-      String(udtType.hashType) === systemScripts.sudt?.script.hashType
-        ? systemScripts.sudt!.script
-        : await this.client.getKnownScript(ccc.KnownScript.XUdt);
+    const scriptInfo = await this.getUdtScriptInfo(kind);
     tx.addCellDeps(scriptInfo.cellDeps.map((dep) => dep.cellDep));
 
     await tx.completeInputsByUdt(signer, udtType);
@@ -402,9 +437,7 @@ export class CKB {
       outputsData,
     });
 
-    const systemScripts = this.getSystemScripts();
-    const scriptInfo =
-      kind === 'sudt' ? systemScripts.sudt!.script : await this.client.getKnownScript(ccc.KnownScript.XUdt);
+    const scriptInfo = await this.getUdtScriptInfo(kind);
     tx.addCellDeps(scriptInfo.cellDeps.map((dep) => dep.cellDep));
 
     await tx.completeInputsByCapacity(signer);
@@ -415,7 +448,7 @@ export class CKB {
 
   async udtDestroy(
     { privateKey, kind, typeArgs, amount }: UdtDestroyOption,
-    { maxInputCells = 100 }: { maxInputCells?: number } = {},
+    { maxInputCells = DEFAULT_UDT_DESTROY_MAX_INPUT_CELLS }: { maxInputCells?: number } = {},
   ): Promise<HexString> {
     const signer = this.buildSigner(privateKey);
     const from = await signer.getAddressObjSecp256k1();
@@ -465,9 +498,7 @@ export class CKB {
       ccc.hexFrom(ccc.numToBytes(remaining, 16)),
     );
 
-    const systemScripts = this.getSystemScripts();
-    const scriptInfo =
-      kind === 'sudt' ? systemScripts.sudt!.script : await this.client.getKnownScript(ccc.KnownScript.XUdt);
+    const scriptInfo = await this.getUdtScriptInfo(kind);
     tx.addCellDeps(scriptInfo.cellDeps.map((dep) => dep.cellDep));
 
     await tx.completeInputsByCapacity(signer);

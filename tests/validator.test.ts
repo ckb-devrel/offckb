@@ -72,7 +72,7 @@ describe('UDT validation helpers', () => {
     });
 
     it('should reject invalid kinds', () => {
-      expect(() => validateUdtKind('')).toThrow('--udt-kind is required');
+      expect(() => validateUdtKind('')).toThrow('UDT kind is required');
       expect(() => validateUdtKind('SUDT')).toThrow('invalid UDT kind');
     });
   });
@@ -91,6 +91,12 @@ describe('UDT validation helpers', () => {
       expect(() => validateUdtAmount('1e10')).toThrow('invalid UDT amount');
       expect(() => validateUdtAmount('')).toThrow('invalid UDT amount');
       expect(() => validateUdtAmount('abc')).toThrow('invalid UDT amount');
+    });
+
+    it('should reject amounts exceeding u128 max', () => {
+      const u128Max = (BigInt(1) << BigInt(128)) - BigInt(1);
+      expect(validateUdtAmount(u128Max.toString())).toBe(u128Max);
+      expect(() => validateUdtAmount((u128Max + BigInt(1)).toString())).toThrow('exceeds 128-bit max');
     });
   });
 

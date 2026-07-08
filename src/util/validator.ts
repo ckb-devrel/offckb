@@ -1,6 +1,6 @@
 import path from 'path';
 import fs from 'fs';
-import { Network, HexString } from '../type/base';
+import { Network, HexString, UdtKind } from '../type/base';
 import { logger } from './logger';
 
 export function validateTypescriptWorkspace() {
@@ -114,26 +114,28 @@ export function normalizePrivKey(privKey: string): string {
   return '0x' + key;
 }
 
-export function isValidUdtKind(kind: string): kind is 'sudt' | 'xudt' {
+export function isValidUdtKind(kind: string): kind is UdtKind {
   return kind === 'sudt' || kind === 'xudt';
 }
 
-export function validateUdtKind(kind?: string): asserts kind is 'sudt' | 'xudt' {
+export function validateUdtKind(kind?: string): asserts kind is UdtKind {
   if (!kind) {
-    throw new Error('--udt-kind is required');
+    throw new Error('UDT kind is required');
   }
   if (!isValidUdtKind(kind)) {
     throw new Error(`invalid UDT kind "${kind}", must be "sudt" or "xudt"`);
   }
 }
 
+const U128_MAX = (BigInt(1) << BigInt(128)) - BigInt(1);
+
 export function validateUdtAmount(amount: string): bigint {
   if (!/^\d+$/.test(amount)) {
     throw new Error(`invalid UDT amount "${amount}", must be a non-negative decimal integer`);
   }
   const value = BigInt(amount);
-  if (value < 0) {
-    throw new Error(`UDT amount must be non-negative, got "${amount}"`);
+  if (value > U128_MAX) {
+    throw new Error(`UDT amount exceeds 128-bit max: ${amount}`);
   }
   return value;
 }
@@ -147,7 +149,7 @@ export function validateHexString(value: string, name: string): HexString {
   return value as HexString;
 }
 
-export function validateUdtTypeArgs(kind: 'sudt' | 'xudt', typeArgs: string): HexString {
+export function validateUdtTypeArgs(kind: UdtKind, typeArgs: string): HexString {
   const hex = validateHexString(typeArgs, 'type args');
   const byteLength = (hex.length - 2) / 2;
   if (kind === 'sudt' && byteLength !== 20) {

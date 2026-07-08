@@ -1,5 +1,6 @@
 import { CKB, UdtKind } from '../../src/sdk/ckb';
 import { Network } from '../../src/type/base';
+import { logger } from '../../src/util/logger';
 
 jest.mock('../../src/sdk/network', () => ({
   networks: {
@@ -24,9 +25,11 @@ jest.mock('../../src/scripts/private', () => ({
 
 const mockKnownScript = jest.fn();
 const mockFindCellsByLock = jest.fn();
+const mockFindCells = jest.fn();
 const mockClient = {
   getKnownScript: mockKnownScript,
   findCellsByLock: mockFindCellsByLock,
+  findCells: mockFindCells,
 };
 
 jest.mock('@ckb-ccc/core', () => {
@@ -96,6 +99,11 @@ function createCKB(network: Network = Network.devnet) {
 describe('CKB SDK UDT helpers', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockKnownScript.mockResolvedValue({
+      codeHash: '0x' + 'dd'.repeat(32),
+      hashType: 'type',
+      cellDeps: [{ cellDep: { outPoint: { txHash: '0x' + 'aa'.repeat(32), index: 0 }, depType: 'depGroup' } }],
+    });
   });
 
   describe('buildUdtTypeScript', () => {
@@ -115,17 +123,20 @@ describe('CKB SDK UDT helpers', () => {
   });
 
   describe('detectUdtBalances', () => {
+    beforeEach(() => {
+      mockFindCells.mockImplementation(async function* (searchKey: { script: { codeHash: string } }) {
+        const isSudt = searchKey.script.codeHash === '0x' + 'c3'.repeat(32);
+        if (isSudt) {
+          yield makeCell('sudt', '0xabcd', '100');
+          yield makeCell('sudt', '0xabcd', '200');
+        } else {
+          yield makeCell('xudt', '0xbeef', '50');
+        }
+      });
+    });
+
     it('should aggregate UDT balances by kind and args', async () => {
       const ckb = createCKB();
-      mockKnownScript.mockResolvedValue({
-        codeHash: '0x' + 'dd'.repeat(32),
-        hashType: 'type',
-      });
-      mockFindCellsByLock.mockImplementation(async function* () {
-        yield makeCell('sudt', '0xabcd', '100');
-        yield makeCell('sudt', '0xabcd', '200');
-        yield makeCell('xudt', '0xbeef', '50');
-      });
 
       const balances = await ckb.detectUdtBalances('ckt1q9gry5zgmceslalm9x6s5xgnqe9cjn6y0q3c9');
 
@@ -135,17 +146,17 @@ describe('CKB SDK UDT helpers', () => {
     });
 
     it('should skip corrupted UDT cells instead of failing', async () => {
-      const ckb = createCKB();
-      mockKnownScript.mockResolvedValue({
-        codeHash: '0x' + 'dd'.repeat(32),
-        hashType: 'type',
-      });
-      mockFindCellsByLock.mockImplementation(async function* () {
+      mockFindCells.mockImplementation(async function* (searchKey: { script: { codeHash: string } }) {
+        const isSudt = searchKey.script.codeHash === '0x' + 'c3'.repeat(32);
+        if (!isSudt) {
+          return;
+        }
         yield makeCell('sudt', '0xabcd', '100');
         yield makeCell('sudt', '0xabcd', '0xbad');
         yield makeCell('sudt', '0xabcd', '200');
       });
 
+      const ckb = createCKB();
       const balances = await ckb.detectUdtBalances('ckt1q9gry5zgmceslalm9x6s5xgnqe9cjn6y0q3c9');
 
       expect(balances).toHaveLength(1);
@@ -155,16 +166,18 @@ describe('CKB SDK UDT helpers', () => {
 
   describe('udtIssue type args handling', () => {
     it('should warn when SUDT issue receives a user type args', async () => {
+      const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => {});
       const ckb = createCKB();
-      const signer = {
-        getAddressObjSecp256k1: jest.fn().mockResolvedValue({
-          script: { hash: () => '0x' + '00'.repeat(32) },
-        }),
-      };
-      // buildSigner is private; exercise via a direct helper is hard.
-      // We verify the public contract by checking buildUdtTypeScript behavior instead.
-      const type = await ckb.buildUdtTypeScript('sudt', '0x' + '12'.repeat(20));
-      expect(type.args).toBe('0x' + '12'.repeat(20));
+
+      await ckb.udtIssue({
+        privateKey: '0x' + '11'.repeat(32),
+        kind: 'sudt',
+        amount: '100',
+        typeArgs: '0x' + '12'.repeat(20),
+      });
+
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('--type-args is ignored'));
+      warnSpy.mockRestore();
     });
   });
 });

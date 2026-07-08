@@ -1,29 +1,28 @@
-import { CKB, UdtKind } from '../sdk/ckb';
-import { NetworkOption, Network } from '../type/base';
-import { buildTestnetTxLink } from '../util/link';
+import { CKB } from '../sdk/ckb';
+import { NetworkOption, Network, UdtKind } from '../type/base';
+import { logTxSuccess } from '../util/link';
 import { validateNetworkOpt, validateUdtKind, validateUdtTypeArgs } from '../util/validator';
-import { logger } from '../util/logger';
 
 export interface UdtIssueOption extends NetworkOption {
-  kind: UdtKind;
+  udtKind: UdtKind;
   typeArgs?: string;
   to?: string;
   privkey: string;
 }
 
 export interface UdtDestroyOption extends NetworkOption {
-  kind: UdtKind;
+  udtKind: UdtKind;
   typeArgs: string;
   privkey: string;
 }
 
 export async function udtIssue(
   amount: string,
-  opt: UdtIssueOption = { network: Network.devnet, kind: 'sudt', privkey: '' },
+  opt: UdtIssueOption = { network: Network.devnet, udtKind: 'sudt', privkey: '' },
 ) {
   const network = opt.network;
   validateNetworkOpt(network);
-  validateUdtKind(opt.kind);
+  validateUdtKind(opt.udtKind);
 
   if (!opt.privkey) {
     throw new Error('--privkey is required!');
@@ -32,26 +31,22 @@ export async function udtIssue(
   const ckb = new CKB({ network });
   const txHash = await ckb.udtIssue({
     privateKey: opt.privkey,
-    kind: opt.kind,
+    kind: opt.udtKind,
     amount,
-    typeArgs: opt.typeArgs ? validateUdtTypeArgs(opt.kind, opt.typeArgs) : undefined,
+    typeArgs: opt.typeArgs ? validateUdtTypeArgs(opt.udtKind, opt.typeArgs) : undefined,
     toAddress: opt.to,
   });
 
-  if (network === 'testnet') {
-    logger.info(`Successfully issued UDT, check ${buildTestnetTxLink(txHash)} for details.`);
-    return;
-  }
-  logger.info('Successfully issued UDT, txHash:', txHash);
+  logTxSuccess(network, txHash, 'issued UDT');
 }
 
 export async function udtDestroy(
   amount: string,
-  opt: UdtDestroyOption = { network: Network.devnet, kind: 'sudt', typeArgs: '', privkey: '' },
+  opt: UdtDestroyOption = { network: Network.devnet, udtKind: 'sudt', typeArgs: '', privkey: '' },
 ) {
   const network = opt.network;
   validateNetworkOpt(network);
-  validateUdtKind(opt.kind);
+  validateUdtKind(opt.udtKind);
 
   if (!opt.privkey) {
     throw new Error('--privkey is required!');
@@ -60,14 +55,10 @@ export async function udtDestroy(
   const ckb = new CKB({ network });
   const txHash = await ckb.udtDestroy({
     privateKey: opt.privkey,
-    kind: opt.kind,
+    kind: opt.udtKind,
     amount,
-    typeArgs: validateUdtTypeArgs(opt.kind, opt.typeArgs),
+    typeArgs: validateUdtTypeArgs(opt.udtKind, opt.typeArgs),
   });
 
-  if (network === 'testnet') {
-    logger.info(`Successfully destroyed UDT, check ${buildTestnetTxLink(txHash)} for details.`);
-    return;
-  }
-  logger.info('Successfully destroyed UDT, txHash:', txHash);
+  logTxSuccess(network, txHash, 'destroyed UDT');
 }

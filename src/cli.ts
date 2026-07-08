@@ -165,6 +165,7 @@ program
   .option('--network <network>', 'Specify the network to check', 'devnet')
   .addOption(new Option('--udt-kind <kind>', 'Filter by UDT kind').choices(['sudt', 'xudt']))
   .option('--udt-type-args <typeArgs>', 'Filter by UDT type script args')
+  .option('--no-udt', 'Skip UDT balance scan')
   .action(async (toAddress: string, options: BalanceOption) => {
     return balanceOf(toAddress, options);
   });
@@ -175,7 +176,7 @@ udtCommand
   .command('issue <amount>')
   .description('Issue new UDT tokens, only devnet and testnet')
   .option('--network <network>', 'Specify the network', 'devnet')
-  .addOption(new Option('--kind <kind>', 'Specify the UDT kind').choices(['sudt', 'xudt']).default('sudt'))
+  .addOption(new Option('--udt-kind <kind>', 'Specify the UDT kind').choices(['sudt', 'xudt']).default('sudt'))
   .option('--type-args <typeArgs>', 'Specify the UDT type script args (xudt only; defaults to signer lock hash)')
   .option('--to <toAddress>', 'Specify the receiver address (defaults to signer)')
   .option('--privkey <privkey>', 'Specify the private key to issue UDT')
@@ -187,7 +188,7 @@ udtCommand
   .command('destroy <amount>')
   .description('Destroy UDT tokens, only devnet and testnet')
   .option('--network <network>', 'Specify the network', 'devnet')
-  .addOption(new Option('--kind <kind>', 'Specify the UDT kind').choices(['sudt', 'xudt']).default('sudt'))
+  .addOption(new Option('--udt-kind <kind>', 'Specify the UDT kind').choices(['sudt', 'xudt']).default('sudt'))
   .requiredOption('--type-args <typeArgs>', 'Specify the UDT type script args')
   .option('--privkey <privkey>', 'Specify the private key to destroy UDT')
   .action(async (amount: string, options: UdtDestroyOption) => {
