@@ -49,7 +49,10 @@ const nodeCommand = program
     return startNode({ version, network: options.network, binaryPath: options.binaryPath, daemon: options.daemon });
   });
 
-nodeCommand.command('stop').description('Stop the running CKB devnet daemon').action(async () => stopNode());
+nodeCommand
+  .command('stop')
+  .description('Stop the running CKB devnet daemon')
+  .action(async () => stopNode());
 
 program
   .command('create [project-name]')

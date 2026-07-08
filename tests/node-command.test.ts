@@ -1,5 +1,6 @@
 import { startNode, stopNode } from '../src/cmd/node';
 import { Network } from '../src/type/base';
+import * as path from 'path';
 
 const mockSpawn = jest.fn();
 const mockOpenSync = jest.fn();
@@ -63,6 +64,10 @@ jest.mock('../src/util/logger', () => ({
 
 import { logger } from '../src/util/logger';
 
+const dataPath = '/tmp/offckb-devnet-data';
+const logDir = path.join(dataPath, 'logs');
+const pidFile = path.join(logDir, 'daemon.pid');
+
 describe('node command daemon mode', () => {
   const originalArgv = process.argv;
 
@@ -83,7 +88,7 @@ describe('node command daemon mode', () => {
   it('spawns a detached child process without the --daemon flag', () => {
     startNode({ network: Network.devnet, daemon: true });
 
-    expect(mockMkdirSync).toHaveBeenCalledWith('/tmp/offckb-devnet-data/logs', { recursive: true });
+    expect(mockMkdirSync).toHaveBeenCalledWith(logDir, { recursive: true });
     expect(mockSpawn).toHaveBeenCalledWith(
       process.execPath,
       ['/path/to/offckb', 'node'],
@@ -93,7 +98,7 @@ describe('node command daemon mode', () => {
         env: expect.objectContaining({ OFFCKB_DAEMON_CHILD: '1' }),
       }),
     );
-    expect(mockWriteFileSync).toHaveBeenCalledWith('/tmp/offckb-devnet-data/logs/daemon.pid', '12345');
+    expect(mockWriteFileSync).toHaveBeenCalledWith(pidFile, '12345');
     expect(logger.success).toHaveBeenCalledWith('CKB devnet daemon started with PID 12345.');
   });
 
@@ -153,13 +158,13 @@ describe('node command stop', () => {
     processAlive = false;
     await stopNode();
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('is not running'));
-    expect(mockUnlinkSync).toHaveBeenCalledWith('/tmp/offckb-devnet-data/logs/daemon.pid');
+    expect(mockUnlinkSync).toHaveBeenCalledWith(pidFile);
   });
 
   it('stops the daemon gracefully with SIGTERM', async () => {
     await stopNode();
     expect(killSpy).toHaveBeenCalledWith(expect.any(Number), 'SIGTERM');
-    expect(mockUnlinkSync).toHaveBeenCalledWith('/tmp/offckb-devnet-data/logs/daemon.pid');
+    expect(mockUnlinkSync).toHaveBeenCalledWith(pidFile);
     expect(logger.success).toHaveBeenCalledWith('CKB devnet daemon stopped.');
   });
 
@@ -177,6 +182,6 @@ describe('node command stop', () => {
     await stopPromise;
 
     expect(killSpy).toHaveBeenCalledWith(expect.any(Number), 'SIGKILL');
-    expect(mockUnlinkSync).toHaveBeenCalledWith('/tmp/offckb-devnet-data/logs/daemon.pid');
+    expect(mockUnlinkSync).toHaveBeenCalledWith(pidFile);
   });
 });

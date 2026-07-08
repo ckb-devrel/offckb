@@ -49,13 +49,11 @@ class UnifiedLogger {
           return this.formatMessage(level as LogLevel, message as string, timestamp as string);
         }),
       ),
-      transports:
-        options.transports ||
-        [
-          new winston.transports.Console({
-            stderrLevels: ['error', 'warn'],
-          }),
-        ],
+      transports: options.transports || [
+        new winston.transports.Console({
+          stderrLevels: ['error', 'warn'],
+        }),
+      ],
     });
   }
 
