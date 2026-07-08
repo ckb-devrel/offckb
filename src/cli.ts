@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { Command } from 'commander';
+import { Command, Option } from 'commander';
 import { startNode, stopNode } from './cmd/node';
 import { accounts } from './cmd/accounts';
 import { clean } from './cmd/clean';
@@ -8,6 +8,7 @@ import { DepositOptions, deposit } from './cmd/deposit';
 import { DeployOptions, deploy } from './cmd/deploy';
 import { TransferOptions, transfer } from './cmd/transfer';
 import { BalanceOption, balanceOf } from './cmd/balance';
+import { udtIssue, udtDestroy, UdtIssueOption, UdtDestroyOption } from './cmd/udt';
 import { createScriptProject, CreateScriptProjectOptions } from './cmd/create';
 import { Config, ConfigItem } from './cmd/config';
 import { devnetConfig } from './cmd/devnet-config';
@@ -137,13 +138,15 @@ program
   });
 
 program
-  .command('transfer [toAddress] [amountInCKB]')
-  .description('Transfer CKB tokens to address, only devnet and testnet')
+  .command('transfer [toAddress] [amount]')
+  .description('Transfer CKB or UDT tokens to address, only devnet and testnet')
   .option('--network <network>', 'Specify the network to transfer to', 'devnet')
-  .option('--privkey <privkey>', 'Specify the private key to transfer CKB')
+  .option('--privkey <privkey>', 'Specify the private key to transfer')
+  .addOption(new Option('--udt-kind <kind>', 'Specify the UDT kind').choices(['sudt', 'xudt']).default('sudt'))
+  .option('--udt-type-args <typeArgs>', 'Specify the UDT type script args to transfer UDT')
   .option('-r, --proxy-rpc', 'Use Proxy RPC to connect to blockchain')
-  .action(async (toAddress: string, amountInCKB: string, options: TransferOptions) => {
-    return transfer(toAddress, amountInCKB, options);
+  .action(async (toAddress: string, amount: string, options: TransferOptions) => {
+    return transfer(toAddress, amount, options);
   });
 
 program
@@ -158,10 +161,38 @@ program
 
 program
   .command('balance [toAddress]')
-  .description('Check account balance, only devnet and testnet')
+  .description('Check account balance (CKB + detected SUDT/xUDT), only devnet and testnet')
   .option('--network <network>', 'Specify the network to check', 'devnet')
+  .addOption(new Option('--udt-kind <kind>', 'Filter by UDT kind').choices(['sudt', 'xudt']))
+  .option('--udt-type-args <typeArgs>', 'Filter by UDT type script args')
+  .option('--no-udt', 'Skip UDT balance scan')
   .action(async (toAddress: string, options: BalanceOption) => {
     return balanceOf(toAddress, options);
+  });
+
+const udtCommand = program.command('udt').description('UDT token commands');
+
+udtCommand
+  .command('issue <amount>')
+  .description('Issue new UDT tokens, only devnet and testnet')
+  .option('--network <network>', 'Specify the network', 'devnet')
+  .addOption(new Option('--udt-kind <kind>', 'Specify the UDT kind').choices(['sudt', 'xudt']).default('sudt'))
+  .option('--type-args <typeArgs>', 'Specify the UDT type script args (xudt only; defaults to signer lock hash)')
+  .option('--to <toAddress>', 'Specify the receiver address (defaults to signer)')
+  .option('--privkey <privkey>', 'Specify the private key to issue UDT')
+  .action(async (amount: string, options: UdtIssueOption) => {
+    return udtIssue(amount, options);
+  });
+
+udtCommand
+  .command('destroy <amount>')
+  .description('Destroy UDT tokens, only devnet and testnet')
+  .option('--network <network>', 'Specify the network', 'devnet')
+  .addOption(new Option('--udt-kind <kind>', 'Specify the UDT kind').choices(['sudt', 'xudt']).default('sudt'))
+  .requiredOption('--type-args <typeArgs>', 'Specify the UDT type script args')
+  .option('--privkey <privkey>', 'Specify the private key to destroy UDT')
+  .action(async (amount: string, options: UdtDestroyOption) => {
+    return udtDestroy(amount, options);
   });
 
 program
