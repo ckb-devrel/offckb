@@ -17,16 +17,20 @@ interface LoggerOptions {
   level?: LogLevel;
   enableColors?: boolean;
   showLevel?: boolean;
+  jsonMode?: boolean;
+  transports?: winston.transport[];
 }
 
 class UnifiedLogger {
   private logger: winston.Logger;
   private enableColors: boolean;
   private showLevel: boolean;
+  private jsonMode: boolean;
 
   constructor(options: LoggerOptions = {}) {
     this.enableColors = options.enableColors !== false;
     this.showLevel = options.showLevel !== false;
+    this.jsonMode = options.jsonMode === true;
 
     // Create Winston logger with custom format and levels
     this.logger = winston.createLogger({
@@ -45,7 +49,7 @@ class UnifiedLogger {
           return this.formatMessage(level as LogLevel, message as string, timestamp as string);
         }),
       ),
-      transports: [
+      transports: options.transports || [
         new winston.transports.Console({
           stderrLevels: ['error', 'warn'],
         }),
@@ -54,9 +58,27 @@ class UnifiedLogger {
   }
 
   /**
+   * Toggle JSON output mode. When enabled, every log line is emitted as a
+   * structured JSON object, which is easier for agents and scripts to parse.
+   */
+  setJsonMode(enabled: boolean) {
+    this.jsonMode = enabled;
+  }
+
+  /**
    * Format the message with appropriate colors and structure
    */
-  private formatMessage(level: LogLevel, message: string, _timestamp?: string): string {
+  private formatMessage(level: LogLevel, message: string, timestamp?: string): string {
+    // Agent-friendly JSON output: one JSON object per log line
+    if (this.jsonMode) {
+      const normalizedMessage = Array.isArray(message) ? message.join('\n') : String(message);
+      return JSON.stringify({
+        level,
+        message: normalizedMessage,
+        timestamp,
+      });
+    }
+
     // If showLevel is false, return just the message
     if (!this.showLevel) {
       if (Array.isArray(message)) {
@@ -148,6 +170,13 @@ class UnifiedLogger {
    * Log a message with the specified level
    */
   private log(level: LogLevel, message: string | string[]) {
+    // In JSON mode, emit multi-line messages as a single structured log entry
+    // so agents can parse one complete JSON object per line.
+    if (this.jsonMode && Array.isArray(message)) {
+      this.logger.log(level, message.join('\n'));
+      return;
+    }
+
     if (Array.isArray(message)) {
       message.forEach((line) => this.logger.log(level, line));
     } else {
