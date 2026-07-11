@@ -1,137 +1,302 @@
-import { spawnSync, execSync } from 'child_process';
+import { spawnSync } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
-import { readSettings } from '../cfg/setting';
+import * as os from 'os';
+import * as crypto from 'crypto';
+import AdmZip from 'adm-zip';
+import { readSettings, dataPath } from '../cfg/setting';
 import { logger } from '../util/logger';
+import { findFileInFolder } from '../util/fs';
+
+const DOWNLOAD_TIMEOUT_MS = 120_000;
+const EXTRACT_TIMEOUT_MS = 60_000;
+
+// Strict semver regex: v<major>.<minor>.<patch> (no leading zeros on digits)
+const STRICT_VERSION_REGEX = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 
 export class CKBTui {
   private static binaryPath: string | null = null;
 
-  private static getBinaryPath(): string {
+  /**
+   * Pure lookup — returns the expected binary path without triggering any
+   * download or installation side effects. May return null if not yet computed.
+   */
+  static getBinaryPath(): string | null {
     if (!this.binaryPath) {
       const settings = readSettings();
-      const binDir = settings.tools.rootFolder;
-      const version = settings.tools.ckbTui.version;
-      this.binaryPath = path.join(binDir, 'ckb-tui');
-
-      if (!fs.existsSync(this.binaryPath)) {
-        this.downloadBinary(version);
-      }
+      const binDir = this.resolveAndValidateBinDir(settings.tools.rootFolder);
+      const binaryName = process.platform === 'win32' ? 'ckb-tui.exe' : 'ckb-tui';
+      this.binaryPath = path.join(binDir, binaryName);
     }
     return this.binaryPath;
   }
 
-  private static downloadBinary(version: string) {
-    // Validate version format to prevent URL manipulation
-    if (!/^v\d+\.\d+\.\d+$/.test(version)) {
-      throw new Error(`Invalid version format: ${version}. Expected format: vX.Y.Z`);
+  /**
+   * Returns the binary path, downloading and installing if the binary
+   * does not already exist.
+   */
+  static ensureInstalled(): string {
+    const binaryPath = this.getBinaryPath();
+    if (binaryPath && fs.existsSync(binaryPath)) {
+      return binaryPath;
     }
 
-    const platform = process.platform;
-    const arch = process.arch;
-    let assetName: string;
-
-    if (platform === 'darwin') {
-      if (arch !== 'arm64') {
-        throw new Error(`Unsupported architecture for macOS: ${arch}. Only Apple Silicon (arm64) is supported.`);
-      }
-      assetName = `ckb-tui-with-node-macos-aarch64.tar.gz`;
-    } else if (platform === 'linux') {
-      if (arch !== 'x64') {
-        throw new Error(`Unsupported architecture for Linux: ${arch}`);
-      }
-      assetName = `ckb-tui-with-node-linux-amd64.tar.gz`;
-    } else if (platform === 'win32') {
-      if (arch !== 'x64') {
-        throw new Error(`Unsupported architecture for Windows: ${arch}`);
-      }
-      assetName = `ckb-tui-with-node-windows-amd64.zip`;
-    } else {
-      throw new Error(`Unsupported platform: ${platform}`);
-    }
-
-    const downloadUrl = `https://github.com/Officeyutong/ckb-tui/releases/download/${version}/${assetName}`;
-    const binDir = path.dirname(this.binaryPath!);
-    const archivePath = path.join(binDir, assetName);
-    const binaryName = platform === 'win32' ? 'ckb-tui.exe' : 'ckb-tui';
-
-    try {
-      logger.info(`Downloading ckb-tui from ${downloadUrl}...`);
-      execSync(`curl -L -o "${archivePath}" "${downloadUrl}"`, { stdio: 'inherit' });
-
-      logger.info('Extracting...');
-      if (assetName.endsWith('.tar.gz')) {
-        execSync(`tar -xzf "${archivePath}" -C "${binDir}"`, { stdio: 'inherit' });
-      } else if (assetName.endsWith('.zip')) {
-        execSync(`unzip "${archivePath}" -d "${binDir}"`, { stdio: 'inherit' });
-      }
-
-      const extractedBinary = this.findBinary(binDir, binaryName);
-      if (!extractedBinary) {
-        logger.error(`ckb-tui binary was not found after extraction. Expected: ${binaryName}`);
-        throw new Error('Failed to extract and locate ckb-tui binary.');
-      }
-
-      fs.renameSync(extractedBinary, this.binaryPath!);
-
-      // Make executable on Unix
-      if (platform !== 'win32') {
-        execSync(`chmod +x "${this.binaryPath}"`);
-      }
-
-      logger.info('ckb-tui installed successfully.');
-    } catch (error) {
-      logger.error(
-        'Failed to download/install ckb-tui:',
-        (error as Error).message,
-        '\nPlease check your network connectivity, verify that the specified version exists in the releases, and ensure you have sufficient file system permissions.',
-      );
-      throw error;
-    } finally {
-      // Clean up archive even if error occurs
-      if (fs.existsSync(archivePath)) {
-        try {
-          fs.unlinkSync(archivePath);
-        } catch (cleanupError) {
-          logger.warn('Failed to clean up archive file:', (cleanupError as Error).message);
-        }
-      }
-    }
-  }
-
-  private static findBinary(dir: string, binaryName: string): string | null {
-    // Check direct path first
-    const directPath = path.join(dir, binaryName);
-    if (fs.existsSync(directPath)) {
-      return directPath;
-    }
-
-    // Search in subdirectories
-    const entries = fs.readdirSync(dir);
-    for (const entry of entries) {
-      const entryPath = path.join(dir, entry);
-      if (fs.statSync(entryPath).isDirectory()) {
-        const candidate = path.join(entryPath, binaryName);
-        if (fs.existsSync(candidate)) {
-          return candidate;
-        }
-      }
-    }
-
-    return null;
+    // Reset and re-install
+    this.binaryPath = null;
+    this.installSync();
+    return this.binaryPath!;
   }
 
   static isInstalled(): boolean {
     try {
       const binPath = this.getBinaryPath();
-      return fs.existsSync(binPath);
+      return binPath !== null && fs.existsSync(binPath);
     } catch {
       return false;
     }
   }
 
   static run(args: string[] = []) {
-    const binaryPath = this.getBinaryPath();
+    const binaryPath = this.ensureInstalled();
     return spawnSync(binaryPath, args, { stdio: 'inherit' });
+  }
+
+  // --- private helpers ---
+
+  /**
+   * Resolve and validate that the configured rootFolder is under the
+   * OffCKB data directory. Rejects paths that resolve outside.
+   */
+  private static resolveAndValidateBinDir(configuredRoot: string): string {
+    const resolved = path.resolve(configuredRoot);
+    const resolvedData = path.resolve(dataPath);
+
+    // Require the resolved path to be within the resolved data directory
+    const relative = path.relative(resolvedData, resolved);
+    if (relative.startsWith('..') || path.isAbsolute(relative)) {
+      throw new Error(
+        `tools.rootFolder ("${configuredRoot}") resolves outside the OffCKB data directory ` +
+          `("${resolvedData}"). For security, tool binaries must be stored under the data path.`,
+      );
+    }
+
+    return resolved;
+  }
+
+  private static validateVersion(version: string): void {
+    if (!STRICT_VERSION_REGEX.test(version)) {
+      throw new Error(`Invalid version format: "${version}". Expected format: vX.Y.Z (e.g., v0.1.3)`);
+    }
+  }
+
+  private static getAssetName(): string {
+    const platform = process.platform;
+    const arch = process.arch;
+
+    if (platform === 'darwin') {
+      if (arch !== 'arm64') {
+        throw new Error(`Unsupported architecture for macOS: ${arch}. Only Apple Silicon (arm64) is supported.`);
+      }
+      return 'ckb-tui-with-node-macos-aarch64.tar.gz';
+    } else if (platform === 'linux') {
+      if (arch !== 'x64') {
+        throw new Error(`Unsupported architecture for Linux: ${arch}. Only x86_64 is supported.`);
+      }
+      return 'ckb-tui-with-node-linux-amd64.tar.gz';
+    } else if (platform === 'win32') {
+      if (arch !== 'x64') {
+        throw new Error(`Unsupported architecture for Windows: ${arch}. Only x86_64 is supported.`);
+      }
+      return 'ckb-tui-with-node-windows-amd64.zip';
+    }
+
+    throw new Error(`Unsupported platform: ${platform}`);
+  }
+
+  /**
+   * Synchronously download and install the ckb-tui binary.
+   * Uses spawnSync with array arguments (no shell interpolation) for security.
+   */
+  private static installSync(): void {
+    const settings = readSettings();
+    const version = settings.tools.ckbTui.version;
+
+    this.validateVersion(version);
+
+    const assetName = this.getAssetName();
+    const binDir = this.resolveAndValidateBinDir(settings.tools.rootFolder);
+    const binaryName = process.platform === 'win32' ? 'ckb-tui.exe' : 'ckb-tui';
+    this.binaryPath = path.join(binDir, binaryName);
+
+    const downloadUrl = `https://github.com/Officeyutong/ckb-tui/releases/download/${version}/${assetName}`;
+
+    // Ensure the target directory exists
+    fs.mkdirSync(binDir, { recursive: true });
+
+    // Use a temp directory for atomic download & extraction
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'offckb-ckb-tui-'));
+    const archivePath = path.join(tempDir, assetName);
+
+    try {
+      // 1. Download
+      logger.info(`Downloading ckb-tui from ${downloadUrl}...`);
+      const curlResult = spawnSync('curl', ['-fsSL', '--max-time', '300', '-o', archivePath, downloadUrl], {
+        stdio: 'inherit',
+        timeout: DOWNLOAD_TIMEOUT_MS,
+      });
+
+      if (curlResult.error) {
+        throw new Error(`Failed to download ckb-tui: ${curlResult.error.message}`);
+      }
+      if (curlResult.status !== 0) {
+        throw new Error(`curl exited with code ${curlResult.status}`);
+      }
+
+      // 2. Verify checksum (best-effort: warns if checksum file is unavailable)
+      this.verifyChecksum(version, assetName, archivePath);
+
+      // 3. Extract to temp directory
+      logger.info('Extracting...');
+      const extractDir = path.join(tempDir, 'extracted');
+      fs.mkdirSync(extractDir, { recursive: true });
+
+      this.extractArchive(archivePath, extractDir);
+
+      // 4. Locate the extracted binary
+      const extractedBinary = findFileInFolder(extractDir, binaryName);
+      if (!extractedBinary) {
+        throw new Error(`ckb-tui binary ("${binaryName}") was not found after extraction.`);
+      }
+
+      // 5. Atomically move to the final location
+      fs.renameSync(extractedBinary, this.binaryPath);
+
+      // 6. Make executable on Unix
+      if (process.platform !== 'win32') {
+        fs.chmodSync(this.binaryPath, 0o755);
+      }
+
+      logger.info('ckb-tui installed successfully.');
+    } catch (error) {
+      // Reset cached path on failure so a subsequent call retries
+      this.binaryPath = null;
+
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error(
+        'Failed to download/install ckb-tui:',
+        message,
+        '\nPlease check your network connectivity, verify that the specified version exists in the releases, ' +
+          'and ensure you have sufficient file system permissions.',
+      );
+      throw error;
+    } finally {
+      // Clean up the temp directory
+      try {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      } catch {
+        // Best-effort cleanup — temp dir will be cleaned by the OS eventually
+      }
+    }
+  }
+
+  /**
+   * Best-effort SHA-256 checksum verification.
+   * Downloads the checksum file published alongside the release asset and
+   * verifies the downloaded archive. Logs a warning (but does not fail) if
+   * the checksum file is unavailable — this maintains compatibility while
+   * the upstream project adopts checksum publishing.
+   */
+  private static verifyChecksum(version: string, assetName: string, archivePath: string): void {
+    const checksumUrl = `https://github.com/Officeyutong/ckb-tui/releases/download/${version}/checksums-sha256.txt`;
+
+    const checksumPath = path.join(path.dirname(archivePath), 'checksums-sha256.txt');
+
+    const fetchResult = spawnSync('curl', ['-fsSL', '--max-time', '30', '-o', checksumPath, checksumUrl], {
+      stdio: 'pipe',
+      timeout: 30_000,
+    });
+
+    if (fetchResult.status !== 0) {
+      logger.warn(
+        `SHA-256 checksum file not available for version ${version}. ` +
+          'Skipping integrity verification. Consider asking the upstream maintainer to publish checksum files.',
+      );
+      return;
+    }
+
+    try {
+      const checksumContent = fs.readFileSync(checksumPath, 'utf8');
+      const expectedHash = this.parseChecksumFile(checksumContent, assetName);
+
+      if (!expectedHash) {
+        logger.warn(`Checksum entry for "${assetName}" not found in checksums file. Skipping verification.`);
+        return;
+      }
+
+      const actualHash = crypto.createHash('sha256').update(fs.readFileSync(archivePath)).digest('hex');
+
+      if (actualHash !== expectedHash) {
+        throw new Error(
+          `SHA-256 checksum mismatch for ${assetName}.\n` +
+            `Expected: ${expectedHash}\nActual:   ${actualHash}\n` +
+            'The downloaded file may be corrupted or tampered with.',
+        );
+      }
+
+      logger.info('SHA-256 checksum verified successfully.');
+    } finally {
+      try {
+        fs.unlinkSync(checksumPath);
+      } catch {
+        // Best effort
+      }
+    }
+  }
+
+  /**
+   * Parse a standard SHA-256 checksum file (format: "<hash>  <filename>" per line)
+   * and return the hex hash for the given asset name, or null if not found.
+   */
+  private static parseChecksumFile(content: string, assetName: string): string | null {
+    for (const line of content.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+
+      const match = trimmed.match(/^([0-9a-fA-F]{64})\s+[*]?(.+)$/);
+      if (match && match[2] === assetName) {
+        return match[1].toLowerCase();
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Extract a downloaded archive to the given directory.
+   * Uses AdmZip for .zip files (Node-native, no shell) and spawnSync with array
+   * arguments for .tar.gz (no shell interpolation).
+   */
+  private static extractArchive(archivePath: string, extractDir: string): void {
+    if (archivePath.endsWith('.tar.gz')) {
+      const result = spawnSync('tar', ['-xzf', archivePath, '-C', extractDir], {
+        stdio: 'inherit',
+        timeout: EXTRACT_TIMEOUT_MS,
+      });
+      if (result.error) {
+        throw new Error(`tar extraction failed: ${result.error.message}`);
+      }
+      if (result.status !== 0) {
+        throw new Error(`tar exited with code ${result.status}`);
+      }
+    } else if (archivePath.endsWith('.zip')) {
+      try {
+        const zip = new AdmZip(archivePath);
+        zip.extractAllTo(extractDir, true);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`ZIP extraction failed: ${message}`);
+      }
+    } else {
+      throw new Error(`Unsupported archive format: ${path.extname(archivePath)}`);
+    }
   }
 }

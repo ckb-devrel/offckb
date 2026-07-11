@@ -20,6 +20,7 @@ import { CKBDebugger } from './tools/ckb-debugger';
 import { logger } from './util/logger';
 import { Network } from './type/base';
 import { status } from './cmd/status';
+import { validateNetworkOpt } from './util/validator';
 
 const version = require('../package.json').version;
 const description = require('../package.json').description;
@@ -209,13 +210,9 @@ program
 program
   .command('status')
   .description('Show ckb-tui status interface')
-  .option('--network <network>', 'Specify the network to deploy to', 'devnet')
+  .option('--network <network>', 'Specify the network whose node status to monitor', 'devnet')
   .action(async (option) => {
-    const validNetworks = Object.values(Network);
-    if (!validNetworks.includes(option.network)) {
-      logger.error(`Invalid network: ${option.network}. Must be one of: ${validNetworks.join(', ')}`);
-      process.exit(1);
-    }
+    validateNetworkOpt(option.network);
     return await status({ network: option.network });
   });
 
