@@ -17,6 +17,16 @@ const NETWORK_SETTINGS_KEY: Record<Network, NetworkSettingsKey> = {
 };
 
 export async function status({ network }: StatusOptions) {
+  // ckb-tui is an interactive terminal UI. Running it without a TTY
+  // (pipe, redirect, CI) would hang or produce garbage output.
+  if (!process.stdout.isTTY || !process.stdin.isTTY) {
+    logger.error(
+      'The status command requires an interactive terminal (TTY). ' +
+        'It cannot be used in pipes, redirects, or non-interactive environments like CI.',
+    );
+    process.exit(1);
+  }
+
   const settings = readSettings();
   const networkKey = NETWORK_SETTINGS_KEY[network];
   const port = settings[networkKey].rpcProxyPort;
