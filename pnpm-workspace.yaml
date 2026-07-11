@@ -1,21 +1,32 @@
 overrides:
+  # GHSA-7m2j-8qp9-m8jw: CRLF injection. Remove when no transitive dependency uses form-data >=4.0.0 <4.0.6.
   "form-data@>=4.0.0 <4.0.6": "4.0.6"
+  # GHSA-88fw-hqm2-52qc: CORS middleware reflects any origin with credentials. Remove when hono >=4.12.25.
   "hono@<4.12.25": "4.12.25"
+  # GHSA-q8mj-m7cp-5q26: qs.stringify DoS. Remove when direct dependency upgrades qs >=6.15.2.
   "qs@>=6.11.1 <=6.15.1": "6.15.2"
+  # GHSA-v2v4-37r5-5v8g: XSS in Address6 HTML-emitting methods. Remove when direct dependency upgrades ip-address >=10.1.1.
   "ip-address@<=10.1.0": "10.1.1"
+  # GHSA-h67p-54hq-rp68: quadratic-complexity DoS in merge key handling. Remove when js-yaml 3.x >=3.15.0.
   "js-yaml@<3.15.0": "3.15.0"
+  # GHSA-h67p-54hq-rp68: quadratic-complexity DoS in merge key handling. Remove when js-yaml 4.x >=4.2.0.
   "js-yaml@>=4.0.0 <=4.1.1": "4.2.0"
+  # GHSA-4x5r-pxfx-6jf8: arbitrary file read via sourceMappingURL. Remove when @babel/core >=7.29.6.
   "@babel/core@<=7.29.0": "7.29.7"
+  # GHSA-xffm-g5w8-qvg7: ReDoS in ConfigCommentParser. Remove when @eslint/plugin-kit >=0.3.4.
   "@eslint/plugin-kit@<0.3.4": "0.3.4"
+  # GHSA-jxxr-4gwj-5jf2: unbounded brace range expansion DoS. Remove when brace-expansion >=5.0.6.
   "brace-expansion@>=5.0.0 <5.0.6": "5.0.6"
 
 onlyBuiltDependencies:
   - secp256k1
 
 minimumReleaseAgeExclude:
+  # Matches the overrides above; these versions are very recent but required for the security fixes.
   - "@eslint/plugin-kit@0.3.4"
-  - ip-address@10.1.1
-  - qs@6.15.2
-  - brace-expansion@5.0.6
+  - "ip-address@10.1.1"
+  - "qs@6.15.2"
+  - "brace-expansion@5.0.6"
   - "@babel/core@7.29.7"
-  - js-yaml@3.15.0 || 4.2.0
+  - "js-yaml@3.15.0"
+  - "js-yaml@4.2.0"
