@@ -73,6 +73,10 @@ export function toCCCKnownScripts(scripts: SystemScriptsRecord) {
       hashType: 'type',
       cellDeps: [],
     },
+    // ccc >= 1.14.0 calls getKnownScript(NervosDao) during completeFeeBy
+    // for all inputs. Devnet deploys the DAO system cell, so map it to the
+    // actual devnet script derived from list-hashes.
+    [KnownScript.NervosDao]: scripts.dao!.script,
   };
   return DEVNET_SCRIPTS;
 }

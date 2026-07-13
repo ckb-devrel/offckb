@@ -52,8 +52,12 @@ export interface Settings {
     transactionsPath: string;
   };
   tools: {
+    rootFolder: string;
     ckbDebugger: {
       minVersion: string;
+    };
+    ckbTui: {
+      version: string;
     };
   };
 }
@@ -62,7 +66,7 @@ export const defaultSettings: Settings = {
   proxy: undefined,
   bins: {
     rootFolder: path.resolve(dataPath, 'bins'),
-    defaultCKBVersion: '0.205.0',
+    defaultCKBVersion: '0.207.0',
     downloadPath: path.resolve(cachePath, 'download'),
   },
   devnet: {
@@ -88,8 +92,12 @@ export const defaultSettings: Settings = {
     transactionsPath: path.resolve(dataPath, 'mainnet/transactions'),
   },
   tools: {
+    rootFolder: path.resolve(dataPath, 'tools'),
     ckbDebugger: {
       minVersion: '0.200.0',
+    },
+    ckbTui: {
+      version: 'v0.1.3',
     },
   },
 };
@@ -98,7 +106,10 @@ export function readSettings(): Settings {
   try {
     if (fs.existsSync(configPath)) {
       const data = fs.readFileSync(configPath, 'utf8');
-      return deepMerge(defaultSettings, JSON.parse(data)) as Settings;
+      const parsed = JSON.parse(data);
+      validateSettings(parsed);
+      // Deep-clone defaults before merging to prevent mutation of the shared default
+      return deepMerge(deepClone(defaultSettings), parsed) as Settings;
     } else {
       return defaultSettings;
     }
@@ -129,10 +140,27 @@ export function getCKBBinaryPath(version: string) {
   return path.join(getCKBBinaryInstallPath(version), binaryName);
 }
 
+function deepClone<T>(obj: T): T {
+  if (obj === null || typeof obj !== 'object') {
+    return obj;
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(deepClone) as unknown as T;
+  }
+  const clone: Record<string, unknown> = {};
+  for (const key in obj) {
+    if (Object.prototype.hasOwnProperty.call(obj, key)) {
+      clone[key] = deepClone((obj as Record<string, unknown>)[key]);
+    }
+  }
+  return clone as T;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function deepMerge(target: any, source: any): any {
   for (const key in source) {
-    if (source[key] && typeof source[key] === 'object') {
-      if (!target[key]) {
+    if (source[key] !== null && typeof source[key] === 'object' && !Array.isArray(source[key])) {
+      if (!target[key] || typeof target[key] !== 'object') {
         target[key] = {};
       }
       deepMerge(target[key], source[key]);
@@ -141,4 +169,31 @@ function deepMerge(target: any, source: any): any {
     }
   }
   return target;
+}
+
+function validateSettings(raw: unknown): void {
+  if (!raw || typeof raw !== 'object') {
+    throw new Error('Settings must be a JSON object');
+  }
+
+  const obj = raw as Record<string, unknown>;
+
+  if (obj.tools && typeof obj.tools === 'object') {
+    const tools = obj.tools as Record<string, unknown>;
+    if (tools.rootFolder !== undefined && typeof tools.rootFolder !== 'string') {
+      throw new Error('tools.rootFolder must be a string path');
+    }
+    if (tools.ckbTui && typeof tools.ckbTui === 'object') {
+      const ckbTui = tools.ckbTui as Record<string, unknown>;
+      if (ckbTui.version !== undefined && typeof ckbTui.version !== 'string') {
+        throw new Error('tools.ckbTui.version must be a string');
+      }
+    }
+  }
+
+  if (obj.proxy !== undefined && obj.proxy !== null) {
+    if (typeof obj.proxy !== 'object') {
+      throw new Error('proxy must be an object');
+    }
+  }
 }

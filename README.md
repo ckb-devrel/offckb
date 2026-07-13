@@ -70,6 +70,7 @@ Options:
 
 Commands:
   node [CKB-Version]                            Use the CKB to start devnet
+  node stop                                     Stop the running CKB devnet daemon
   create [options] [project-name]               Create a new CKB Smart Contract project in JavaScript.
   deploy [options]                              Deploy contracts to different networks, only supports devnet and testnet
   debug [options]                               Quickly debug transaction with tx-hash
@@ -81,6 +82,7 @@ Commands:
   transfer-all [options] [toAddress]            Transfer All CKB tokens to address, only devnet and testnet
   balance [options] [toAddress]                 Check account balance, only devnet and testnet
   debugger                                      Port of the raw CKB Standalone Debugger
+  status [options]                              Show ckb-tui status interface
   config <action> [item] [value]                do a configuration action
   help [command]                                display help for command
 ```
@@ -118,6 +120,40 @@ offckb node --binary-path /path/to/your/ckb/binary
 
 When using `--binary-path`, it will ignore the specified version and network, and only work for devnet.
 
+**Run in Daemon Mode**
+
+Start the devnet in the background so your terminal stays free:
+
+```sh
+offckb node --daemon
+```
+
+The daemon writes its logs and PID to the devnet data folder, for example:
+
+- Logs: `~/Library/Application Support/offckb-nodejs/devnet/data/logs/daemon.log`
+- PID file: `~/Library/Application Support/offckb-nodejs/devnet/data/logs/daemon.pid`
+
+Stop the daemon later with:
+
+```sh
+offckb node stop
+```
+
+**Agent-Friendly JSON Output**
+
+For programmatic consumption or agent integration, add `--json` to any command to emit structured JSON logs:
+
+```sh
+offckb node --json
+offckb node --daemon --json
+```
+
+Each log line is a single JSON object:
+
+```json
+{"level":"info","message":"Launching CKB devnet Node...","timestamp":"2026-07-07T07:10:00.000Z"}
+```
+
 **RPC & Proxy RPC**
 
 When the Devnet starts:
@@ -133,6 +169,10 @@ You can also start a proxy RPC server for public networks:
 offckb node --network <testnet or mainnet>
 ```
 Using a proxy RPC server for Testnet/Mainnet is especially helpful for debugging transactions, since failed transactions are dumped automatically.
+
+**Watch Network with TUI**
+
+Once you start the CKB Node, you can use `offckb status --network devnet/testnet/mainnet` to start a CKB-TUI interface to monitor the CKB network from your node.
 
 ### 2. Create a New Contract Project {#create-project}
     

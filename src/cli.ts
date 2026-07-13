@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { Command } from 'commander';
-import { startNode } from './cmd/node';
+import { Command, Option } from 'commander';
+import { startNode, stopNode } from './cmd/node';
 import { accounts } from './cmd/accounts';
 import { clean } from './cmd/clean';
 import { setUTF8EncodingForWindows } from './util/encoding';
@@ -8,6 +8,7 @@ import { DepositOptions, deposit } from './cmd/deposit';
 import { DeployOptions, deploy } from './cmd/deploy';
 import { TransferOptions, transfer } from './cmd/transfer';
 import { BalanceOption, balanceOf } from './cmd/balance';
+import { udtIssue, udtDestroy, UdtIssueOption, UdtDestroyOption } from './cmd/udt';
 import { createScriptProject, CreateScriptProjectOptions } from './cmd/create';
 import { Config, ConfigItem } from './cmd/config';
 import { devnetConfig } from './cmd/devnet-config';
@@ -18,6 +19,8 @@ import { genSystemScriptsJsonFile } from './scripts/gen';
 import { CKBDebugger } from './tools/ckb-debugger';
 import { logger } from './util/logger';
 import { Network } from './type/base';
+import { status } from './cmd/status';
+import { validateNetworkOpt } from './util/validator';
 
 const version = require('../package.json').version;
 const description = require('../package.json').description;
@@ -28,7 +31,15 @@ setUTF8EncodingForWindows();
 const program = new Command();
 program.name('offckb').description(description).version(version).enablePositionalOptions();
 
-program
+program.option('--json', 'Output logs in JSON format for agent/programmatic consumption');
+program.hook('preAction', (thisCommand) => {
+  const opts = thisCommand.opts();
+  if (opts.json) {
+    logger.setJsonMode(true);
+  }
+});
+
+const nodeCommand = program
   .command('node [CKB-Version]')
   .description('Use the CKB to start devnet')
   .option('--network <network>', 'Specify the network to deploy to', 'devnet')
@@ -36,9 +47,15 @@ program
     '-b, --binary-path <binaryPath>',
     'Specify the CKB binary path to use, only for devnet, when set, will ignore version and network',
   )
-  .action(async (version: string, options: { network: Network; binaryPath?: string }) => {
-    return startNode({ version, network: options.network, binaryPath: options.binaryPath });
+  .option('--daemon', 'Run the node in the background as a daemon (devnet only)')
+  .action(async (version: string, options: { network: Network; binaryPath?: string; daemon?: boolean }) => {
+    return startNode({ version, network: options.network, binaryPath: options.binaryPath, daemon: options.daemon });
   });
+
+nodeCommand
+  .command('stop')
+  .description('Stop the running CKB devnet daemon')
+  .action(async () => stopNode());
 
 program
   .command('create [project-name]')
@@ -123,13 +140,15 @@ program
   });
 
 program
-  .command('transfer [toAddress] [amountInCKB]')
-  .description('Transfer CKB tokens to address, only devnet and testnet')
+  .command('transfer [toAddress] [amount]')
+  .description('Transfer CKB or UDT tokens to address, only devnet and testnet')
   .option('--network <network>', 'Specify the network to transfer to', 'devnet')
-  .option('--privkey <privkey>', 'Specify the private key to transfer CKB')
+  .option('--privkey <privkey>', 'Specify the private key to transfer')
+  .addOption(new Option('--udt-kind <kind>', 'Specify the UDT kind').choices(['sudt', 'xudt']).default('sudt'))
+  .option('--udt-type-args <typeArgs>', 'Specify the UDT type script args to transfer UDT')
   .option('-r, --proxy-rpc', 'Use Proxy RPC to connect to blockchain')
-  .action(async (toAddress: string, amountInCKB: string, options: TransferOptions) => {
-    return transfer(toAddress, amountInCKB, options);
+  .action(async (toAddress: string, amount: string, options: TransferOptions) => {
+    return transfer(toAddress, amount, options);
   });
 
 program
@@ -144,10 +163,38 @@ program
 
 program
   .command('balance [toAddress]')
-  .description('Check account balance, only devnet and testnet')
+  .description('Check account balance (CKB + detected SUDT/xUDT), only devnet and testnet')
   .option('--network <network>', 'Specify the network to check', 'devnet')
+  .addOption(new Option('--udt-kind <kind>', 'Filter by UDT kind').choices(['sudt', 'xudt']))
+  .option('--udt-type-args <typeArgs>', 'Filter by UDT type script args')
+  .option('--no-udt', 'Skip UDT balance scan')
   .action(async (toAddress: string, options: BalanceOption) => {
     return balanceOf(toAddress, options);
+  });
+
+const udtCommand = program.command('udt').description('UDT token commands');
+
+udtCommand
+  .command('issue <amount>')
+  .description('Issue new UDT tokens, only devnet and testnet')
+  .option('--network <network>', 'Specify the network', 'devnet')
+  .addOption(new Option('--udt-kind <kind>', 'Specify the UDT kind').choices(['sudt', 'xudt']).default('sudt'))
+  .option('--type-args <typeArgs>', 'Specify the UDT type script args (xudt only; defaults to signer lock hash)')
+  .option('--to <toAddress>', 'Specify the receiver address (defaults to signer)')
+  .option('--privkey <privkey>', 'Specify the private key to issue UDT')
+  .action(async (amount: string, options: UdtIssueOption) => {
+    return udtIssue(amount, options);
+  });
+
+udtCommand
+  .command('destroy <amount>')
+  .description('Destroy UDT tokens, only devnet and testnet')
+  .option('--network <network>', 'Specify the network', 'devnet')
+  .addOption(new Option('--udt-kind <kind>', 'Specify the UDT kind').choices(['sudt', 'xudt']).default('sudt'))
+  .requiredOption('--type-args <typeArgs>', 'Specify the UDT type script args')
+  .option('--privkey <privkey>', 'Specify the private key to destroy UDT')
+  .action(async (amount: string, options: UdtDestroyOption) => {
+    return udtDestroy(amount, options);
   });
 
 program
@@ -158,6 +205,15 @@ program
   .helpOption(false) // Disable the default help option
   .action(async () => {
     return CKBDebugger.runWithArgs(process.argv.slice(2));
+  });
+
+program
+  .command('status')
+  .description('Show ckb-tui status interface')
+  .option('--network <network>', 'Specify the network whose node status to monitor', 'devnet')
+  .action(async (option) => {
+    validateNetworkOpt(option.network);
+    return await status({ network: option.network });
   });
 
 program

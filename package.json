@@ -1,6 +1,6 @@
 {
   "name": "@offckb/cli",
-  "version": "0.4.6",
+  "version": "0.4.8",
   "description": "ckb development network for your first try",
   "author": "CKB EcoFund",
   "license": "MIT",
@@ -24,11 +24,6 @@
   },
   "publishConfig": {
     "access": "public"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "secp256k1"
-    ]
   },
   "scripts": {
     "build": "node scripts/build.js",
@@ -78,7 +73,7 @@
     "typescript": "^5.3.3"
   },
   "dependencies": {
-    "@ckb-ccc/core": "1.5.3",
+    "@ckb-ccc/core": "1.14.0",
     "@iarna/toml": "^2.2.5",
     "@inquirer/prompts": "^7.8.6",
     "@types/http-proxy": "^1.17.15",

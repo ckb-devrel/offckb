@@ -1,5 +1,24 @@
 # @offckb/cli
 
+## 0.4.8
+
+### Patch Changes
+
+- Override `form-data@>=4.0.0 <4.0.6` to `4.0.6` to fix CRLF injection (GHSA).
+- Override `hono@<4.12.25` to `4.12.25` to fix CORS origin reflection with credentials.
+
+## 0.4.7
+
+### Patch Changes
+
+- 1c17600: Bump @ckb-ccc/core to 1.14.0 to fix the ws vulnerability (ws >= 8.21.0).
+- a687c6f: Bump default CKB version to 0.207.0
+- 3da9777: Replace ckb-transaction-dumper with ccc-based implementation
+
+  - Rewrite transaction dumper to use ccc Client and molecule codecs
+  - Implement dep_group unpacking using ccc.mol
+  - Remove ckb-transaction-dumper npm dependency
+
 ## 0.4.6
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 import path from 'path';
 import fs from 'fs';
-import { Network } from '../type/base';
+import { Network, HexString, UdtKind } from '../type/base';
 import { logger } from './logger';
 
 export function validateTypescriptWorkspace() {
@@ -112,4 +112,51 @@ export function normalizePrivKey(privKey: string): string {
 
   // Return the formally strictly padded ckb format `0x` string
   return '0x' + key;
+}
+
+export function isValidUdtKind(kind: string): kind is UdtKind {
+  return kind === 'sudt' || kind === 'xudt';
+}
+
+export function validateUdtKind(kind?: string): asserts kind is UdtKind {
+  if (!kind) {
+    throw new Error('UDT kind is required');
+  }
+  if (!isValidUdtKind(kind)) {
+    throw new Error(`invalid UDT kind "${kind}", must be "sudt" or "xudt"`);
+  }
+}
+
+const U128_MAX = (BigInt(1) << BigInt(128)) - BigInt(1);
+
+export function validateUdtAmount(amount: string): bigint {
+  if (!/^\d+$/.test(amount)) {
+    throw new Error(`invalid UDT amount "${amount}", must be a non-negative decimal integer`);
+  }
+  const value = BigInt(amount);
+  if (value > U128_MAX) {
+    throw new Error(`UDT amount exceeds 128-bit max: ${amount}`);
+  }
+  return value;
+}
+
+const HEX_REGEX = /^0x[0-9a-fA-F]*$/;
+
+export function validateHexString(value: string, name: string): HexString {
+  if (!value || !HEX_REGEX.test(value)) {
+    throw new Error(`invalid ${name} "${value}", must be a hex string starting with 0x`);
+  }
+  return value as HexString;
+}
+
+export function validateUdtTypeArgs(kind: UdtKind, typeArgs: string): HexString {
+  const hex = validateHexString(typeArgs, 'type args');
+  const byteLength = (hex.length - 2) / 2;
+  if (kind === 'sudt' && byteLength !== 20) {
+    throw new Error(`invalid SUDT type args length: expected 20 bytes, got ${byteLength}`);
+  }
+  if (kind === 'xudt' && byteLength !== 32) {
+    throw new Error(`invalid xUDT type args length: expected 32 bytes, got ${byteLength}`);
+  }
+  return hex;
 }
