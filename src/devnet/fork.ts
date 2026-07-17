@@ -1,10 +1,9 @@
-import { execSync } from 'child_process';
+import { execFileSync, execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import toml, { JsonMap } from '@iarna/toml';
 import { cachePath, getCKBBinaryPath, packageRootPath, readSettings } from '../cfg/setting';
 import { installCKBBinary } from '../node/install';
-import { encodeBinPathForTerminal } from '../util/encoding';
 import { isFolderExists } from '../util/fs';
 import { Request } from '../util/request';
 import { logger } from '../util/logger';
@@ -92,6 +91,13 @@ export function detectSourceFromCkbToml(ckbTomlContent: string): 'mainnet' | 'te
 
 export function parseGenesisHashFromInitOutput(output: string): string | null {
   const match = output.match(/Genesis Hash:\s*(0x[0-9a-fA-F]{64})/);
+  return match ? match[1].toLowerCase() : null;
+}
+
+// `ckb list-hashes` prints TOML with a single table whose `genesis` field is
+// the chain's genesis hash.
+export function parseGenesisHashFromListHashes(output: string): string | null {
+  const match = output.match(/^\s*genesis\s*=\s*"(0x[0-9a-fA-F]{64})"\s*$/m);
   return match ? match[1].toLowerCase() : null;
 }
 
@@ -250,11 +256,29 @@ function copySourceData(sourceDir: string, configPath: string): void {
 }
 
 function runCkbInit(ckbBinPath: string, configPath: string, specFile: string): string {
-  const cmd =
-    `${encodeBinPathForTerminal(ckbBinPath)} init -C ${encodeBinPathForTerminal(configPath)} ` +
-    `--chain dev --import-spec ${encodeBinPathForTerminal(specFile)} --force`;
-  logger.debug(`Running: ${cmd}`);
-  return execSync(cmd, { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+  // argv form, never a shell: --spec-file is user input and quote-wrapping
+  // alone does not stop shell expansion (command substitution still runs
+  // inside double quotes).
+  const args = ['init', '-C', configPath, '--chain', 'dev', '--import-spec', specFile, '--force'];
+  logger.debug(`Running: ${ckbBinPath} ${args.join(' ')}`);
+  return execFileSync(ckbBinPath, args, { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+}
+
+// Best-effort read of the source directory's own chain identity. `ckb
+// list-hashes` resolves the chain spec of the given config dir (no database
+// access needed), which tells us which chain the source node was configured
+// for. Returns null when the source is not a standard config dir.
+function readSourceGenesisHash(ckbBinPath: string, sourceDir: string): string | null {
+  try {
+    const output = execFileSync(ckbBinPath, ['list-hashes', '-C', sourceDir], {
+      encoding: 'utf8',
+      maxBuffer: 16 * 1024 * 1024,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    return parseGenesisHashFromListHashes(output);
+  } catch {
+    return null;
+  }
 }
 
 // Overwrite the ckb-init-generated configs with offckb's own devnet configs so
@@ -314,9 +338,12 @@ export async function forkDevnet(options: ForkOptions): Promise<void> {
   await installCKBBinary(ckbVersion);
   const ckbBinPath = getCKBBinaryPath(ckbVersion);
 
-  copySourceData(sourceDir, configPath);
-
   try {
+    // Inside the try so a failed copy (disk full, permissions, I/O) gets the
+    // same rollback: a partial configPath would otherwise block the next
+    // attempt as an "existing devnet".
+    copySourceData(sourceDir, configPath);
+
     const specFile = await resolveSpecFile(options, source ?? 'mainnet', ckbVersion);
 
     const initOutput = runCkbInit(ckbBinPath, configPath, specFile);
@@ -340,6 +367,20 @@ export async function forkDevnet(options: ForkOptions): Promise<void> {
             `see nervosnetwork/ckb#5205.)`,
         );
       }
+    }
+
+    // The genesis above comes from the imported spec alone — it cannot see
+    // that --source/--spec-file contradicts the copied data (e.g. a mainnet
+    // spec over testnet data would pass and only fail when the node boots).
+    // Cross-check the source directory's own configured genesis and reject
+    // mismatches now. Skipped (null) when the source is not a standard
+    // config dir; the node's boot-time genesis check remains the backstop.
+    const sourceGenesisHash = readSourceGenesisHash(ckbBinPath, sourceDir);
+    if (sourceGenesisHash && sourceGenesisHash !== genesisHash) {
+      throw new Error(
+        `The source directory is configured for a different chain (genesis ${sourceGenesisHash}) ` +
+          `than the imported spec (genesis ${genesisHash}). Pass a matching --source or --spec-file.`,
+      );
     }
 
     const devSpecPath = path.join(configPath, 'specs', 'dev.toml');

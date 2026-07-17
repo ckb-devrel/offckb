@@ -1,4 +1,4 @@
-import { exec, spawn } from 'child_process';
+import { exec, spawn, ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { initChainIfNeeded } from '../node/init-chain';
@@ -92,9 +92,14 @@ export async function nodeDevnet({ version, binaryPath, daemon }: NodeProp) {
     });
 
     if (forkState?.firstRunPending) {
-      // Only clear the flag once the node is actually up; if it fails to
-      // start, the next run retries with the flags again.
-      void clearForkFirstRunWhenNodeUp(settings.devnet.rpcUrl, settings.devnet.configPath);
+      // Only clear the flag once the spawned node is actually up and reports
+      // the fork's genesis; if startup fails, the next run retries the flags.
+      void clearForkFirstRunWhenNodeUp(
+        ckbProcess,
+        settings.devnet.rpcUrl,
+        settings.devnet.configPath,
+        forkState.genesisHash,
+      );
     }
 
     // Start the second command after 3 seconds
@@ -131,14 +136,37 @@ function resolveDaemonPaths() {
   return { logDir, logFile, pidFile };
 }
 
-// Poll the devnet RPC until the node answers, then mark the fork's first run
-// as done so subsequent `offckb node` runs boot normally.
-async function clearForkFirstRunWhenNodeUp(rpcUrl: string, configPath: string) {
+// Poll the devnet RPC until the spawned node answers with the fork's genesis
+// hash, then mark the first run as done so subsequent `offckb node` runs boot
+// normally. Two guards against clearing the flag on the wrong signal:
+//   - the poll aborts when the spawned ckb process exits (e.g. failed boot),
+//   - an answering node is only trusted when its genesis matches the fork
+//     state — an unrelated node occupying the port must not clear the flag.
+async function clearForkFirstRunWhenNodeUp(
+  ckbProcess: ChildProcess,
+  rpcUrl: string,
+  configPath: string,
+  expectedGenesisHash: string,
+) {
+  let processExited = false;
+  const markExited = () => {
+    processExited = true;
+  };
+  ckbProcess.once('exit', markExited);
+  ckbProcess.once('error', markExited);
+
   const timeoutMs = 10 * 60 * 1000; // large forks take a while to boot
   const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
+  while (!processExited && Date.now() - start < timeoutMs) {
     try {
-      await callJsonRpc(rpcUrl, 'get_tip_block_number', [], 5000);
+      const genesisHash = String(await callJsonRpc(rpcUrl, 'get_block_hash', ['0x0'], 5000)).toLowerCase();
+      if (genesisHash !== expectedGenesisHash.toLowerCase()) {
+        logger.warn(
+          `A node is answering at ${rpcUrl} but reports a different genesis (${genesisHash}); ` +
+            'leaving the first-run flags in place.',
+        );
+        return;
+      }
       markForkFirstRunComplete(configPath);
       logger.success('Forked devnet is up; first-run spec flags cleared.');
       return;
@@ -146,7 +174,11 @@ async function clearForkFirstRunWhenNodeUp(rpcUrl: string, configPath: string) {
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
   }
-  logger.warn('Timed out waiting for the forked devnet to start; first-run flags will be retried next time.');
+  if (processExited) {
+    logger.warn('The CKB process exited before the forked devnet came up; first-run flags will be retried next time.');
+  } else {
+    logger.warn('Timed out waiting for the forked devnet to start; first-run flags will be retried next time.');
+  }
 }
 
 function readPidFile(pidFile: string): PidMetadata | null {

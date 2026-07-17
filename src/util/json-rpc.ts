@@ -30,6 +30,16 @@ export async function callJsonRpc(
       (res) => {
         const chunks: Buffer[] = [];
         res.on('data', (chunk) => chunks.push(chunk));
+        // The response stream can error or close before `end` (connection
+        // reset, truncated body). Without these listeners the promise would
+        // hang until the request timeout — or the process would crash on an
+        // unhandled stream error.
+        res.once('error', reject);
+        res.on('close', () => {
+          if (!res.complete) {
+            reject(new Error(`JSON-RPC ${method} to ${rpcUrl} returned a truncated response`));
+          }
+        });
         res.on('end', () => {
           try {
             const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
