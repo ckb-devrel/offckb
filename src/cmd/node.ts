@@ -6,6 +6,8 @@ import { installCKBBinary } from '../node/install';
 import { getCKBBinaryPath, readSettings } from '../cfg/setting';
 import { encodeBinPathForTerminal } from '../util/encoding';
 import { createRPCProxy } from '../tools/rpc-proxy';
+import { markForkFirstRunComplete, readForkState } from '../devnet/fork';
+import { callJsonRpc } from '../util/json-rpc';
 import { Network } from '../type/base';
 import { logger } from '../util/logger';
 
@@ -66,7 +68,15 @@ export async function nodeDevnet({ version, binaryPath, daemon }: NodeProp) {
   await initChainIfNeeded();
   const devnetConfigPath = encodeBinPathForTerminal(settings.devnet.configPath);
 
-  const ckbCmd = `${ckbBinPath} run -C ${devnetConfigPath}`;
+  // A forked devnet must boot once with --skip-spec-check --overwrite-spec so
+  // the imported (and patched) spec replaces the source chain's stored spec.
+  const forkState = readForkState(settings.devnet.configPath);
+  const firstRunFlags = forkState?.firstRunPending ? ' --skip-spec-check --overwrite-spec' : '';
+  if (forkState?.firstRunPending) {
+    logger.info(`Forked devnet (${forkState.source}) detected, first run uses --skip-spec-check --overwrite-spec.`);
+  }
+
+  const ckbCmd = `${ckbBinPath} run -C ${devnetConfigPath}${firstRunFlags}`;
   const minerCmd = `${ckbBinPath} miner -C ${devnetConfigPath}`;
   logger.info(`Launching CKB devnet Node...`);
   try {
@@ -80,6 +90,12 @@ export async function nodeDevnet({ version, binaryPath, daemon }: NodeProp) {
     ckbProcess.stderr?.on('data', (data) => {
       logger.error(['CKB error:', data.toString()]);
     });
+
+    if (forkState?.firstRunPending) {
+      // Only clear the flag once the node is actually up; if it fails to
+      // start, the next run retries with the flags again.
+      void clearForkFirstRunWhenNodeUp(settings.devnet.rpcUrl, settings.devnet.configPath);
+    }
 
     // Start the second command after 3 seconds
     setTimeout(async () => {
@@ -113,6 +129,24 @@ function resolveDaemonPaths() {
   const logFile = path.join(logDir, DAEMON_LOG_FILE);
   const pidFile = path.join(logDir, DAEMON_PID_FILE);
   return { logDir, logFile, pidFile };
+}
+
+// Poll the devnet RPC until the node answers, then mark the fork's first run
+// as done so subsequent `offckb node` runs boot normally.
+async function clearForkFirstRunWhenNodeUp(rpcUrl: string, configPath: string) {
+  const timeoutMs = 10 * 60 * 1000; // large forks take a while to boot
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      await callJsonRpc(rpcUrl, 'get_tip_block_number', [], 5000);
+      markForkFirstRunComplete(configPath);
+      logger.success('Forked devnet is up; first-run spec flags cleared.');
+      return;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
+  logger.warn('Timed out waiting for the forked devnet to start; first-run flags will be retried next time.');
 }
 
 function readPidFile(pidFile: string): PidMetadata | null {

@@ -12,6 +12,7 @@ import { udtIssue, udtDestroy, UdtIssueOption, UdtDestroyOption } from './cmd/ud
 import { createScriptProject, CreateScriptProjectOptions } from './cmd/create';
 import { Config, ConfigItem } from './cmd/config';
 import { devnetConfig } from './cmd/devnet-config';
+import { devnetFork } from './cmd/devnet-fork';
 import { debugSingleScript, debugTransaction, parseSingleScriptOption } from './cmd/debug';
 import { printSystemScripts } from './cmd/system-scripts';
 import { transferAll } from './cmd/transfer-all';
@@ -233,6 +234,15 @@ devnetCommand
     [],
   )
   .action(devnetConfig);
+
+devnetCommand
+  .command('fork')
+  .description('Fork an existing mainnet/testnet chain data directory into the local devnet')
+  .requiredOption('--from <dir>', 'Path to the source CKB node directory (the one passed to ckb -C)')
+  .option('--source <source>', 'Source chain: mainnet or testnet (auto-detected from the source ckb.toml when omitted)')
+  .option('--spec-file <path>', 'Use a local chain spec file instead of downloading it')
+  .option('--force', 'Replace the existing devnet (or a previous fork)')
+  .action(devnetFork);
 
 program.parse(process.argv);
 

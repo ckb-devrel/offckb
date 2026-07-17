@@ -1,9 +1,8 @@
-import { SystemCell } from '../util/list-hashes';
-import { ScriptInfo, SystemScriptsRecord } from '../scripts/type';
+import { SystemScriptsRecord } from '../scripts/type';
 import { Network, NetworkOption } from '../type/base';
 import { MAINNET_SYSTEM_SCRIPTS, TESTNET_SYSTEM_SCRIPTS } from '../scripts/public';
 import { logger } from '../util/logger';
-import { getDevnetSystemScriptsFromListHashes, toCCCKnownScripts } from '../scripts/private';
+import { resolveDevnetSystemScripts, toCCCKnownScripts } from '../scripts/private';
 
 export enum PrintStyle {
   system = 'system',
@@ -15,30 +14,41 @@ export interface PrintProps extends NetworkOption {
 }
 
 export async function printSystemScripts({ style = PrintStyle.system, network = Network.devnet }: PrintProps) {
-  const systemScripts =
-    network === Network.mainnet
-      ? MAINNET_SYSTEM_SCRIPTS
-      : network === Network.testnet
-        ? TESTNET_SYSTEM_SCRIPTS
-        : getDevnetSystemScriptsFromListHashes();
+  let systemScripts: SystemScriptsRecord | null;
+  // Display label and address prefix follow the chain the devnet actually
+  // runs: a fork carries the source chain's genesis, scripts and prefix.
+  let label = network.toUpperCase();
+  let addressPrefix: 'ckb' | 'ckt' = network === Network.mainnet ? 'ckb' : 'ckt';
+  if (network === Network.mainnet) {
+    systemScripts = MAINNET_SYSTEM_SCRIPTS;
+  } else if (network === Network.testnet) {
+    systemScripts = TESTNET_SYSTEM_SCRIPTS;
+  } else {
+    const resolved = resolveDevnetSystemScripts();
+    systemScripts = resolved?.scripts ?? null;
+    if (resolved?.forkedFrom) {
+      label = `DEVNET (fork of ${resolved.forkedFrom.toUpperCase()})`;
+      addressPrefix = resolved.forkedFrom === 'mainnet' ? 'ckb' : 'ckt';
+    }
+  }
 
   if (!systemScripts) return logger.info(`SystemScripts is null, ${network}`);
 
   if (style === PrintStyle.system) {
-    return printInSystemStyle(systemScripts, network);
+    return printInSystemStyle(systemScripts, label);
   }
 
   if (style === PrintStyle.lumos) {
-    return printInLumosConfigStyle(systemScripts, network);
+    return printInLumosConfigStyle(systemScripts, label, addressPrefix);
   }
 
   if (style === PrintStyle.ccc) {
-    return printInCCCStyle(systemScripts, network);
+    return printInCCCStyle(systemScripts, label);
   }
 }
 
-export function printInSystemStyle(systemScripts: SystemScriptsRecord, network: Network) {
-  logger.info(`*** CKB ${network.toUpperCase()} System Scripts ***\n`);
+export function printInSystemStyle(systemScripts: SystemScriptsRecord, label: string) {
+  logger.info(`*** CKB ${label} System Scripts ***\n`);
   for (const [name, script] of Object.entries(systemScripts)) {
     logger.info(`- name: ${name}`);
     if (script == null) {
@@ -52,85 +62,16 @@ export function printInSystemStyle(systemScripts: SystemScriptsRecord, network: 
   }
 }
 
-export function printInLumosConfigStyle(scripts: SystemScriptsRecord, network: Network) {
-  const config = toLumosConfig(scripts, network === Network.mainnet ? 'ckb' : 'ckt');
-  logger.info(`*** CKB ${network.toUpperCase()} System Scripts As LumosConfig ***\n`);
+export function printInLumosConfigStyle(scripts: SystemScriptsRecord, label: string, addressPrefix: 'ckb' | 'ckt') {
+  const config = toLumosConfig(scripts, addressPrefix);
+  logger.info(`*** CKB ${label} System Scripts As LumosConfig ***\n`);
   logger.info(JSON.stringify(config, null, 2));
 }
 
-export function printInCCCStyle(scripts: SystemScriptsRecord, network: Network) {
+export function printInCCCStyle(scripts: SystemScriptsRecord, label: string) {
   const knownsScripts = toCCCKnownScripts(scripts);
-  logger.info(`*** CKB ${network.toUpperCase()} System Scripts As CCC KnownScripts ***\n`);
+  logger.info(`*** CKB ${label} System Scripts As CCC KnownScripts ***\n`);
   logger.info(JSON.stringify(knownsScripts, null, 2));
-}
-
-export function systemCellToScriptInfo({
-  cell,
-  depType,
-  depGroup,
-  extraCellDeps,
-}: {
-  cell: SystemCell;
-  depType: 'code' | 'depGroup';
-  depGroup?: {
-    txHash: string;
-    index: number;
-  };
-  extraCellDeps?: ScriptInfo['cellDeps'];
-}): ScriptInfo {
-  // todo: we left the type in cellDepsInfo since it requires async fetching and
-  // chain running to get the full type script of the type-id deps.
-  // Also, in devnet there is no real need to auto upgrade the system scripts with type-id
-  if (depType === 'code') {
-    let cellDeps: ScriptInfo['cellDeps'] = [
-      {
-        cellDep: {
-          outPoint: {
-            txHash: cell.tx_hash as `0x${string}`,
-            index: cell.index,
-          },
-          depType,
-        },
-      },
-    ];
-    if (extraCellDeps && extraCellDeps.length > 0) {
-      cellDeps = [...extraCellDeps, ...cellDeps];
-    }
-    return {
-      codeHash: (cell.type_hash || cell.data_hash) as `0x${string}`,
-      hashType: cell.type_hash ? 'type' : 'data2',
-      cellDeps,
-    };
-  }
-
-  if (depType === 'depGroup') {
-    if (!depGroup) {
-      throw new Error('require depGroup info since the dep type is depGroup');
-    }
-
-    let cellDeps: ScriptInfo['cellDeps'] = [
-      {
-        cellDep: {
-          outPoint: {
-            txHash: depGroup!.txHash as `0x${string}`,
-            index: depGroup!.index,
-          },
-          depType,
-        },
-      },
-    ];
-    if (extraCellDeps && extraCellDeps.length > 0) {
-      cellDeps = [...extraCellDeps, ...cellDeps];
-    }
-
-    return {
-      codeHash: (cell.type_hash || cell.data_hash) as `0x${string}`,
-      hashType: cell.type_hash ? 'type' : 'data2',
-      cellDeps,
-    };
-  }
-
-  throw new Error(`unknown DepType ${depType}`);
 }
 
 export function toLumosConfig(scripts: SystemScriptsRecord, addressPrefix: 'ckb' | 'ckt' = 'ckt') {

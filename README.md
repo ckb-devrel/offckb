@@ -18,7 +18,7 @@ CKB local development network for your first try.
 
 There are BREAKING CHANGES between v0.3.x and v0.4.x, make sure to read the [migration guide](/docs/migration.md) before upgrading.
 
-----
+---
 
 - [OffCKB](#offckb)
 - [Install](#install)
@@ -92,7 +92,7 @@ _Use `offckb [command] -h` to learn more about a specific command._
 ## Get started
 
 ### 1. Run a Local CKB Devnet {#running-ckb}
-    
+
 Start a local blockchain with one command:
 
 ```sh
@@ -151,7 +151,7 @@ offckb node --daemon --json
 Each log line is a single JSON object:
 
 ```json
-{"level":"info","message":"Launching CKB devnet Node...","timestamp":"2026-07-07T07:10:00.000Z"}
+{ "level": "info", "message": "Launching CKB devnet Node...", "timestamp": "2026-07-07T07:10:00.000Z" }
 ```
 
 **RPC & Proxy RPC**
@@ -163,11 +163,12 @@ When the Devnet starts:
 
 The proxy RPC server forwards all requests to the RPC server and record every requests while automatically dumping failed transactions for easier debugging.
 
-You can also start a proxy RPC server for public networks: 
+You can also start a proxy RPC server for public networks:
 
 ```sh
 offckb node --network <testnet or mainnet>
 ```
+
 Using a proxy RPC server for Testnet/Mainnet is especially helpful for debugging transactions, since failed transactions are dumped automatically.
 
 **Watch Network with TUI**
@@ -175,11 +176,13 @@ Using a proxy RPC server for Testnet/Mainnet is especially helpful for debugging
 Once you start the CKB Node, you can use `offckb status --network devnet/testnet/mainnet` to start a CKB-TUI interface to monitor the CKB network from your node.
 
 ### 2. Create a New Contract Project {#create-project}
-    
+
 Generate a ready-to-use smart-contract project in JS/TS using templates:
+
 ```sh
 offckb create <your-project-name> -c <your-contract-name>
 ```
+
 - The `-c` option is optional, if not provided, the contract name defaults to `hello-world`.
 
 **Note for Windows Users:**
@@ -210,10 +213,11 @@ To run mock tests in the generated project, you need to manually install `ckb-de
 After completing these steps, `npm run test` should pass without mock test failures.
 
 ### 3. Deploy Your Contract {#deploy-contract}
-    
+
 ```sh
 offckb deploy --network <devnet/testnet> --target <path-to-your-contract-binary-file-or-folder> --output <output-folder-path>
 ```
+
 - Deployment info is written to the `output-folder-path` you specify.
 
 **Upgradable Scripts with `--type-id`**
@@ -224,14 +228,14 @@ offckb deploy --type-id --network <devnet/testnet>
 ```
 
 - **Important**: Upgrades are keyed by the contract‘s artifact name.
-    - If you plan to upgrade with `--type-id`, do not rename your contract artifact (e.g. keep `hello-world.bc`).
-    - Renaming it makes the offckb unable to find the previous Type ID info from the `output-folder-path` and will create a new Type ID.
+  - If you plan to upgrade with `--type-id`, do not rename your contract artifact (e.g. keep `hello-world.bc`).
+  - Renaming it makes the offckb unable to find the previous Type ID info from the `output-folder-path` and will create a new Type ID.
 
 ### 4. Debug Your Contract {#debug-contract}
-    
-When you interact with the CKB Devnet through the Proxy RPC server (localhost:28114), any failed transactions are automatically dumped and recorded for debugging. 
-    
-**Debug a Transaction:** 
+
+When you interact with the CKB Devnet through the Proxy RPC server (localhost:28114), any failed transactions are automatically dumped and recorded for debugging.
+
+**Debug a Transaction:**
 
 ```sh
 offckb debug --tx-hash <transaction-hash> --network <devnet/testnet>
@@ -283,9 +287,9 @@ offckb debug --tx-hash <tx-hash> --single-script input[0].lock
 ```
 
 All debug utilities are powered by [ckb-debugger](https://github.com/nervosnetwork/ckb-standalone-debugger/tree/develop/ckb-debugger).
-    
+
 ### 5. Explore Built-in Scripts {#explore-scripts}
-    
+
 Print all the predefined Scripts for the local blockchain:
 
 ```sh
@@ -311,9 +315,9 @@ offckb system-scripts --export-style ccc
 ```sh
 offckb system-scripts --output <output-file-path>
 ```
-    
+
 ### 6. Tweak Devnet Config {#tweak-devnet-config}
-    
+
 By default, OffCKB use a fixed Devnet config. You can customize it, for example by modifying the default log level (`warn,ckb-script=debug`).
 
 1. Open the interactive Devnet config editor:
@@ -369,6 +373,23 @@ Pay attention to the `devnet.configPath` and `devnet.dataPath`.
 1. `cd` into the `devnet.configPath` . Modify the config files as needed. See [Custom Devnet Setup](https://docs.nervos.org/docs/node/run-devnet-node#custom-devnet-setup) and [Configure CKB](https://github.com/nervosnetwork/ckb/blob/develop/docs/configure.md) for details.
 2. After modifications, run `offckb clean -d` to remove the chain data if needed while keeping the updated config files.
 3. Restart local blockchain by running `offckb node`
+
+### 7. Fork Mainnet/Testnet Into Your Devnet {#fork-devnet}
+
+You can fork an existing Mainnet/Testnet data directory into your local devnet, so it keeps the real on-chain state (deployed contracts, cells) while mining locally with Dummy PoW. This implements the same flow as [Devnet From Existing Data](https://docs.nervos.org/docs/node/devnet-from-existing-data).
+
+```sh
+offckb devnet fork --from /path/to/ckb-data
+offckb node
+```
+
+- `--from` points at the directory the source node runs with (`-C`), which must contain `data/db`. Stop the source node first.
+- The source chain is auto-detected from the source `ckb.toml`; pass `--source mainnet|testnet` when it cannot be detected, and `--spec-file <path>` to use a local chain spec (e.g. offline).
+- The command copies the chain `data/` (your original data is never modified), imports the matching chain spec, patches it for local mining (Dummy PoW, `cellbase_maturity = 0`), and verifies the genesis hash.
+- The first `offckb node` run automatically boots with `--skip-spec-check --overwrite-spec`; later runs are normal.
+- Forking replaces the current devnet; use `--force` to replace an existing devnet/fork, or `offckb clean` to reset back to a pure devnet.
+
+On a forked devnet, `offckb system-scripts`, transfers, deploys and `offckb debug --tx-hash <hash>` work against the real source-chain state, e.g. debugging a failed mainnet transaction fully locally.
 
 ## Config Setting
 
@@ -455,4 +476,3 @@ npm install -g @offckb/cli
 ## Contributing
 
 check [development doc](/docs/develop.md)
-
