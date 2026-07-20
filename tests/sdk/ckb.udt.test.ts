@@ -11,7 +11,7 @@ jest.mock('../../src/sdk/network', () => ({
 }));
 
 jest.mock('../../src/scripts/private', () => ({
-  buildCCCDevnetKnownScripts: jest.fn(() => ({})),
+  buildDevnetCCCClient: jest.fn(() => mockClient),
   getDevnetSystemScriptsFromListHashes: jest.fn(() => ({
     sudt: {
       script: {

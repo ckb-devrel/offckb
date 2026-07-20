@@ -4,7 +4,7 @@
 import { ccc, ClientPublicMainnet, ClientPublicTestnet, OutPointLike, Script } from '@ckb-ccc/core';
 import { isValidNetworkString, normalizePrivKey, validateUdtAmount, validateUdtTypeArgs } from '../util/validator';
 import { networks } from './network';
-import { buildCCCDevnetKnownScripts, getDevnetSystemScriptsFromListHashes } from '../scripts/private';
+import { buildDevnetCCCClient, getDevnetSystemScriptsFromListHashes } from '../scripts/private';
 import { MAINNET_SYSTEM_SCRIPTS, TESTNET_SYSTEM_SCRIPTS } from '../scripts/public';
 import { SystemScriptsRecord } from '../scripts/type';
 import { Migration } from '../deploy/migration';
@@ -107,11 +107,7 @@ export class CKB {
                 url: networks.testnet.proxy_rpc_url,
                 fallbacks: [networks.testnet.rpc_url],
               }) // we keep the fallbacks in case the proxy rpc is not started
-            : new ccc.ClientPublicTestnet({
-                url: networks.devnet.proxy_rpc_url,
-                scripts: buildCCCDevnetKnownScripts(),
-                fallbacks: [networks.devnet.rpc_url],
-              });
+            : buildDevnetCCCClient(networks.devnet.proxy_rpc_url, [networks.devnet.rpc_url]);
     } else {
       this.client =
         network === 'mainnet'
@@ -124,11 +120,7 @@ export class CKB {
                 url: networks.testnet.rpc_url,
                 fallbacks: [],
               }) // pass it to avoid using websocket and fallback RPCs
-            : new ccc.ClientPublicTestnet({
-                url: networks.devnet.rpc_url,
-                scripts: buildCCCDevnetKnownScripts(),
-                fallbacks: [], // pass it to avoid using websocket and fallback RPCs
-              });
+            : buildDevnetCCCClient(networks.devnet.rpc_url);
     }
   }
 

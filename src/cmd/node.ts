@@ -1,4 +1,4 @@
-import { exec, spawn } from 'child_process';
+import { exec, spawn, ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { initChainIfNeeded } from '../node/init-chain';
@@ -6,6 +6,8 @@ import { installCKBBinary } from '../node/install';
 import { getCKBBinaryPath, readSettings } from '../cfg/setting';
 import { encodeBinPathForTerminal } from '../util/encoding';
 import { createRPCProxy } from '../tools/rpc-proxy';
+import { markForkFirstRunComplete, readForkState } from '../devnet/fork';
+import { callJsonRpc } from '../util/json-rpc';
 import { Network } from '../type/base';
 import { logger } from '../util/logger';
 
@@ -66,7 +68,15 @@ export async function nodeDevnet({ version, binaryPath, daemon }: NodeProp) {
   await initChainIfNeeded();
   const devnetConfigPath = encodeBinPathForTerminal(settings.devnet.configPath);
 
-  const ckbCmd = `${ckbBinPath} run -C ${devnetConfigPath}`;
+  // A forked devnet must boot once with --skip-spec-check --overwrite-spec so
+  // the imported (and patched) spec replaces the source chain's stored spec.
+  const forkState = readForkState(settings.devnet.configPath);
+  const firstRunFlags = forkState?.firstRunPending ? ' --skip-spec-check --overwrite-spec' : '';
+  if (forkState?.firstRunPending) {
+    logger.info(`Forked devnet (${forkState.source}) detected, first run uses --skip-spec-check --overwrite-spec.`);
+  }
+
+  const ckbCmd = `${ckbBinPath} run -C ${devnetConfigPath}${firstRunFlags}`;
   const minerCmd = `${ckbBinPath} miner -C ${devnetConfigPath}`;
   logger.info(`Launching CKB devnet Node...`);
   try {
@@ -80,6 +90,17 @@ export async function nodeDevnet({ version, binaryPath, daemon }: NodeProp) {
     ckbProcess.stderr?.on('data', (data) => {
       logger.error(['CKB error:', data.toString()]);
     });
+
+    if (forkState?.firstRunPending) {
+      // Only clear the flag once the spawned node is actually up and reports
+      // the fork's genesis; if startup fails, the next run retries the flags.
+      void clearForkFirstRunWhenNodeUp(
+        ckbProcess,
+        settings.devnet.rpcUrl,
+        settings.devnet.configPath,
+        forkState.genesisHash,
+      );
+    }
 
     // Start the second command after 3 seconds
     setTimeout(async () => {
@@ -113,6 +134,51 @@ function resolveDaemonPaths() {
   const logFile = path.join(logDir, DAEMON_LOG_FILE);
   const pidFile = path.join(logDir, DAEMON_PID_FILE);
   return { logDir, logFile, pidFile };
+}
+
+// Poll the devnet RPC until the spawned node answers with the fork's genesis
+// hash, then mark the first run as done so subsequent `offckb node` runs boot
+// normally. Two guards against clearing the flag on the wrong signal:
+//   - the poll aborts when the spawned ckb process exits (e.g. failed boot),
+//   - an answering node is only trusted when its genesis matches the fork
+//     state — an unrelated node occupying the port must not clear the flag.
+async function clearForkFirstRunWhenNodeUp(
+  ckbProcess: ChildProcess,
+  rpcUrl: string,
+  configPath: string,
+  expectedGenesisHash: string,
+) {
+  let processExited = false;
+  const markExited = () => {
+    processExited = true;
+  };
+  ckbProcess.once('exit', markExited);
+  ckbProcess.once('error', markExited);
+
+  const timeoutMs = 10 * 60 * 1000; // large forks take a while to boot
+  const start = Date.now();
+  while (!processExited && Date.now() - start < timeoutMs) {
+    try {
+      const genesisHash = String(await callJsonRpc(rpcUrl, 'get_block_hash', ['0x0'], 5000)).toLowerCase();
+      if (genesisHash !== expectedGenesisHash.toLowerCase()) {
+        logger.warn(
+          `A node is answering at ${rpcUrl} but reports a different genesis (${genesisHash}); ` +
+            'leaving the first-run flags in place.',
+        );
+        return;
+      }
+      markForkFirstRunComplete(configPath);
+      logger.success('Forked devnet is up; first-run spec flags cleared.');
+      return;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
+  if (processExited) {
+    logger.warn('The CKB process exited before the forked devnet came up; first-run flags will be retried next time.');
+  } else {
+    logger.warn('Timed out waiting for the forked devnet to start; first-run flags will be retried next time.');
+  }
 }
 
 function readPidFile(pidFile: string): PidMetadata | null {
