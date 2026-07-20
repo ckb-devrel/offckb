@@ -142,53 +142,6 @@ function validateSourceDir(sourceDir: string): void {
   }
 }
 
-export function commonCkbSourceDirectories(
-  homeDir = os.homedir(),
-  platform: NodeJS.Platform = process.platform,
-): string[] {
-  const neuronRoots =
-    platform === 'darwin'
-      ? [path.join(homeDir, 'Library', 'Application Support', 'Neuron', 'chains')]
-      : platform === 'win32'
-        ? [path.join(homeDir, 'AppData', 'Roaming', 'Neuron', 'chains')]
-        : [
-            path.join(homeDir, '.local', 'share', 'Neuron', 'chains'),
-            path.join(homeDir, '.config', 'Neuron', 'chains'),
-          ];
-
-  return [
-    ...(process.env.CKB_HOME ? [path.resolve(process.env.CKB_HOME)] : []),
-    ...neuronRoots.flatMap((root) => [path.join(root, 'mainnet'), path.join(root, 'testnet')]),
-    path.join(homeDir, '.ckb'),
-  ];
-}
-
-export function discoverCkbSourceDirectories(candidates = commonCkbSourceDirectories()): string[] {
-  return [...new Set(candidates.map((candidate) => path.resolve(candidate)))].filter((candidate) =>
-    isFolderExists(path.join(candidate, 'data', 'db')),
-  );
-}
-
-export function resolveForkSourceDirectory(from?: string, candidates?: string[]): string {
-  if (from) return path.resolve(from);
-
-  const discovered = discoverCkbSourceDirectories(candidates);
-  if (discovered.length === 1) {
-    logger.info(`Auto-detected CKB source directory: ${discovered[0]}`);
-    return discovered[0];
-  }
-  if (discovered.length > 1) {
-    throw new Error(
-      `Found multiple CKB source directories:\n${discovered.map((dir) => `  - ${dir}`).join('\n')}\n` +
-        'Choose one with --from <dir>.',
-    );
-  }
-  throw new Error(
-    'Could not auto-detect a CKB data directory. Start Neuron sync first, set CKB_HOME, ' +
-      'or pass the directory used by `ckb -C` with --from <dir>.',
-  );
-}
-
 // Best-effort detection of a running ckb process using the given directory.
 // Returns null when the check cannot be performed (Windows, no ps).
 function isCkbNodeRunningOn(dir: string): boolean | null {
@@ -458,11 +411,14 @@ function alignConfigsWithOffckb(configPath: string): void {
 }
 
 export async function forkDevnet(options: ForkOptions): Promise<void> {
+  if (!options.from) {
+    throw new Error('Database fork requires a source CKB directory: --from <dir>.');
+  }
   const settings = readSettings();
   const configPath = settings.devnet.configPath;
   const ckbVersion = settings.bins.defaultCKBVersion;
 
-  const sourceDir = resolveForkSourceDirectory(options.from);
+  const sourceDir = path.resolve(options.from);
   validateSourceDir(sourceDir);
   assertSourceNodeStopped(sourceDir);
 

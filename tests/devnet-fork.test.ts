@@ -14,9 +14,7 @@ import {
   copySourceData,
   isolateForkCkbConfig,
   migrationNeededFromExitCode,
-  commonCkbSourceDirectories,
-  discoverCkbSourceDirectories,
-  resolveForkSourceDirectory,
+  forkDevnet,
 } from '../src/devnet/fork';
 import { identifyPublicChainByGenesisHash, MAINNET_GENESIS_HASH, TESTNET_GENESIS_HASH } from '../src/scripts/const';
 
@@ -206,37 +204,9 @@ describe('fork data isolation and migration preflight', () => {
   });
 });
 
-describe('fork source discovery', () => {
-  let root: string;
-  beforeEach(() => {
-    root = fs.mkdtempSync(path.join(os.tmpdir(), 'offckb-fork-discovery-test-'));
-  });
-  afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
-
-  it('includes the standard Neuron source paths for each platform', () => {
-    expect(commonCkbSourceDirectories('/home/alice', 'darwin')).toContain(
-      path.join('/home/alice', 'Library', 'Application Support', 'Neuron', 'chains', 'mainnet'),
-    );
-    expect(commonCkbSourceDirectories('/home/alice', 'linux')).toContain(
-      path.join('/home/alice', '.local', 'share', 'Neuron', 'chains', 'testnet'),
-    );
-  });
-
-  it('selects the only directory that contains data/db', () => {
-    const source = path.join(root, 'mainnet');
-    fs.mkdirSync(path.join(source, 'data', 'db'), { recursive: true });
-    expect(discoverCkbSourceDirectories([source, path.join(root, 'missing')])).toEqual([source]);
-    expect(resolveForkSourceDirectory(undefined, [source])).toBe(source);
-  });
-
-  it('requires an explicit choice when multiple sources are found', () => {
-    const sources = [path.join(root, 'mainnet'), path.join(root, 'testnet')];
-    sources.forEach((source) => fs.mkdirSync(path.join(source, 'data', 'db'), { recursive: true }));
-    expect(() => resolveForkSourceDirectory(undefined, sources)).toThrow('multiple CKB source directories');
-  });
-
-  it('keeps an explicit path even when discovery finds nothing', () => {
-    expect(resolveForkSourceDirectory('./custom', [])).toBe(path.resolve('./custom'));
+describe('fork input mode', () => {
+  it('requires an explicit source directory for a database fork', async () => {
+    await expect(forkDevnet({})).rejects.toThrow('Database fork requires a source CKB directory');
   });
 });
 

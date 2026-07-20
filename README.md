@@ -391,17 +391,14 @@ Pay attention to the `devnet.configPath` and `devnet.dataPath`.
 You can fork an existing Mainnet/Testnet data directory into your local devnet, so it keeps the real on-chain state (deployed contracts, cells) while mining locally with Dummy PoW. This implements the same flow as [Devnet From Existing Data](https://docs.nervos.org/docs/node/devnet-from-existing-data).
 
 ```sh
-# Auto-detect a single common Neuron/CKB data directory:
-offckb devnet fork --dry-run
-
-# Or choose one explicitly:
+# Point at the directory used by the source node's `ckb -C`:
 offckb devnet fork --from /path/to/ckb-data --dry-run
 offckb devnet fork --from /path/to/ckb-data
 offckb node --daemon
 offckb devnet info
 ```
 
-- With no `--from`, offckb searches `CKB_HOME` and common Neuron Mainnet/Testnet directories. If it finds more than one, it lists them and asks you to choose. An explicit `--from` points at the directory the source node runs with (`-C`), which must contain `data/db`.
+- Database fork mode requires `--from`; it points at the directory the source node runs with (`ckb -C`), which must contain `data/db`. Keeping the source explicit makes large database copies predictable in local scripts and CI.
 - Stop the source node first. Use `--dry-run` to validate the source chain, CKB/DB compatibility, migration requirement, and target without replacing the current devnet.
 - The source chain is auto-detected from the source `ckb.toml`; pass `--source mainnet|testnet` when it cannot be detected, and `--spec-file <path>` to use a local chain spec (e.g. offline).
 - The command copies the chain state (your original data is never modified), deliberately excludes peer store/log/tmp data, imports the matching chain spec, patches it for local mining, verifies the genesis hash, and writes a fork receipt.

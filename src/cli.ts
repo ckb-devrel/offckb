@@ -270,7 +270,7 @@ devnetCommand
 devnetCommand
   .command('fork')
   .description('Fork an existing mainnet/testnet chain data directory into the local devnet')
-  .option('--from <dir>', 'Path to the source CKB node directory (auto-detects common Neuron paths when omitted)')
+  .option('--from <dir>', 'Path to the source CKB node directory used with `ckb -C`')
   .option('--source <source>', 'Source chain: mainnet or testnet (auto-detected from the source ckb.toml when omitted)')
   .option('--spec-file <path>', 'Use a local chain spec file instead of downloading it')
   .option('--force', 'Replace the existing devnet (or a previous fork)')
