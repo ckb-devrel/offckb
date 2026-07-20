@@ -210,45 +210,16 @@ export class CKBTui {
     }
   }
 
-  /** Verify against a pinned digest or an upstream checksum manifest. */
+  /** Verify against an independently pinned digest. */
   private static verifyChecksum(version: string, assetName: string, archivePath: string): void {
     const pinnedHash = KNOWN_SHA256[version]?.[assetName];
-    if (pinnedHash) {
-      this.assertChecksum(archivePath, assetName, pinnedHash);
-      return;
-    }
-
-    const checksumUrl = `https://github.com/Officeyutong/ckb-tui/releases/download/${version}/checksums-sha256.txt`;
-
-    const checksumPath = path.join(path.dirname(archivePath), 'checksums-sha256.txt');
-
-    const fetchResult = spawnSync('curl', ['-fsSL', '--max-time', '30', '-o', checksumPath, checksumUrl], {
-      stdio: 'pipe',
-      timeout: 30_000,
-    });
-
-    if (fetchResult.status !== 0) {
+    if (!pinnedHash) {
       throw new Error(
-        `No trusted SHA-256 checksum is available for ckb-tui ${version} (${assetName}). ` +
+        `No trusted SHA-256 checksum is pinned for ckb-tui ${version} (${assetName}). ` +
           'Refusing to install an unverified binary.',
       );
     }
-
-    try {
-      const checksumContent = fs.readFileSync(checksumPath, 'utf8');
-      const expectedHash = this.parseChecksumFile(checksumContent, assetName);
-
-      if (!expectedHash) {
-        throw new Error(`Checksum entry for "${assetName}" was not found; refusing to install an unverified binary.`);
-      }
-      this.assertChecksum(archivePath, assetName, expectedHash);
-    } finally {
-      try {
-        fs.unlinkSync(checksumPath);
-      } catch {
-        // Best effort
-      }
-    }
+    this.assertChecksum(archivePath, assetName, pinnedHash);
   }
 
   private static assertChecksum(archivePath: string, assetName: string, expectedHash: string): void {
@@ -261,23 +232,6 @@ export class CKBTui {
       );
     }
     logger.info('SHA-256 checksum verified successfully.');
-  }
-
-  /**
-   * Parse a standard SHA-256 checksum file (format: "<hash>  <filename>" per line)
-   * and return the hex hash for the given asset name, or null if not found.
-   */
-  private static parseChecksumFile(content: string, assetName: string): string | null {
-    for (const line of content.split('\n')) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) continue;
-
-      const match = trimmed.match(/^([0-9a-fA-F]{64})\s+[*]?(.+)$/);
-      if (match && match[2] === assetName) {
-        return match[1].toLowerCase();
-      }
-    }
-    return null;
   }
 
   /**

@@ -5,13 +5,14 @@ import { validateNetworkOpt, validateUdtAmount, validateUdtKind, validateUdtType
 import { resolvePrivateKey } from '../util/private-key';
 import { logger } from '../util/logger';
 import { warnIfForkIndexerIsBehind } from '../devnet/readiness';
-import { warnIfMainnetForkSigning } from '../util/fork-safety';
+import { validateMainnetForkSigning } from '../util/fork-safety';
 
 export interface TransferOptions extends NetworkOption {
   privkey?: string | null;
   privkeyFile?: string | null;
   udtKind?: UdtKind;
   udtTypeArgs?: string;
+  allowMainnetReplayRisk?: boolean;
 }
 
 export async function transfer(toAddress: string, amount: string, opt: TransferOptions = { network: Network.devnet }) {
@@ -20,7 +21,10 @@ export async function transfer(toAddress: string, amount: string, opt: TransferO
 
   let udtKind: UdtKind | undefined;
   let udtTypeArgs: string | undefined;
-  if (opt.udtTypeArgs) {
+  if (opt.udtKind != null || opt.udtTypeArgs != null) {
+    if (!opt.udtTypeArgs) {
+      throw new Error('UDT type args are required for a UDT transfer');
+    }
     validateUdtAmount(amount);
     udtKind = opt.udtKind ?? 'sudt';
     validateUdtKind(udtKind);
@@ -28,7 +32,7 @@ export async function transfer(toAddress: string, amount: string, opt: TransferO
   }
 
   const privateKey = resolvePrivateKey(opt);
-  warnIfMainnetForkSigning(network, privateKey);
+  const rejectInputsAtOrBeforeBlock = validateMainnetForkSigning(network, privateKey, opt.allowMainnetReplayRisk);
   await warnIfForkIndexerIsBehind(network);
   const ckb = new CKB({ network });
 
@@ -40,6 +44,7 @@ export async function transfer(toAddress: string, amount: string, opt: TransferO
       privateKey,
       udtType,
       kind: udtKind,
+      rejectInputsAtOrBeforeBlock,
     });
 
     logTxSuccess(network, txHash, 'transfer UDT');
@@ -59,6 +64,7 @@ export async function transfer(toAddress: string, amount: string, opt: TransferO
     toAddress,
     amountInCKB: amount,
     privateKey,
+    rejectInputsAtOrBeforeBlock,
   });
   logTxSuccess(network, txHash, 'transfer');
   logger.result({ command: 'transfer', network, amount, toAddress, txHash });

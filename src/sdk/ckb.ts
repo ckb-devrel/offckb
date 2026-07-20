@@ -40,6 +40,7 @@ export interface TransferOption {
   privateKey: HexString;
   toAddress: string;
   amountInCKB: HexNumber;
+  rejectInputsAtOrBeforeBlock?: bigint;
 }
 
 export type TransferAllOption = Pick<TransferOption, 'privateKey' | 'toAddress'>;
@@ -50,6 +51,7 @@ export interface UdtTransferOption {
   amount: HexNumber;
   udtType: ccc.Script;
   kind: UdtKind;
+  rejectInputsAtOrBeforeBlock?: bigint;
 }
 
 export interface UdtIssueOption {
@@ -178,7 +180,12 @@ export class CKB {
     return balanceInCKB;
   }
 
-  async transfer({ privateKey, toAddress, amountInCKB }: TransferOption): Promise<HexString> {
+  async transfer({
+    privateKey,
+    toAddress,
+    amountInCKB,
+    rejectInputsAtOrBeforeBlock,
+  }: TransferOption): Promise<HexString> {
     const signer = this.buildSigner(privateKey);
     const to = await ccc.Address.fromString(toAddress, this.client);
     const tx = ccc.Transaction.from({
@@ -191,6 +198,7 @@ export class CKB {
     });
     await tx.completeInputsByCapacity(signer);
     await tx.completeFeeBy(signer, this.feeRate);
+    await this.assertInputsCreatedAfter(tx, rejectInputsAtOrBeforeBlock);
     const txHash = await signer.sendTransaction(tx);
     return txHash;
   }
@@ -354,7 +362,14 @@ export class CKB {
     return balance.toString();
   }
 
-  async udtTransfer({ privateKey, toAddress, amount, udtType, kind }: UdtTransferOption): Promise<HexString> {
+  async udtTransfer({
+    privateKey,
+    toAddress,
+    amount,
+    udtType,
+    kind,
+    rejectInputsAtOrBeforeBlock,
+  }: UdtTransferOption): Promise<HexString> {
     const signer = this.buildSigner(privateKey);
     const to = await ccc.Address.fromString(toAddress, this.client);
     const amountBigInt = validateUdtAmount(amount);
@@ -395,8 +410,29 @@ export class CKB {
     }
 
     await tx.completeFeeBy(signer, this.feeRate);
+    await this.assertInputsCreatedAfter(tx, rejectInputsAtOrBeforeBlock);
     const txHash = await signer.sendTransaction(tx);
     return txHash;
+  }
+
+  private async assertInputsCreatedAfter(tx: ccc.Transaction, blockNumber?: bigint): Promise<void> {
+    if (blockNumber == null) return;
+
+    for (const input of tx.inputs) {
+      const outPoint = input.previousOutput;
+      const origin = await this.client.getTransactionNoCache(outPoint.txHash);
+      if (origin?.blockNumber == null) {
+        throw new Error(
+          `Refusing to sign: could not verify the origin block of input ${outPoint.txHash}:${outPoint.index}.`,
+        );
+      }
+      if (origin.blockNumber <= blockNumber) {
+        throw new Error(
+          `Refusing to sign: input ${outPoint.txHash}:${outPoint.index} was created at block ${origin.blockNumber}, ` +
+            `at or before the Mainnet fork boundary ${blockNumber}.`,
+        );
+      }
+    }
   }
 
   async udtIssue({ privateKey, kind, amount, typeArgs, toAddress }: UdtIssueOption): Promise<UdtIssueResult> {

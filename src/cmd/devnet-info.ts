@@ -32,7 +32,11 @@ export async function devnetInfo() {
   logger.info(`Node ready: ${result.ready ? 'yes' : 'no'}`);
   if (readiness.nodeTip != null) logger.info(`Node tip: ${readiness.nodeTip}`);
   if (readiness.indexerTip != null) logger.info(`Indexer tip: ${readiness.indexerTip}`);
-  if (readiness.indexerLag != null) logger.info(`Indexer lag: ${readiness.indexerLag}`);
+  if (readiness.indexerLag != null) {
+    const message = `Indexer lag: ${readiness.indexerLag}`;
+    if (readiness.indexerLag > BigInt(0)) logger.warn(`${message}; indexed queries may be stale.`);
+    else logger.info(message);
+  }
   logger.info(`Indexer ready: ${indexerReady ? 'yes' : 'no'}`);
   if (readiness.peers != null) logger.info(`Peers: ${readiness.peers}`);
   if (fork)

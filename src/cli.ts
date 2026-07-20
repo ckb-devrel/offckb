@@ -164,8 +164,9 @@ program
   .option('--network <network>', 'Specify the network to transfer to', 'devnet')
   .option('--privkey <privkey>', 'Specify the private key to transfer (visible in shell history)')
   .option('--privkey-file <path>', 'Read the private key from a local file')
-  .addOption(new Option('--udt-kind <kind>', 'Specify the UDT kind').choices(['sudt', 'xudt']).default('sudt'))
+  .addOption(new Option('--udt-kind <kind>', 'Specify the UDT kind').choices(['sudt', 'xudt']))
   .option('--udt-type-args <typeArgs>', 'Specify the UDT type script args to transfer UDT')
+  .option('--allow-mainnet-replay-risk', 'Allow a non-built-in key on a Mainnet fork (copied inputs remain blocked)')
   .option('-r, --proxy-rpc', 'Use Proxy RPC to connect to blockchain')
   .action(async (toAddress: string, amount: string, options: TransferOptions) => {
     await transfer(toAddress, amount, options);

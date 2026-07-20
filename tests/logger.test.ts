@@ -44,6 +44,16 @@ describe('UnifiedLogger JSON mode', () => {
     expect(parsed.timestamp).toBeDefined();
   });
 
+  it('initializes JSON stderr routing when created in JSON mode', () => {
+    const { transport } = createCapturingTransport();
+    UnifiedLogger.create({ transports: [transport], jsonMode: true });
+
+    const state = transport as unknown as { stderrLevels: Record<string, boolean> };
+    expect(state.stderrLevels).toEqual(
+      expect.objectContaining({ error: true, warn: true, success: true, info: true, debug: true }),
+    );
+  });
+
   it('joins array messages into a single string in JSON mode', () => {
     const { transport, logs } = createCapturingTransport();
     const log = UnifiedLogger.create({ transports: [transport] });

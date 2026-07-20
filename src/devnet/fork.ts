@@ -19,6 +19,7 @@ export interface ForkState {
   genesisHash: string;
   forkedAt: string;
   firstRunPending: boolean;
+  forkBlockNumber?: string;
   databaseMigrated?: boolean;
   networkIsolated?: boolean;
 }
@@ -70,10 +71,14 @@ export function writeForkState(configPath: string, state: ForkState): void {
   fs.renameSync(tempPath, statePath);
 }
 
-export function markForkFirstRunComplete(configPath: string): void {
+export function markForkFirstRunComplete(configPath: string, forkBlockNumber?: string): void {
   const state = readForkState(configPath);
   if (!state || !state.firstRunPending) return;
-  writeForkState(configPath, { ...state, firstRunPending: false });
+  writeForkState(configPath, {
+    ...state,
+    firstRunPending: false,
+    ...(forkBlockNumber == null ? {} : { forkBlockNumber }),
+  });
 }
 
 export function detectSourceFromCkbToml(ckbTomlContent: string): 'mainnet' | 'testnet' | null {

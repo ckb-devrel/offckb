@@ -242,11 +242,11 @@ describe('fork state file', () => {
     expect(readForkState(dir)).toBeNull();
   });
 
-  it('clears firstRunPending while preserving the other fields', () => {
+  it('clears firstRunPending and records the fork boundary while preserving the other fields', () => {
     writeForkState(dir, state);
-    markForkFirstRunComplete(dir);
+    markForkFirstRunComplete(dir, '123');
     const updated = readForkState(dir);
-    expect(updated).toEqual({ ...state, firstRunPending: false });
+    expect(updated).toEqual({ ...state, firstRunPending: false, forkBlockNumber: '123' });
   });
 
   it('markForkFirstRunComplete is a no-op without a state file', () => {

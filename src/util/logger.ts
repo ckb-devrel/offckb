@@ -61,6 +61,7 @@ class UnifiedLogger {
         }),
       ],
     });
+    this.setJsonMode(this.jsonMode);
   }
 
   /**

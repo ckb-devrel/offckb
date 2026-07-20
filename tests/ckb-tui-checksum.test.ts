@@ -38,8 +38,8 @@ describe('ckb-tui checksum policy', () => {
     expect(mockSpawnSync).not.toHaveBeenCalled();
   });
 
-  it('fails closed when an unpinned release has no checksum manifest', () => {
-    mockSpawnSync.mockReturnValue({ status: 22 });
+  it('fails closed for an unpinned release without trusting its release manifest', () => {
+    mockSpawnSync.mockReturnValue({ status: 0 });
     expect(() =>
       (CKBTui as unknown as { verifyChecksum: (...args: string[]) => void }).verifyChecksum(
         'v9.9.9',
@@ -47,5 +47,6 @@ describe('ckb-tui checksum policy', () => {
         archive,
       ),
     ).toThrow('Refusing to install an unverified binary');
+    expect(mockSpawnSync).not.toHaveBeenCalled();
   });
 });

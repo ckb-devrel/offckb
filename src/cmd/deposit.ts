@@ -22,7 +22,9 @@ export async function deposit(
   const ckb = new CKB({ network });
 
   if (network === 'testnet') {
-    return await depositFromTestnetFaucet(toAddress, ckb);
+    const txHash = await depositFromTestnetFaucet(toAddress, ckb);
+    logger.result({ command: 'deposit', network, amount: amountInCKB, toAddress, txHash });
+    return txHash;
   }
 
   // deposit from devnet miner
@@ -65,6 +67,7 @@ async function depositFromTestnetFaucet(ckbAddress: string, ckb: CKB) {
 
   const txHash = await ckb.transferAll({ privateKey: randomAccountPrivateKey, toAddress: ckbAddress });
   logger.info(`Done, check ${buildTestnetTxLink(txHash)} for details.`);
+  return txHash;
 }
 
 async function sendClaimRequest(toAddress: string) {

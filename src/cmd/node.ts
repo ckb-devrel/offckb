@@ -133,6 +133,10 @@ export async function nodeDevnet({ version, binaryPath, daemon }: NodeProp) {
     ckbProcess.kill('SIGTERM');
     throw error;
   }
+  if (ckbExited) {
+    if (!minerProcess.killed) minerProcess.kill('SIGTERM');
+    throw new Error('CKB devnet exited while the miner was starting.');
+  }
 
   const proxy = createRPCProxy(Network.devnet, settings.devnet.rpcUrl, settings.devnet.rpcProxyPort);
   proxy.start();
@@ -216,7 +220,10 @@ async function clearForkFirstRunWhenNodeUp(
         );
         return;
       }
-      markForkFirstRunComplete(configPath);
+      // The miner has not started yet, so this tip is the exact boundary
+      // between copied public-chain state and cells mined on the local fork.
+      const forkBlockNumber = BigInt(String(await callJsonRpc(rpcUrl, 'get_tip_block_number', [], 5000))).toString();
+      markForkFirstRunComplete(configPath, forkBlockNumber);
       logger.success('Forked devnet is up; first-run spec flags cleared.');
       return;
     } catch {

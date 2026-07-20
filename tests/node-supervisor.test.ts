@@ -3,6 +3,9 @@ import { EventEmitter } from 'events';
 const mockSpawn = jest.fn();
 const mockProxyStart = jest.fn();
 const mockProxyStop = jest.fn();
+const mockMarkForkFirstRunComplete = jest.fn();
+const mockCallJsonRpc = jest.fn();
+let mockForkState: { source: 'mainnet'; firstRunPending: boolean; genesisHash: string } | null = null;
 
 jest.mock('child_process', () => ({
   ...jest.requireActual('child_process'),
@@ -23,9 +26,10 @@ jest.mock('../src/cfg/setting', () => ({
   getCKBBinaryPath: () => '/tmp/ckb',
 }));
 jest.mock('../src/devnet/fork', () => ({
-  readForkState: jest.fn().mockReturnValue(null),
-  markForkFirstRunComplete: jest.fn(),
+  readForkState: () => mockForkState,
+  markForkFirstRunComplete: (...args: unknown[]) => mockMarkForkFirstRunComplete(...args),
 }));
+jest.mock('../src/util/json-rpc', () => ({ callJsonRpc: (...args: unknown[]) => mockCallJsonRpc(...args) }));
 jest.mock('../src/devnet/readiness', () => ({
   checkNodeReadiness: jest.fn(),
   waitForNodeReady: jest.fn().mockResolvedValue({ ready: true, rpcUrl: 'http://127.0.0.1:8114' }),
@@ -63,6 +67,7 @@ describe('foreground devnet supervisor', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     process.exitCode = undefined;
+    mockForkState = null;
     ckb = new FakeChild();
     miner = new FakeChild();
     mockSpawn.mockReturnValueOnce(ckb).mockImplementationOnce(() => {
@@ -89,5 +94,35 @@ describe('foreground devnet supervisor', () => {
     expect(ckb.kill).toHaveBeenCalledWith('SIGTERM');
     expect(mockProxyStop).toHaveBeenCalled();
     expect(process.exitCode).toBe(1);
+  });
+
+  it('does not start the proxy when CKB exits while the miner is starting', async () => {
+    mockSpawn.mockReset();
+    mockSpawn.mockReturnValueOnce(ckb).mockImplementationOnce(() => {
+      process.nextTick(() => {
+        ckb.emit('exit', 1, null);
+        miner.emit('spawn');
+      });
+      return miner;
+    });
+
+    await expect(nodeDevnet({})).rejects.toThrow('exited while the miner was starting');
+    expect(miner.kill).toHaveBeenCalledWith('SIGTERM');
+    expect(mockProxyStart).not.toHaveBeenCalled();
+  });
+
+  it('records the source tip as the fork boundary before the miner starts', async () => {
+    const genesisHash = '0x' + 'ab'.repeat(32);
+    mockForkState = { source: 'mainnet', firstRunPending: true, genesisHash };
+    mockCallJsonRpc.mockImplementation(async (_url: string, method: string) => {
+      if (method === 'get_block_hash') return genesisHash;
+      if (method === 'get_tip_block_number') return '0x64';
+      throw new Error(method);
+    });
+
+    await nodeDevnet({});
+
+    expect(mockMarkForkFirstRunComplete).toHaveBeenCalledWith('/tmp/offckb-devnet', '100');
+    expect(mockProxyStart).toHaveBeenCalled();
   });
 });

@@ -7,6 +7,7 @@ import { logger } from '../src/util/logger';
 
 const mockTypeArgs = '0x' + 'ab'.repeat(32);
 const mockUdtType = { codeHash: '0x1234', hashType: 'type', args: mockTypeArgs };
+const mockValidateMainnetForkSigning = jest.fn().mockReturnValue(undefined);
 
 jest.mock('../src/sdk/ckb', () => {
   return {
@@ -51,11 +52,13 @@ jest.mock('../src/devnet/readiness', () => ({
 
 jest.mock('../src/util/fork-safety', () => ({
   warnIfMainnetForkSigning: jest.fn(),
+  validateMainnetForkSigning: (...args: unknown[]) => mockValidateMainnetForkSigning(...args),
 }));
 
 describe('balance command', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockValidateMainnetForkSigning.mockReturnValue(undefined);
   });
 
   it('should print CKB and detected UDT balances by default', async () => {
@@ -99,6 +102,7 @@ describe('balance command', () => {
 describe('transfer command', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockValidateMainnetForkSigning.mockReturnValue(undefined);
   });
 
   it('should transfer CKB by default', async () => {
@@ -113,6 +117,23 @@ describe('transfer command', () => {
     expect(logger.info).toHaveBeenCalledWith('Successfully transfer, txHash:', '0xtxhash');
   });
 
+  it('passes the Mainnet fork boundary to input selection checks', async () => {
+    mockValidateMainnetForkSigning.mockReturnValue(100n);
+    const privateKey = '0x1234567812345678123456781234567812345678123456781234567812345678';
+
+    await transfer('ckt1q9gry5zgmceslalm9x6s5xgnqe9cjn6y0q3c9', '100', {
+      network: Network.devnet,
+      privkey: privateKey,
+      allowMainnetReplayRisk: true,
+    });
+
+    const ckbInstance = (CKB as jest.Mock).mock.results[0].value;
+    expect(mockValidateMainnetForkSigning).toHaveBeenCalledWith(Network.devnet, privateKey, true);
+    expect(ckbInstance.transfer).toHaveBeenCalledWith(
+      expect.objectContaining({ rejectInputsAtOrBeforeBlock: 100n }),
+    );
+  });
+
   it('should transfer UDT when --udt-type-args is provided', async () => {
     await transfer('ckt1q9gry5zgmceslalm9x6s5xgnqe9cjn6y0q3c9', '100', {
       network: Network.devnet,
@@ -125,6 +146,30 @@ describe('transfer command', () => {
     expect(ckbInstance.buildUdtTypeScript).toHaveBeenCalledWith('sudt', mockTypeArgs);
     expect(ckbInstance.udtTransfer).toHaveBeenCalled();
     expect(logger.info).toHaveBeenCalledWith('Successfully transfer UDT, txHash:', '0xtxhash');
+  });
+
+  it('should reject --udt-kind without type args instead of transferring CKB', async () => {
+    await expect(
+      transfer('ckt1q9gry5zgmceslalm9x6s5xgnqe9cjn6y0q3c9', '100', {
+        network: Network.devnet,
+        privkey: '0x1234567812345678123456781234567812345678123456781234567812345678',
+        udtKind: 'sudt',
+      }),
+    ).rejects.toThrow('UDT type args are required');
+
+    expect(CKB).not.toHaveBeenCalled();
+  });
+
+  it('should reject empty UDT type args instead of transferring CKB', async () => {
+    await expect(
+      transfer('ckt1q9gry5zgmceslalm9x6s5xgnqe9cjn6y0q3c9', '100', {
+        network: Network.devnet,
+        privkey: '0x1234567812345678123456781234567812345678123456781234567812345678',
+        udtTypeArgs: '',
+      }),
+    ).rejects.toThrow('UDT type args are required');
+
+    expect(CKB).not.toHaveBeenCalled();
   });
 
   it('should throw when privkey is missing for UDT transfer', async () => {
