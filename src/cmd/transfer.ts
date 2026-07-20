@@ -1,10 +1,15 @@
 import { CKB } from '../sdk/ckb';
 import { NetworkOption, Network, UdtKind } from '../type/base';
 import { logTxSuccess } from '../util/link';
-import { validateNetworkOpt, validateUdtKind, validateUdtTypeArgs } from '../util/validator';
+import { validateNetworkOpt, validateUdtAmount, validateUdtKind, validateUdtTypeArgs } from '../util/validator';
+import { resolvePrivateKey } from '../util/private-key';
+import { logger } from '../util/logger';
+import { warnIfForkIndexerIsBehind } from '../devnet/readiness';
+import { warnIfMainnetForkSigning } from '../util/fork-safety';
 
 export interface TransferOptions extends NetworkOption {
   privkey?: string | null;
+  privkeyFile?: string | null;
   udtKind?: UdtKind;
   udtTypeArgs?: string;
 }
@@ -13,28 +18,41 @@ export async function transfer(toAddress: string, amount: string, opt: TransferO
   const network = opt.network;
   validateNetworkOpt(network);
 
-  if (opt.privkey == null) {
-    throw new Error('--privkey is required!');
+  let udtKind: UdtKind | undefined;
+  let udtTypeArgs: string | undefined;
+  if (opt.udtTypeArgs) {
+    validateUdtAmount(amount);
+    udtKind = opt.udtKind ?? 'sudt';
+    validateUdtKind(udtKind);
+    udtTypeArgs = validateUdtTypeArgs(udtKind, opt.udtTypeArgs);
   }
 
-  const privateKey = opt.privkey;
+  const privateKey = resolvePrivateKey(opt);
+  warnIfMainnetForkSigning(network, privateKey);
+  await warnIfForkIndexerIsBehind(network);
   const ckb = new CKB({ network });
 
-  if (opt.udtTypeArgs) {
-    const kind = opt.udtKind ?? 'sudt';
-    validateUdtKind(kind);
-    const udtTypeArgs = validateUdtTypeArgs(kind, opt.udtTypeArgs);
-    const udtType = await ckb.buildUdtTypeScript(kind, udtTypeArgs);
+  if (udtKind && udtTypeArgs) {
+    const udtType = await ckb.buildUdtTypeScript(udtKind, udtTypeArgs);
     const txHash = await ckb.udtTransfer({
       toAddress,
       amount,
       privateKey,
       udtType,
-      kind,
+      kind: udtKind,
     });
 
     logTxSuccess(network, txHash, 'transfer UDT');
-    return;
+    logger.result({
+      command: 'udt.transfer',
+      network,
+      kind: udtKind,
+      amount,
+      typeArgs: udtTypeArgs,
+      toAddress,
+      txHash,
+    });
+    return txHash;
   }
 
   const txHash = await ckb.transfer({
@@ -43,4 +61,6 @@ export async function transfer(toAddress: string, amount: string, opt: TransferO
     privateKey,
   });
   logTxSuccess(network, txHash, 'transfer');
+  logger.result({ command: 'transfer', network, amount, toAddress, txHash });
+  return txHash;
 }

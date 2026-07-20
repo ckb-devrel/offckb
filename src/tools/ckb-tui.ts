@@ -14,6 +14,17 @@ const EXTRACT_TIMEOUT_MS = 60_000;
 // Strict semver regex: v<major>.<minor>.<patch> (no leading zeros on digits)
 const STRICT_VERSION_REGEX = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 
+// Independently pinned digests for the default release. Keeping these in
+// offckb makes the default installation verifiable even though ckb-tui v0.1.3
+// did not upload a checksums-sha256.txt asset.
+const KNOWN_SHA256: Record<string, Record<string, string>> = {
+  'v0.1.3': {
+    'ckb-tui-with-node-linux-amd64.tar.gz': '33455cefe2c016149fa8fa3abde7960b348d4606afef9279d787ac8a8b59956f',
+    'ckb-tui-with-node-macos-aarch64.tar.gz': 'de18107ec179ced03608da956013e38ae82e6c1fae588f12c17d138ee6ee072c',
+    'ckb-tui-with-node-windows-amd64.zip': '749d8e09fd5d23fc8af12892b7d197add5aae004f7438678023e4a973f3fd58b',
+  },
+};
+
 export class CKBTui {
   private static binaryPath: string | null = null;
 
@@ -152,7 +163,7 @@ export class CKBTui {
         throw new Error(`curl exited with code ${curlResult.status}`);
       }
 
-      // 2. Verify checksum (best-effort: warns if checksum file is unavailable)
+      // 2. Verify checksum. Installation fails closed if no trusted digest exists.
       this.verifyChecksum(version, assetName, archivePath);
 
       // 3. Extract to temp directory
@@ -199,14 +210,14 @@ export class CKBTui {
     }
   }
 
-  /**
-   * Best-effort SHA-256 checksum verification.
-   * Downloads the checksum file published alongside the release asset and
-   * verifies the downloaded archive. Logs a warning (but does not fail) if
-   * the checksum file is unavailable — this maintains compatibility while
-   * the upstream project adopts checksum publishing.
-   */
+  /** Verify against a pinned digest or an upstream checksum manifest. */
   private static verifyChecksum(version: string, assetName: string, archivePath: string): void {
+    const pinnedHash = KNOWN_SHA256[version]?.[assetName];
+    if (pinnedHash) {
+      this.assertChecksum(archivePath, assetName, pinnedHash);
+      return;
+    }
+
     const checksumUrl = `https://github.com/Officeyutong/ckb-tui/releases/download/${version}/checksums-sha256.txt`;
 
     const checksumPath = path.join(path.dirname(archivePath), 'checksums-sha256.txt');
@@ -217,11 +228,10 @@ export class CKBTui {
     });
 
     if (fetchResult.status !== 0) {
-      logger.warn(
-        `SHA-256 checksum file not available for version ${version}. ` +
-          'Skipping integrity verification. Consider asking the upstream maintainer to publish checksum files.',
+      throw new Error(
+        `No trusted SHA-256 checksum is available for ckb-tui ${version} (${assetName}). ` +
+          'Refusing to install an unverified binary.',
       );
-      return;
     }
 
     try {
@@ -229,21 +239,9 @@ export class CKBTui {
       const expectedHash = this.parseChecksumFile(checksumContent, assetName);
 
       if (!expectedHash) {
-        logger.warn(`Checksum entry for "${assetName}" not found in checksums file. Skipping verification.`);
-        return;
+        throw new Error(`Checksum entry for "${assetName}" was not found; refusing to install an unverified binary.`);
       }
-
-      const actualHash = crypto.createHash('sha256').update(fs.readFileSync(archivePath)).digest('hex');
-
-      if (actualHash !== expectedHash) {
-        throw new Error(
-          `SHA-256 checksum mismatch for ${assetName}.\n` +
-            `Expected: ${expectedHash}\nActual:   ${actualHash}\n` +
-            'The downloaded file may be corrupted or tampered with.',
-        );
-      }
-
-      logger.info('SHA-256 checksum verified successfully.');
+      this.assertChecksum(archivePath, assetName, expectedHash);
     } finally {
       try {
         fs.unlinkSync(checksumPath);
@@ -251,6 +249,18 @@ export class CKBTui {
         // Best effort
       }
     }
+  }
+
+  private static assertChecksum(archivePath: string, assetName: string, expectedHash: string): void {
+    const actualHash = crypto.createHash('sha256').update(fs.readFileSync(archivePath)).digest('hex');
+    if (actualHash !== expectedHash) {
+      throw new Error(
+        `SHA-256 checksum mismatch for ${assetName}.\n` +
+          `Expected: ${expectedHash}\nActual:   ${actualHash}\n` +
+          'The downloaded file may be corrupted or tampered with.',
+      );
+    }
+    logger.info('SHA-256 checksum verified successfully.');
   }
 
   /**

@@ -6,6 +6,8 @@ import { validateNetworkOpt } from '../util/validator';
 import { Request } from '../util/request';
 import { RequestInit } from 'node-fetch';
 import { logger } from '../util/logger';
+import { warnIfForkIndexerIsBehind } from '../devnet/readiness';
+import { warnIfMainnetForkSigning } from '../util/fork-safety';
 
 export interface DepositOptions extends NetworkOption {}
 
@@ -25,12 +27,16 @@ export async function deposit(
 
   // deposit from devnet miner
   const privateKey = ckbDevnetMinerAccount.privkey;
+  warnIfMainnetForkSigning(network, privateKey);
+  await warnIfForkIndexerIsBehind(network);
   const txHash = await ckb.transfer({
     toAddress,
     privateKey,
     amountInCKB,
   });
   logger.info('tx hash: ', txHash);
+  logger.result({ command: 'deposit', network, amount: amountInCKB, toAddress, txHash });
+  return txHash;
 }
 
 async function depositFromTestnetFaucet(ckbAddress: string, ckb: CKB) {

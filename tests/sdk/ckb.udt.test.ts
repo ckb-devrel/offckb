@@ -116,9 +116,9 @@ describe('CKB SDK UDT helpers', () => {
 
     it('should build SUDT type script from system scripts', async () => {
       const ckb = createCKB();
-      const type = await ckb.buildUdtTypeScript('sudt', '0x' + '12'.repeat(20));
+      const type = await ckb.buildUdtTypeScript('sudt', '0x' + '12'.repeat(32));
       expect(type.codeHash).toBe('0x' + 'c3'.repeat(32));
-      expect(type.args).toBe('0x' + '12'.repeat(20));
+      expect(type.args).toBe('0x' + '12'.repeat(32));
     });
   });
 
@@ -173,7 +173,7 @@ describe('CKB SDK UDT helpers', () => {
         privateKey: '0x' + '11'.repeat(32),
         kind: 'sudt',
         amount: '100',
-        typeArgs: '0x' + '12'.repeat(20),
+        typeArgs: '0x' + '12'.repeat(32),
       });
 
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('--type-args is ignored'));

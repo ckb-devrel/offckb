@@ -5,7 +5,7 @@ import { udtIssue, udtDestroy } from '../src/cmd/udt';
 import { CKB } from '../src/sdk/ckb';
 import { logger } from '../src/util/logger';
 
-const mockTypeArgs = '0x' + 'ab'.repeat(20);
+const mockTypeArgs = '0x' + 'ab'.repeat(32);
 const mockUdtType = { codeHash: '0x1234', hashType: 'type', args: mockTypeArgs };
 
 jest.mock('../src/sdk/ckb', () => {
@@ -24,7 +24,11 @@ jest.mock('../src/sdk/ckb', () => {
         },
       ]),
       udtTransfer: jest.fn().mockResolvedValue('0xtxhash'),
-      udtIssue: jest.fn().mockResolvedValue('0xissuehash'),
+      udtIssue: jest.fn().mockResolvedValue({
+        txHash: '0xissuehash',
+        typeArgs: mockTypeArgs,
+        receiver: 'ckt1receiver',
+      }),
       udtDestroy: jest.fn().mockResolvedValue('0xdestroyhash'),
     })),
   };
@@ -37,12 +41,17 @@ jest.mock('../src/util/logger', () => ({
     warn: jest.fn(),
     success: jest.fn(),
     debug: jest.fn(),
+    result: jest.fn(),
   },
 }));
 
-function mockProcessExit() {
-  return jest.spyOn(process, 'exit').mockImplementation(() => undefined as never);
-}
+jest.mock('../src/devnet/readiness', () => ({
+  warnIfForkIndexerIsBehind: jest.fn().mockResolvedValue(undefined),
+}));
+
+jest.mock('../src/util/fork-safety', () => ({
+  warnIfMainnetForkSigning: jest.fn(),
+}));
 
 describe('balance command', () => {
   beforeEach(() => {
@@ -50,7 +59,6 @@ describe('balance command', () => {
   });
 
   it('should print CKB and detected UDT balances by default', async () => {
-    const exitSpy = mockProcessExit();
     await balanceOf('ckt1q9gry5zgmceslalm9x6s5xgnqe9cjn6y0q3c9', {
       network: Network.devnet,
     });
@@ -61,12 +69,10 @@ describe('balance command', () => {
     expect(logger.info).toHaveBeenCalledWith('CKB: 1234.5678');
     expect(logger.info).toHaveBeenCalledWith('UDT:');
     expect(logger.info).toHaveBeenCalledWith(`  sudt (args=${mockTypeArgs}): 1000`);
-    expect(exitSpy).toHaveBeenCalledWith(0);
-    exitSpy.mockRestore();
+    expect(logger.result).toHaveBeenCalledWith(expect.objectContaining({ command: 'balance', ckb: '1234.5678' }));
   });
 
   it('should filter UDT balances by kind and type args', async () => {
-    const exitSpy = mockProcessExit();
     await balanceOf('ckt1q9gry5zgmceslalm9x6s5xgnqe9cjn6y0q3c9', {
       network: Network.devnet,
       udtKind: 'sudt',
@@ -76,12 +82,9 @@ describe('balance command', () => {
     const ckbInstance = (CKB as jest.Mock).mock.results[0].value;
     expect(ckbInstance.detectUdtBalances).toHaveBeenCalled();
     expect(logger.info).toHaveBeenCalledWith(`  sudt (args=${mockTypeArgs}): 1000`);
-    expect(exitSpy).toHaveBeenCalledWith(0);
-    exitSpy.mockRestore();
   });
 
   it('should skip UDT scan with --no-udt', async () => {
-    const exitSpy = mockProcessExit();
     await balanceOf('ckt1q9gry5zgmceslalm9x6s5xgnqe9cjn6y0q3c9', {
       network: Network.devnet,
       udt: false,
@@ -90,8 +93,6 @@ describe('balance command', () => {
     const ckbInstance = (CKB as jest.Mock).mock.results[0].value;
     expect(ckbInstance.balance).toHaveBeenCalled();
     expect(ckbInstance.detectUdtBalances).not.toHaveBeenCalled();
-    expect(exitSpy).toHaveBeenCalledWith(0);
-    exitSpy.mockRestore();
   });
 });
 
@@ -130,9 +131,9 @@ describe('transfer command', () => {
     await expect(
       transfer('ckt1q9gry5zgmceslalm9x6s5xgnqe9cjn6y0q3c9', '100', {
         network: Network.devnet,
-        udtTypeArgs: '0xabcd',
+        udtTypeArgs: mockTypeArgs,
       }),
-    ).rejects.toThrow('--privkey is required!');
+    ).rejects.toThrow('--privkey-file');
   });
 });
 
@@ -149,7 +150,7 @@ describe('udt command', () => {
           udtKind: 'sudt',
           privkey: '',
         }),
-      ).rejects.toThrow('--privkey is required!');
+      ).rejects.toThrow('--privkey-file');
     });
 
     it('should issue UDT with privkey', async () => {
@@ -174,7 +175,7 @@ describe('udt command', () => {
           typeArgs: mockTypeArgs,
           privkey: '',
         }),
-      ).rejects.toThrow('--privkey is required!');
+      ).rejects.toThrow('--privkey-file');
     });
 
     it('should destroy UDT with privkey', async () => {

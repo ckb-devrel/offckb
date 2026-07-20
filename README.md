@@ -66,6 +66,7 @@ ckb development network for your first try
 
 Options:
   -V, --version                                 output the version number
+  --json                                        Output one command result as JSON on stdout and logs as NDJSON on stderr
   -h, --help                                    display help for command
 
 Commands:
@@ -84,6 +85,9 @@ Commands:
   debugger                                      Port of the raw CKB Standalone Debugger
   status [options]                              Show ckb-tui status interface
   config <action> [item] [value]                do a configuration action
+  devnet config                                 Edit devnet configuration
+  devnet info                                   Show fork metadata and node/indexer readiness
+  devnet fork [options]                         Fork Mainnet/Testnet state into the local devnet
   help [command]                                display help for command
 ```
 
@@ -141,17 +145,17 @@ offckb node stop
 
 **Agent-Friendly JSON Output**
 
-For programmatic consumption or agent integration, add `--json` to any command to emit structured JSON logs:
+For programmatic consumption or agent integration, add `--json` before or after the command:
 
 ```sh
-offckb node --json
-offckb node --daemon --json
+offckb --json balance ckt1...
+offckb devnet info --json
 ```
 
-Each log line is a single JSON object:
+In JSON mode, stdout is reserved for one stable command result. Progress logs are newline-delimited JSON on stderr, and failures use `{ "ok": false, "code", "message" }` with a non-zero exit code. This lets scripts parse stdout without scraping log messages or stack traces:
 
 ```json
-{ "level": "info", "message": "Launching CKB devnet Node...", "timestamp": "2026-07-07T07:10:00.000Z" }
+{ "ok": true, "command": "balance", "network": "devnet", "address": "ckt1...", "ckb": "4200", "udt": [] }
 ```
 
 **RPC & Proxy RPC**
@@ -173,7 +177,15 @@ Using a proxy RPC server for Testnet/Mainnet is especially helpful for debugging
 
 **Watch Network with TUI**
 
-Once you start the CKB Node, you can use `offckb status --network devnet/testnet/mainnet` to start a CKB-TUI interface to monitor the CKB network from your node.
+Once you start the CKB Node, launch the interactive CKB-TUI for one network:
+
+```sh
+offckb status --network devnet
+offckb status --network testnet
+offckb status --network mainnet
+```
+
+`status` performs a JSON-RPC health check through the proxy before opening the TUI and requires an interactive terminal.
 
 ### 2. Create a New Contract Project {#create-project}
 
@@ -379,15 +391,26 @@ Pay attention to the `devnet.configPath` and `devnet.dataPath`.
 You can fork an existing Mainnet/Testnet data directory into your local devnet, so it keeps the real on-chain state (deployed contracts, cells) while mining locally with Dummy PoW. This implements the same flow as [Devnet From Existing Data](https://docs.nervos.org/docs/node/devnet-from-existing-data).
 
 ```sh
+# Auto-detect a single common Neuron/CKB data directory:
+offckb devnet fork --dry-run
+
+# Or choose one explicitly:
+offckb devnet fork --from /path/to/ckb-data --dry-run
 offckb devnet fork --from /path/to/ckb-data
-offckb node
+offckb node --daemon
+offckb devnet info
 ```
 
-- `--from` points at the directory the source node runs with (`-C`), which must contain `data/db`. Stop the source node first.
+- With no `--from`, offckb searches `CKB_HOME` and common Neuron Mainnet/Testnet directories. If it finds more than one, it lists them and asks you to choose. An explicit `--from` points at the directory the source node runs with (`-C`), which must contain `data/db`.
+- Stop the source node first. Use `--dry-run` to validate the source chain, CKB/DB compatibility, migration requirement, and target without replacing the current devnet.
 - The source chain is auto-detected from the source `ckb.toml`; pass `--source mainnet|testnet` when it cannot be detected, and `--spec-file <path>` to use a local chain spec (e.g. offline).
-- The command copies the chain `data/` (your original data is never modified), imports the matching chain spec, patches it for local mining (Dummy PoW, `cellbase_maturity = 0`), and verifies the genesis hash.
-- The first `offckb node` run automatically boots with `--skip-spec-check --overwrite-spec`; later runs are normal.
+- The command copies the chain state (your original data is never modified), deliberately excludes peer store/log/tmp data, imports the matching chain spec, patches it for local mining, verifies the genesis hash, and writes a fork receipt.
+- Fork networking is outbound-isolated: no bootnodes, persisted peers, peer discovery, or outbound peer slots. `offckb devnet info` displays the observed peer count so this property is visible.
+- If `ckb migrate --check` says the database is old, the preflight stops before changing the devnet. Re-run with `--migrate`; only the copied database is migrated.
+- The first `offckb node` run automatically boots with `--skip-spec-check --overwrite-spec`; later runs are normal. Daemon startup waits for healthy CKB RPC, miner spawn, and proxy health before reporting success.
 - Forking replaces the current devnet; use `--force` to replace an existing devnet/fork, or `offckb clean` to reset back to a pure devnet.
+
+`offckb devnet info` reports RPC readiness, node tip, Indexer tip/lag, peer count, network isolation, and fork metadata. Balance and signing commands warn while the Indexer is unavailable or behind instead of silently presenting incomplete state.
 
 On a forked devnet, `offckb system-scripts`, transfers, deploys and `offckb debug --tx-hash <hash>` work against the real source-chain state, e.g. debugging a failed mainnet transaction fully locally.
 
@@ -455,11 +478,20 @@ LOG_LEVEL=debug offckb node
 
 ## Accounts
 
-OffCKB comes with 20 pre-funded accounts, each initialized with `42_000_000_00000000` capacity in the genesis block.
+On a pure OffCKB devnet, OffCKB comes with 20 pre-funded accounts, each initialized with `42_000_000_00000000` capacity in the genesis block. A fork keeps the source chain genesis and therefore has no OffCKB genesis allocation; built-in dev accounts are funded by locally mined cellbase cells instead.
+
+```sh
+offckb accounts
+offckb accounts --show-private-keys  # trusted local terminals only
+```
+
+On a Mainnet fork, `accounts` re-encodes the same dev lock scripts with the `ckb` address prefix. Once the Indexer is caught up it also reports each account's spendable pure-CKB balance; until then the field is omitted with a warning. Private keys are hidden by default so JSON and agent logs do not collect them.
 
 - All private keys are stored in the `account/keys` file.
 - Detailed information for each account is recorded in `account/account.json`.
 - When deploying contracts, the deployment cost are automatically deducted from these pre-funded accounts. This allows you to test deployments without faucets or manual funding.
+
+For commands that accept a private key, prefer `--privkey-file <path>` or `OFFCKB_PRIVATE_KEY` over `--privkey`, which is visible in shell history and process listings.
 
 :warning: **DO NOT SEND REAL ASSETS TO THESE ACCOUNTS. THE KEYS ARE PUBLIC, AND YOU MAY LOSE YOUR MONEY** :warning:
 

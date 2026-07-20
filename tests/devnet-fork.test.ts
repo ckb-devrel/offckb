@@ -11,6 +11,12 @@ import {
   readForkState,
   writeForkState,
   ForkState,
+  copySourceData,
+  isolateForkCkbConfig,
+  migrationNeededFromExitCode,
+  commonCkbSourceDirectories,
+  discoverCkbSourceDirectories,
+  resolveForkSourceDirectory,
 } from '../src/devnet/fork';
 import { identifyPublicChainByGenesisHash, MAINNET_GENESIS_HASH, TESTNET_GENESIS_HASH } from '../src/scripts/const';
 
@@ -148,6 +154,89 @@ describe('patchDevSpecForFork', () => {
     patchDevSpecForFork(spec, 'testnet');
     expect(spec.pow.func).toBe('Eaglesong');
     expect(spec.params.genesis_epoch_length).toBe(1743);
+  });
+});
+
+describe('fork data isolation and migration preflight', () => {
+  let root: string;
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'offckb-fork-copy-test-'));
+  });
+  afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  it('copies chain state without persisted peers or transient data', () => {
+    const source = path.join(root, 'source');
+    const target = path.join(root, 'target');
+    for (const entry of ['db', 'indexer', 'network/peer_store', 'logs', 'tmp']) {
+      fs.mkdirSync(path.join(source, 'data', entry), { recursive: true });
+      fs.writeFileSync(path.join(source, 'data', entry, 'fixture'), entry);
+    }
+
+    copySourceData(source, target);
+
+    expect(fs.existsSync(path.join(target, 'data', 'db', 'fixture'))).toBe(true);
+    expect(fs.existsSync(path.join(target, 'data', 'indexer', 'fixture'))).toBe(true);
+    expect(fs.existsSync(path.join(target, 'data', 'network'))).toBe(false);
+    expect(fs.existsSync(path.join(target, 'data', 'logs'))).toBe(false);
+    expect(fs.existsSync(path.join(target, 'data', 'tmp'))).toBe(false);
+  });
+
+  it('forces forked nodes into an outbound-isolated network config', () => {
+    const config = isolateForkCkbConfig({
+      network: { bootnodes: ['mainnet-peer'], max_outbound_peers: 8, discovery_local_address: true },
+      logger: { filter: 'warn,ckb-script=debug' },
+    }) as Record<string, any>;
+
+    expect(config.network).toEqual(
+      expect.objectContaining({
+        bootnodes: [],
+        max_outbound_peers: 0,
+        whitelist_only: true,
+        discovery_local_address: false,
+      }),
+    );
+    expect(config.logger.filter).toBe('warn');
+  });
+
+  it('understands ckb migrate --check exit codes', () => {
+    expect(migrationNeededFromExitCode(0)).toBe(true);
+    expect(migrationNeededFromExitCode(64)).toBe(false);
+    expect(() => migrationNeededFromExitCode(1)).toThrow('migrate --check failed');
+    expect(() => migrationNeededFromExitCode(null)).toThrow('migrate --check failed');
+  });
+});
+
+describe('fork source discovery', () => {
+  let root: string;
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'offckb-fork-discovery-test-'));
+  });
+  afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  it('includes the standard Neuron source paths for each platform', () => {
+    expect(commonCkbSourceDirectories('/home/alice', 'darwin')).toContain(
+      path.join('/home/alice', 'Library', 'Application Support', 'Neuron', 'chains', 'mainnet'),
+    );
+    expect(commonCkbSourceDirectories('/home/alice', 'linux')).toContain(
+      path.join('/home/alice', '.local', 'share', 'Neuron', 'chains', 'testnet'),
+    );
+  });
+
+  it('selects the only directory that contains data/db', () => {
+    const source = path.join(root, 'mainnet');
+    fs.mkdirSync(path.join(source, 'data', 'db'), { recursive: true });
+    expect(discoverCkbSourceDirectories([source, path.join(root, 'missing')])).toEqual([source]);
+    expect(resolveForkSourceDirectory(undefined, [source])).toBe(source);
+  });
+
+  it('requires an explicit choice when multiple sources are found', () => {
+    const sources = [path.join(root, 'mainnet'), path.join(root, 'testnet')];
+    sources.forEach((source) => fs.mkdirSync(path.join(source, 'data', 'db'), { recursive: true }));
+    expect(() => resolveForkSourceDirectory(undefined, sources)).toThrow('multiple CKB source directories');
+  });
+
+  it('keeps an explicit path even when discovery finds nothing', () => {
+    expect(resolveForkSourceDirectory('./custom', [])).toBe(path.resolve('./custom'));
   });
 });
 

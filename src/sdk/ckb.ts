@@ -60,6 +60,12 @@ export interface UdtIssueOption {
   toAddress?: string;
 }
 
+export interface UdtIssueResult {
+  txHash: HexString;
+  typeArgs: HexString;
+  receiver: string;
+}
+
 export interface UdtDestroyOption {
   privateKey: HexString;
   kind: UdtKind;
@@ -393,7 +399,7 @@ export class CKB {
     return txHash;
   }
 
-  async udtIssue({ privateKey, kind, amount, typeArgs, toAddress }: UdtIssueOption): Promise<HexString> {
+  async udtIssue({ privateKey, kind, amount, typeArgs, toAddress }: UdtIssueOption): Promise<UdtIssueResult> {
     const signer = this.buildSigner(privateKey);
     const signerAddress = await signer.getAddressObjSecp256k1();
     const to = toAddress ? await ccc.Address.fromString(toAddress, this.client) : signerAddress;
@@ -405,7 +411,7 @@ export class CKB {
         logger.warn('SUDT type args are derived from the issuer lock hash; --type-args is ignored');
       }
       const issuerLockHash = signerAddress.script.hash();
-      resolvedTypeArgs = ('0x' + issuerLockHash.slice(2, 42)) as HexString;
+      resolvedTypeArgs = issuerLockHash as HexString;
     } else {
       if (typeArgs) {
         resolvedTypeArgs = validateUdtTypeArgs(kind, typeArgs);
@@ -435,7 +441,7 @@ export class CKB {
     await tx.completeInputsByCapacity(signer);
     await tx.completeFeeBy(signer, this.feeRate);
     const txHash = await signer.sendTransaction(tx);
-    return txHash;
+    return { txHash, typeArgs: resolvedTypeArgs, receiver: to.toString() };
   }
 
   async udtDestroy(

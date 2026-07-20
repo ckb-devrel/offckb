@@ -78,8 +78,7 @@ describe('UDT validation helpers', () => {
   });
 
   describe('validateUdtAmount', () => {
-    it('should accept non-negative decimal integers', () => {
-      expect(validateUdtAmount('0')).toBe(0n);
+    it('should accept positive decimal integers', () => {
       expect(validateUdtAmount('1')).toBe(1n);
       expect(validateUdtAmount('123456789012345678901234567890')).toBe(123456789012345678901234567890n);
     });
@@ -91,6 +90,7 @@ describe('UDT validation helpers', () => {
       expect(() => validateUdtAmount('1e10')).toThrow('invalid UDT amount');
       expect(() => validateUdtAmount('')).toThrow('invalid UDT amount');
       expect(() => validateUdtAmount('abc')).toThrow('invalid UDT amount');
+      expect(() => validateUdtAmount('0')).toThrow('must be greater than zero');
     });
 
     it('should reject amounts exceeding u128 max', () => {
@@ -102,7 +102,7 @@ describe('UDT validation helpers', () => {
 
   describe('validateUdtTypeArgs', () => {
     it('should accept valid SUDT type args', () => {
-      const args = '0x' + '12'.repeat(20);
+      const args = '0x' + '12'.repeat(32);
       expect(validateUdtTypeArgs('sudt', args)).toBe(args);
     });
 
@@ -118,7 +118,7 @@ describe('UDT validation helpers', () => {
 
     it('should reject wrong lengths', () => {
       expect(() => validateUdtTypeArgs('sudt', '0x' + '12'.repeat(19))).toThrow('invalid SUDT type args length');
-      expect(() => validateUdtTypeArgs('sudt', '0x' + '12'.repeat(32))).toThrow('invalid SUDT type args length');
+      expect(() => validateUdtTypeArgs('sudt', '0x' + '12'.repeat(20))).toThrow('invalid SUDT type args length');
       expect(() => validateUdtTypeArgs('xudt', '0x' + '12'.repeat(31))).toThrow('invalid xUDT type args length');
     });
   });

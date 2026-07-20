@@ -54,12 +54,10 @@ export async function devnetConfig(options: DevnetConfigOptions = {}) {
     }
 
     if (!process.stdin.isTTY || !process.stdout.isTTY) {
-      logger.error('Interactive devnet config editor requires a TTY terminal.');
-      logger.info('Use non-interactive mode instead, e.g.:');
-      logger.info('  offckb devnet config --set ckb.logger.filter=info');
-      logger.info('  offckb devnet config --set miner.client.poll_interval=1500');
-      process.exitCode = 1;
-      return;
+      throw new Error(
+        'Interactive devnet config editor requires a TTY terminal. Use non-interactive mode, e.g. ' +
+          '`offckb devnet config --set ckb.logger.filter=info`.',
+      );
     }
 
     const isSaved = await runDevnetConfigTui(editor, configPath);
@@ -72,13 +70,10 @@ export async function devnetConfig(options: DevnetConfigOptions = {}) {
 
     logger.info('No changes saved.');
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    logger.error(message);
-
+    let message = error instanceof Error ? error.message : String(error);
     if (error instanceof InitializationError) {
-      logger.info('Tip: run `offckb node` once to initialize devnet config files first.');
+      message += ' Tip: run `offckb node` once to initialize devnet config files first.';
     }
-
-    process.exitCode = 1;
+    throw new Error(message);
   }
 }
