@@ -305,15 +305,14 @@ export function copySourceData(sourceDir: string, configPath: string): void {
   // Full copy on purpose: never hardlink — RocksDB appends to WAL/MANIFEST in
   // place, and linked files would corrupt the source chain.
   const excludedTopLevelEntries = new Set(['network', 'logs', 'tmp']);
-  fs.cpSync(sourceData, targetData, {
-    recursive: true,
-    filter: (sourcePath) => {
-      const relative = path.relative(sourceData, sourcePath);
-      if (!relative) return true;
-      const topLevelEntry = relative.split(path.sep)[0];
-      return !excludedTopLevelEntries.has(topLevelEntry);
-    },
-  });
+  fs.mkdirSync(targetData, { recursive: true });
+  // Enumerate top-level entries instead of relying on fs.cp's filter paths,
+  // which may use Windows extended-length prefixes and bypass relative-path
+  // comparisons.
+  for (const entry of fs.readdirSync(sourceData)) {
+    if (excludedTopLevelEntries.has(entry)) continue;
+    fs.cpSync(path.join(sourceData, entry), path.join(targetData, entry), { recursive: true });
+  }
   logger.info('Excluded source network peers and transient logs/tmp data from the fork.');
 }
 
