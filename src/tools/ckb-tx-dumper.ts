@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { ccc } from '@ckb-ccc/core';
 import { cccA } from '@ckb-ccc/core/advanced';
+import { callJsonRpc } from '../util/json-rpc';
 import { logger } from '../util/logger';
 
 export interface DumpOption {
@@ -57,7 +58,10 @@ interface MockTransaction {
   mock_info: {
     inputs: MockInput[];
     cell_deps: MockCellDep[];
-    header_deps: string[];
+    // ckb-debugger expects full JSON-RPC header views here (each with its
+    // `hash` field), not bare header hashes — see ckb-mock-tx-types
+    // ReprMockInfo.header_deps: Vec<json_types::HeaderView>.
+    header_deps: unknown[];
   };
   tx: {
     version: string;
@@ -205,6 +209,18 @@ async function resolveInputs(client: ccc.Client, inputs: ccc.CellInput[]): Promi
   return resolved;
 }
 
+async function resolveHeaderDeps(rpc: string, headerDeps: ccc.Hex[]): Promise<unknown[]> {
+  const headers: unknown[] = [];
+  for (const hash of headerDeps) {
+    const header = await callJsonRpc(rpc, 'get_header', [hash]);
+    if (!header) {
+      throw new Error(`Header not found: ${hash}`);
+    }
+    headers.push(header);
+  }
+  return headers;
+}
+
 export async function dumpTransaction({ rpc, txJsonFilePath, outputFilePath }: DumpOption) {
   try {
     const isTestnet = /testnet/i.test(rpc);
@@ -221,16 +237,17 @@ export async function dumpTransaction({ rpc, txJsonFilePath, outputFilePath }: D
     const txJson = JSON.parse(fs.readFileSync(txJsonFilePath, 'utf-8'));
     const tx = cccA.JsonRpcTransformers.transactionTo(txJson);
 
-    const [cell_deps, inputs] = await Promise.all([
+    const [cell_deps, inputs, header_deps] = await Promise.all([
       resolveCellDeps(client, tx.cellDeps),
       resolveInputs(client, tx.inputs),
+      resolveHeaderDeps(rpc, tx.headerDeps),
     ]);
 
     const mockTx: MockTransaction = {
       mock_info: {
         inputs,
         cell_deps,
-        header_deps: tx.headerDeps.map((h) => h.toString()),
+        header_deps,
       },
       tx: {
         version: '0x' + tx.version.toString(16),

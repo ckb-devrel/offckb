@@ -6,6 +6,7 @@ import path from 'path';
 import { cccA } from '@ckb-ccc/core/advanced';
 import { Network } from '../type/base';
 import { encodeBinPathForTerminal } from '../util/encoding';
+import { callJsonRpc } from '../util/json-rpc';
 import { logger } from '../util/logger';
 
 export async function debugTransaction(txHash: string, network: Network) {
@@ -87,13 +88,31 @@ export async function buildTxFileOptionBy(txHash: string, network: Network) {
   if (!fs.existsSync(outputFilePath)) {
     const rpc = settings[network].rpcUrl;
     const txJsonFilePath = buildTransactionJsonFilePath(network, txHash);
-    if (!fs.existsSync(outputFilePath)) {
-      fs.mkdirSync(path.dirname(outputFilePath), { recursive: true });
+    if (!fs.existsSync(txJsonFilePath)) {
+      await fetchTransactionIntoCache(rpc, txHash, txJsonFilePath);
     }
     await dumpTransaction({ rpc, txJsonFilePath, outputFilePath });
   }
   const opt = `--tx-file ${encodeBinPathForTerminal(outputFilePath)}`;
   return opt;
+}
+
+// Fallback for transactions that never went through the local RPC proxy
+// (e.g. historical transactions on a forked devnet): pull the transaction
+// from the node and cache it in the same JSON-RPC format the proxy stores.
+async function fetchTransactionIntoCache(rpc: string, txHash: string, txJsonFilePath: string) {
+  logger.info(`Transaction ${txHash} not found in local cache, fetching from ${rpc} ..`);
+  const result = await callJsonRpc(rpc, 'get_transaction', [txHash]).catch((error: Error) => {
+    throw new Error(`Failed to fetch transaction ${txHash} from ${rpc}: ${error.message}`);
+  });
+  if (!result?.transaction) {
+    throw new Error(
+      `Transaction ${txHash} not found on ${rpc}. ` +
+        `Check the hash and the --network option, or send the transaction through the offckb RPC proxy first.`,
+    );
+  }
+  fs.mkdirSync(path.dirname(txJsonFilePath), { recursive: true });
+  fs.writeFileSync(txJsonFilePath, JSON.stringify(result.transaction, null, 2));
 }
 
 export function buildTransactionJsonFilePath(network: Network, txHash: string) {

@@ -1,26 +1,22 @@
 import { ccc, CellDepInfoLike, KnownScript, Script } from '@ckb-ccc/core';
 import { readSettings } from '../cfg/setting';
-import { systemCellToScriptInfo } from '../cmd/system-scripts';
 import { getDevnetListHashes, ListHashes, SpecHashes } from '../util/list-hashes';
 import { logger } from '../util/logger';
-import { TYPE_ID_SCRIPT } from './const';
+import { TYPE_ID_SCRIPT, identifyPublicChainByGenesisHash, PublicChainIdentity } from './const';
+import { MAINNET_SYSTEM_SCRIPTS, TESTNET_SYSTEM_SCRIPTS } from './public';
 import { SystemScriptsRecord, SystemScriptName, SystemScript } from './type';
 import toml from '@iarna/toml';
-import { extractScriptNameFromPath } from './util';
+import { extractScriptNameFromPath, systemCellToScriptInfo } from './util';
 
-export function getDevnetSystemScriptsFromListHashes(): SystemScriptsRecord | null {
-  const settings = readSettings();
-  const listHashesString = getDevnetListHashes(settings.bins.defaultCKBVersion);
-  if (!listHashesString) {
-    logger.info(`list-hashes not found!`);
-    return null;
-  }
+export interface DevnetSystemScripts {
+  scripts: SystemScriptsRecord;
+  // Which well-known chain the devnet's genesis belongs to, or null for a
+  // pure/custom devnet. A forked devnet self-identifies via its genesis hash.
+  forkedFrom: PublicChainIdentity | null;
+  genesisHash: string;
+}
 
-  const listHashes = toml.parse(listHashesString) as unknown as ListHashes;
-  const chainSpecHashes: SpecHashes | null = Object.values(listHashes)[0];
-  if (chainSpecHashes == null) {
-    throw new Error(`invalid chain spec hashes file ${listHashesString}`);
-  }
+function buildSystemScriptsFromSpecHashes(chainSpecHashes: SpecHashes): SystemScriptsRecord {
   const systemScriptArray = chainSpecHashes.system_cells
     .map((cell) => {
       // Extract the file name from the path using the helper function
@@ -61,6 +57,50 @@ export function getDevnetSystemScriptsFromListHashes(): SystemScriptsRecord | nu
   return systemScripts;
 }
 
+// `ckb list-hashes` only reports what the chain spec declares in genesis.
+// Post-genesis deployments (sudt/xudt/omnilock/spore on mainnet and testnet)
+// can never appear there, so for a forked devnet we fill the gaps from the
+// well-known static records of the chain the genesis belongs to. Genesis
+// scripts always come from list-hashes — the chain's own spec wins.
+function supplementFromStaticRecord(scripts: SystemScriptsRecord, staticRecord: SystemScriptsRecord): void {
+  for (const [name, script] of Object.entries(staticRecord)) {
+    const key = name as SystemScriptName;
+    if (scripts[key] == null && script != null) {
+      // deep clone so callers can never mutate the shared static record
+      scripts[key] = JSON.parse(JSON.stringify(script)) as SystemScript;
+    }
+  }
+}
+
+export function resolveDevnetSystemScripts(): DevnetSystemScripts | null {
+  const settings = readSettings();
+  const listHashesString = getDevnetListHashes(settings.bins.defaultCKBVersion);
+  if (!listHashesString) {
+    logger.info(`list-hashes not found!`);
+    return null;
+  }
+
+  const listHashes = toml.parse(listHashesString) as unknown as ListHashes;
+  const chainSpecHashes: SpecHashes | null = Object.values(listHashes)[0];
+  if (chainSpecHashes == null) {
+    throw new Error(`invalid chain spec hashes file ${listHashesString}`);
+  }
+
+  const scripts = buildSystemScriptsFromSpecHashes(chainSpecHashes);
+  const forkedFrom = identifyPublicChainByGenesisHash(chainSpecHashes.genesis);
+  if (forkedFrom === 'mainnet') {
+    supplementFromStaticRecord(scripts, MAINNET_SYSTEM_SCRIPTS);
+  } else if (forkedFrom === 'testnet') {
+    supplementFromStaticRecord(scripts, TESTNET_SYSTEM_SCRIPTS);
+  }
+
+  return { scripts, forkedFrom, genesisHash: chainSpecHashes.genesis };
+}
+
+export function getDevnetSystemScriptsFromListHashes(): SystemScriptsRecord | null {
+  return resolveDevnetSystemScripts()?.scripts ?? null;
+}
+
 export function toCCCKnownScripts(scripts: SystemScriptsRecord) {
   const DEVNET_SCRIPTS: Record<string, Pick<Script, 'codeHash' | 'hashType'> & { cellDeps: CellDepInfoLike[] }> = {
     [KnownScript.Secp256k1Blake160]: scripts.secp256k1_blake160_sighash_all!.script,
@@ -95,4 +135,18 @@ export function buildCCCDevnetKnownScripts() {
       >
     | undefined = toCCCKnownScripts(devnetSystemScripts);
   return devnetKnownScripts;
+}
+
+// Build the ccc client for the devnet. A forked devnet carries the source
+// chain's genesis, so a mainnet fork must use the `ckb` address prefix
+// (ClientPublicMainnet); everything else uses the `ckt` prefix. Known scripts
+// always come from the fork-aware resolver above.
+export function buildDevnetCCCClient(url: string, fallbacks: string[] = []) {
+  const resolved = resolveDevnetSystemScripts();
+  if (resolved == null) {
+    throw new Error('can not getSystemScriptsFromListHashes in devnet');
+  }
+  const scripts = toCCCKnownScripts(resolved.scripts);
+  const ClientCtor = resolved.forkedFrom === 'mainnet' ? ccc.ClientPublicMainnet : ccc.ClientPublicTestnet;
+  return new ClientCtor({ url, scripts, fallbacks });
 }
