@@ -2,6 +2,7 @@ import { CKB, UdtBalanceInfo } from '../sdk/ckb';
 import { validateNetworkOpt } from '../util/validator';
 import { NetworkOption, Network, UdtKind } from '../type/base';
 import { logger } from '../util/logger';
+import { warnIfForkIndexerIsBehind } from '../devnet/readiness';
 
 export interface BalanceOption extends NetworkOption {
   udtKind?: UdtKind;
@@ -12,6 +13,8 @@ export interface BalanceOption extends NetworkOption {
 export async function balanceOf(address: string, opt: BalanceOption = { network: Network.devnet }) {
   const network = opt.network;
   validateNetworkOpt(network);
+
+  await warnIfForkIndexerIsBehind(network);
 
   const ckb = new CKB({ network });
 
@@ -29,8 +32,9 @@ export async function balanceOf(address: string, opt: BalanceOption = { network:
       logger.info(`  ${udt.kind} (args=${udt.args}): ${udt.balance}`);
     }
   }
-
-  process.exit(0);
+  const result = { command: 'balance', network, address, ckb: balanceInCKB, udt: filtered };
+  logger.result(result);
+  return result;
 }
 
 function filterUdtBalances(balances: UdtBalanceInfo[], opt: BalanceOption): UdtBalanceInfo[] {

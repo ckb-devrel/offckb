@@ -3,20 +3,22 @@ import { NetworkOption, Network } from '../type/base';
 import { buildTestnetTxLink } from '../util/link';
 import { validateNetworkOpt } from '../util/validator';
 import { logger } from '../util/logger';
+import { resolvePrivateKey } from '../util/private-key';
+import { warnIfForkIndexerIsBehind } from '../devnet/readiness';
+import { warnIfMainnetForkSigning } from '../util/fork-safety';
 
 export interface TransferAllOptions extends NetworkOption {
   privkey?: string | null;
+  privkeyFile?: string | null;
 }
 
 export async function transferAll(toAddress: string, opt: TransferAllOptions = { network: Network.devnet }) {
   const network = opt.network;
   validateNetworkOpt(network);
 
-  if (opt.privkey == null) {
-    throw new Error('--privkey is required!');
-  }
-
-  const privateKey = opt.privkey;
+  const privateKey = resolvePrivateKey(opt);
+  warnIfMainnetForkSigning(network, privateKey);
+  await warnIfForkIndexerIsBehind(network);
   const ckb = new CKB({ network });
 
   const txHash = await ckb.transferAll({
@@ -25,8 +27,11 @@ export async function transferAll(toAddress: string, opt: TransferAllOptions = {
   });
   if (network === 'testnet') {
     logger.info(`Successfully transfer, check ${buildTestnetTxLink(txHash)} for details.`);
-    return;
+    logger.result({ command: 'transfer-all', network, toAddress, txHash });
+    return txHash;
   }
 
   logger.info('Successfully transfer, txHash:', txHash);
+  logger.result({ command: 'transfer-all', network, toAddress, txHash });
+  return txHash;
 }

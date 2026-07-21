@@ -1,5 +1,6 @@
-import { execFileSync, execSync } from 'child_process';
+import { execFileSync, execSync, spawnSync } from 'child_process';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import toml, { JsonMap } from '@iarna/toml';
 import { cachePath, getCKBBinaryPath, packageRootPath, readSettings } from '../cfg/setting';
@@ -18,13 +19,18 @@ export interface ForkState {
   genesisHash: string;
   forkedAt: string;
   firstRunPending: boolean;
+  forkBlockNumber?: string;
+  databaseMigrated?: boolean;
+  networkIsolated?: boolean;
 }
 
 export interface ForkOptions {
-  from: string;
+  from?: string;
   source?: 'mainnet' | 'testnet';
   specFile?: string;
   force?: boolean;
+  migrate?: boolean;
+  dryRun?: boolean;
 }
 
 export const FORK_STATE_FILE = 'fork.json';
@@ -65,10 +71,14 @@ export function writeForkState(configPath: string, state: ForkState): void {
   fs.renameSync(tempPath, statePath);
 }
 
-export function markForkFirstRunComplete(configPath: string): void {
+export function markForkFirstRunComplete(configPath: string, forkBlockNumber?: string): void {
   const state = readForkState(configPath);
   if (!state || !state.firstRunPending) return;
-  writeForkState(configPath, { ...state, firstRunPending: false });
+  writeForkState(configPath, {
+    ...state,
+    firstRunPending: false,
+    ...(forkBlockNumber == null ? {} : { forkBlockNumber }),
+  });
 }
 
 export function detectSourceFromCkbToml(ckbTomlContent: string): 'mainnet' | 'testnet' | null {
@@ -244,7 +254,7 @@ async function resolveSpecFile(
   }
 }
 
-function copySourceData(sourceDir: string, configPath: string): void {
+export function copySourceData(sourceDir: string, configPath: string): void {
   const sourceData = path.join(sourceDir, 'data');
   const targetData = path.join(configPath, 'data');
   logger.info(`Copying chain data from ${sourceData} to ${targetData} ..`);
@@ -252,7 +262,28 @@ function copySourceData(sourceDir: string, configPath: string): void {
   fs.mkdirSync(configPath, { recursive: true });
   // Full copy on purpose: never hardlink — RocksDB appends to WAL/MANIFEST in
   // place, and linked files would corrupt the source chain.
-  fs.cpSync(sourceData, targetData, { recursive: true });
+  const excludedTopLevelEntries = new Set(['network', 'logs', 'tmp']);
+  fs.mkdirSync(targetData, { recursive: true });
+  // Enumerate top-level entries instead of relying on fs.cp's filter paths,
+  // which may use Windows extended-length prefixes and bypass relative-path
+  // comparisons.
+  for (const entry of fs.readdirSync(sourceData)) {
+    if (excludedTopLevelEntries.has(entry)) continue;
+    fs.cpSync(path.join(sourceData, entry), path.join(targetData, entry), { recursive: true });
+  }
+  logger.info('Excluded source network peers and transient logs/tmp data from the fork.');
+}
+
+export function isolateForkCkbConfig(config: Record<string, unknown>): Record<string, unknown> {
+  const network = { ...((config.network as Record<string, unknown>) ?? {}) };
+  network.bootnodes = [];
+  network.max_outbound_peers = 0;
+  network.whitelist_only = true;
+  network.discovery_local_address = false;
+
+  const loggerConfig = { ...((config.logger as Record<string, unknown>) ?? {}) };
+  loggerConfig.filter = 'warn';
+  return { ...config, network, logger: loggerConfig };
 }
 
 function runCkbInit(ckbBinPath: string, configPath: string, specFile: string): string {
@@ -261,7 +292,49 @@ function runCkbInit(ckbBinPath: string, configPath: string, specFile: string): s
   // inside double quotes).
   const args = ['init', '-C', configPath, '--chain', 'dev', '--import-spec', specFile, '--force'];
   logger.debug(`Running: ${ckbBinPath} ${args.join(' ')}`);
-  return execFileSync(ckbBinPath, args, { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+  return execFileSync(ckbBinPath, args, {
+    encoding: 'utf8',
+    maxBuffer: 16 * 1024 * 1024,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+}
+
+export function migrationNeededFromExitCode(status: number | null): boolean {
+  if (status === 0) return true;
+  if (status === 64) return false;
+  throw new Error(`ckb migrate --check failed with exit code ${status ?? 'unknown'}`);
+}
+
+function isDatabaseMigrationNeeded(ckbBinPath: string, configPath: string): boolean {
+  const result = spawnSync(ckbBinPath, ['migrate', '--check', '-C', configPath], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  if (result.error) {
+    throw new Error(`Could not check the CKB database version: ${result.error.message}`);
+  }
+  try {
+    return migrationNeededFromExitCode(result.status);
+  } catch (error) {
+    const details = [result.stdout, result.stderr].filter(Boolean).join('\n').trim();
+    throw new Error(`${(error as Error).message}${details ? `: ${details}` : ''}`);
+  }
+}
+
+function migrateDatabaseCopy(ckbBinPath: string, configPath: string): void {
+  logger.info('Migrating the copied database (the source directory remains untouched) ..');
+  const result = spawnSync(ckbBinPath, ['migrate', '--force', '-C', configPath], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  if (result.error || result.status !== 0) {
+    const details = [result.stdout, result.stderr].filter(Boolean).join('\n').trim();
+    throw new Error(
+      `Failed to migrate the copied database: ${result.error?.message ?? `exit code ${result.status}`}` +
+        `${details ? `\n${details}` : ''}`,
+    );
+  }
+  logger.success('Copied database migration completed.');
 }
 
 // Best-effort read of the source directory's own chain identity. `ckb
@@ -281,6 +354,44 @@ function readSourceGenesisHash(ckbBinPath: string, sourceDir: string): string | 
   }
 }
 
+function validateForkSpec(
+  ckbBinPath: string,
+  sourceDir: string,
+  specFile: string,
+  declaredSource: ForkSource | null,
+): { source: ForkSource; genesisHash: string } {
+  const tempConfigPath = fs.mkdtempSync(path.join(os.tmpdir(), 'offckb-fork-preflight-'));
+  try {
+    const initOutput = runCkbInit(ckbBinPath, tempConfigPath, specFile);
+    const genesisHash = parseGenesisHashFromInitOutput(initOutput);
+    if (!genesisHash) {
+      throw new Error(`Could not parse the genesis hash from ckb init output:\n${initOutput}`);
+    }
+
+    const source = declaredSource ?? identifyPublicChainByGenesisHash(genesisHash) ?? 'custom';
+    if (source !== 'custom') {
+      const expected = expectedGenesisHash(source);
+      if (genesisHash !== expected) {
+        throw new Error(
+          `Genesis hash mismatch: expected ${expected} for ${source}, got ${genesisHash}. ` +
+            'This usually means the chain spec does not match the source data.',
+        );
+      }
+    }
+
+    const sourceGenesisHash = readSourceGenesisHash(ckbBinPath, sourceDir);
+    if (sourceGenesisHash && sourceGenesisHash !== genesisHash) {
+      throw new Error(
+        `The source directory is configured for a different chain (genesis ${sourceGenesisHash}) ` +
+          `than the imported spec (genesis ${genesisHash}). Pass a matching --source or --spec-file.`,
+      );
+    }
+    return { source, genesisHash };
+  } finally {
+    fs.rmSync(tempConfigPath, { recursive: true, force: true });
+  }
+}
+
 // Overwrite the ckb-init-generated configs with offckb's own devnet configs so
 // the fork behaves like a normal offckb devnet (miner account as block
 // assembler, RPC on 8114 with the Indexer module, proxy on 28114). The
@@ -289,7 +400,12 @@ function alignConfigsWithOffckb(configPath: string): void {
   const settings = readSettings();
   const devnetSourcePath = path.resolve(packageRootPath, './ckb/devnet');
 
-  fs.copyFileSync(path.join(devnetSourcePath, 'ckb.toml'), path.join(configPath, 'ckb.toml'));
+  const ckbConfigPath = path.join(configPath, 'ckb.toml');
+  const parsedCkbConfig = toml.parse(
+    fs.readFileSync(path.join(devnetSourcePath, 'ckb.toml'), 'utf8'),
+  ) as unknown as Record<string, unknown>;
+  const ckbConfig = isolateForkCkbConfig(parsedCkbConfig);
+  fs.writeFileSync(ckbConfigPath, toml.stringify(ckbConfig as unknown as JsonMap));
   fs.copyFileSync(path.join(devnetSourcePath, 'default.db-options'), path.join(configPath, 'default.db-options'));
 
   const minerToml = fs.readFileSync(path.join(devnetSourcePath, 'ckb-miner.toml'), 'utf8');
@@ -300,6 +416,9 @@ function alignConfigsWithOffckb(configPath: string): void {
 }
 
 export async function forkDevnet(options: ForkOptions): Promise<void> {
+  if (!options.from) {
+    throw new Error('Database fork requires a source CKB directory: --from <dir>.');
+  }
   const settings = readSettings();
   const configPath = settings.devnet.configPath;
   const ckbVersion = settings.bins.defaultCKBVersion;
@@ -307,18 +426,6 @@ export async function forkDevnet(options: ForkOptions): Promise<void> {
   const sourceDir = path.resolve(options.from);
   validateSourceDir(sourceDir);
   assertSourceNodeStopped(sourceDir);
-  assertOffckbDevnetStopped();
-
-  if (isFolderExists(configPath)) {
-    if (!options.force) {
-      throw new Error(
-        `A devnet already exists at ${configPath}. Re-run with --force to replace it, ` +
-          `or reset it first with: offckb clean`,
-      );
-    }
-    logger.info(`Removing existing devnet at ${configPath} ..`);
-    fs.rmSync(configPath, { recursive: true, force: true });
-  }
 
   // Identify the source chain: explicit flag > ckb.toml bundled spec.
   let source: ForkSource | null = options.source ?? null;
@@ -337,6 +444,53 @@ export async function forkDevnet(options: ForkOptions): Promise<void> {
 
   await installCKBBinary(ckbVersion);
   const ckbBinPath = getCKBBinaryPath(ckbVersion);
+  const databaseMigrationNeeded = isDatabaseMigrationNeeded(ckbBinPath, sourceDir);
+  const sourcePeerStoreDetected = fs.existsSync(path.join(sourceDir, 'data', 'network', 'peer_store'));
+  const specFile = await resolveSpecFile(options, source ?? 'mainnet', ckbVersion);
+  const specPreflight = validateForkSpec(ckbBinPath, sourceDir, specFile, source);
+  source = specPreflight.source;
+
+  logger.info(
+    `Fork preflight: source=${source}, genesis=${specPreflight.genesisHash}, CKB=${ckbVersion}, migration=${databaseMigrationNeeded ? 'required' : 'not required'}.`,
+  );
+  if (sourcePeerStoreDetected) {
+    logger.info('A persisted source peer store was detected and will be excluded from the fork.');
+  }
+  if (options.dryRun) {
+    logger.success('Fork preflight passed. No devnet files were changed.');
+    logger.result({
+      command: 'devnet.fork.preflight',
+      sourceDir,
+      source,
+      genesisHash: specPreflight.genesisHash,
+      ckbVersion,
+      databaseMigrationNeeded,
+      sourcePeerStoreDetected,
+      sourcePeerStoreWillBeExcluded: true,
+      targetDir: configPath,
+    });
+    return;
+  }
+
+  assertOffckbDevnetStopped();
+
+  if (databaseMigrationNeeded && !options.migrate) {
+    throw new Error(
+      `The source database requires migration for CKB v${ckbVersion}. ` +
+        'Re-run with --migrate to migrate only the copied devnet, leaving the source untouched.',
+    );
+  }
+
+  if (isFolderExists(configPath)) {
+    if (!options.force) {
+      throw new Error(
+        `A devnet already exists at ${configPath}. Re-run with --force to replace it, ` +
+          `or reset it first with: offckb clean`,
+      );
+    }
+    logger.info(`Removing existing devnet at ${configPath} ..`);
+    fs.rmSync(configPath, { recursive: true, force: true });
+  }
 
   try {
     // Inside the try so a failed copy (disk full, permissions, I/O) gets the
@@ -344,42 +498,14 @@ export async function forkDevnet(options: ForkOptions): Promise<void> {
     // attempt as an "existing devnet".
     copySourceData(sourceDir, configPath);
 
-    const specFile = await resolveSpecFile(options, source ?? 'mainnet', ckbVersion);
-
     const initOutput = runCkbInit(ckbBinPath, configPath, specFile);
     const genesisHash = parseGenesisHashFromInitOutput(initOutput);
     if (!genesisHash) {
       throw new Error(`Could not parse the genesis hash from ckb init output:\n${initOutput}`);
     }
-
-    // A custom spec may still be a well-known chain; let the chain data
-    // self-identify via its genesis hash.
-    if (source == null) {
-      source = identifyPublicChainByGenesisHash(genesisHash) ?? 'custom';
-    }
-    if (source !== 'custom') {
-      const expected = expectedGenesisHash(source);
-      if (genesisHash !== expected) {
-        throw new Error(
-          `Genesis hash mismatch: expected ${expected} for ${source}, got ${genesisHash}. ` +
-            `This usually means the chain spec does not match the source data. ` +
-            `(Importing a testnet spec with a CKB older than v0.207.0 sets a wrong genesis_epoch_length, ` +
-            `see nervosnetwork/ckb#5205.)`,
-        );
-      }
-    }
-
-    // The genesis above comes from the imported spec alone — it cannot see
-    // that --source/--spec-file contradicts the copied data (e.g. a mainnet
-    // spec over testnet data would pass and only fail when the node boots).
-    // Cross-check the source directory's own configured genesis and reject
-    // mismatches now. Skipped (null) when the source is not a standard
-    // config dir; the node's boot-time genesis check remains the backstop.
-    const sourceGenesisHash = readSourceGenesisHash(ckbBinPath, sourceDir);
-    if (sourceGenesisHash && sourceGenesisHash !== genesisHash) {
+    if (genesisHash !== specPreflight.genesisHash) {
       throw new Error(
-        `The source directory is configured for a different chain (genesis ${sourceGenesisHash}) ` +
-          `than the imported spec (genesis ${genesisHash}). Pass a matching --source or --spec-file.`,
+        `Chain spec changed after preflight: expected genesis ${specPreflight.genesisHash}, got ${genesisHash}.`,
       );
     }
 
@@ -392,6 +518,10 @@ export async function forkDevnet(options: ForkOptions): Promise<void> {
 
     alignConfigsWithOffckb(configPath);
 
+    if (databaseMigrationNeeded) {
+      migrateDatabaseCopy(ckbBinPath, configPath);
+    }
+
     const state: ForkState = {
       source,
       sourceDir,
@@ -399,12 +529,29 @@ export async function forkDevnet(options: ForkOptions): Promise<void> {
       genesisHash,
       forkedAt: new Date().toISOString(),
       firstRunPending: true,
+      databaseMigrated: databaseMigrationNeeded,
+      networkIsolated: true,
     };
     writeForkState(configPath, state);
 
     logger.success(`Devnet forked from ${sourceDir} (${source}, genesis ${genesisHash}).`);
-    logger.info('Start it with: offckb node');
+    logger.info('Start it with: offckb node --daemon');
     logger.info('The first run applies --skip-spec-check --overwrite-spec automatically.');
+    logger.info('Then inspect node, Indexer, and network isolation with: offckb devnet info');
+    logger.info('List source-prefix dev addresses with: offckb accounts');
+    if (source === 'mainnet') {
+      logger.warn('MAINNET FORK REPLAY RISK: only sign with built-in dev keys and fork-mined cells.');
+    }
+    logger.result({
+      command: 'devnet.fork',
+      sourceDir,
+      source,
+      genesisHash,
+      ckbVersion,
+      databaseMigrated: databaseMigrationNeeded,
+      networkIsolated: true,
+      next: ['offckb node --daemon', 'offckb devnet info', 'offckb accounts'],
+    });
   } catch (error) {
     // Leave no half-forked devnet behind.
     fs.rmSync(configPath, { recursive: true, force: true });

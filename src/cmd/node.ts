@@ -4,12 +4,12 @@ import * as path from 'path';
 import { initChainIfNeeded } from '../node/init-chain';
 import { installCKBBinary } from '../node/install';
 import { getCKBBinaryPath, readSettings } from '../cfg/setting';
-import { encodeBinPathForTerminal } from '../util/encoding';
 import { createRPCProxy } from '../tools/rpc-proxy';
 import { markForkFirstRunComplete, readForkState } from '../devnet/fork';
 import { callJsonRpc } from '../util/json-rpc';
 import { Network } from '../type/base';
 import { logger } from '../util/logger';
+import { checkNodeReadiness, waitForNodeReady } from '../devnet/readiness';
 
 export interface NodeProp {
   version?: string;
@@ -22,12 +22,21 @@ interface PidMetadata {
   pid: number;
   scriptPath: string;
   startedAt: string;
+  status?: 'starting' | 'running';
 }
 
 const DAEMON_LOG_DIR = 'logs';
 const DAEMON_LOG_FILE = 'daemon.log';
 const DAEMON_PID_FILE = 'daemon.pid';
 const DAEMON_CHILD_ENV = 'OFFCKB_DAEMON_CHILD';
+const NODE_READY_TIMEOUT_MS = 90_000;
+const FORK_NODE_READY_TIMEOUT_MS = 10 * 60_000;
+
+function cleanChildOutput(data: unknown): string {
+  // CKB colors its output even when it is redirected. Strip ANSI control
+  // sequences so JSON logs stay machine-readable.
+  return String(data).replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '');
+}
 
 export function startNode({ version, network = Network.devnet, binaryPath, daemon }: NodeProp) {
   if (binaryPath && network !== Network.devnet) {
@@ -59,14 +68,14 @@ export async function nodeDevnet({ version, binaryPath, daemon }: NodeProp) {
   let ckbBinPath = '';
 
   if (binaryPath) {
-    ckbBinPath = encodeBinPathForTerminal(binaryPath);
+    ckbBinPath = binaryPath;
     logger.info(`Using custom CKB binary path: ${ckbBinPath}`);
   } else {
     await installCKBBinary(ckbVersion);
-    ckbBinPath = encodeBinPathForTerminal(getCKBBinaryPath(ckbVersion));
+    ckbBinPath = getCKBBinaryPath(ckbVersion);
   }
   await initChainIfNeeded();
-  const devnetConfigPath = encodeBinPathForTerminal(settings.devnet.configPath);
+  const devnetConfigPath = settings.devnet.configPath;
 
   // A forked devnet must boot once with --skip-spec-check --overwrite-spec so
   // the imported (and patched) spec replaces the source chain's stored spec.
@@ -76,56 +85,101 @@ export async function nodeDevnet({ version, binaryPath, daemon }: NodeProp) {
     logger.info(`Forked devnet (${forkState.source}) detected, first run uses --skip-spec-check --overwrite-spec.`);
   }
 
-  const ckbCmd = `${ckbBinPath} run -C ${devnetConfigPath}${firstRunFlags}`;
-  const minerCmd = `${ckbBinPath} miner -C ${devnetConfigPath}`;
   logger.info(`Launching CKB devnet Node...`);
-  try {
-    // Run first command
-    const ckbProcess = exec(ckbCmd);
-    // Log first command's output
-    ckbProcess.stdout?.on('data', (data) => {
-      logger.info(['CKB:', data.toString()]);
-    });
+  const runArgs = ['run', '-C', devnetConfigPath];
+  if (firstRunFlags) runArgs.push('--skip-spec-check', '--overwrite-spec');
+  const ckbProcess = spawn(ckbBinPath, runArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
+  ckbProcess.stdout?.on('data', (data) => logger.info(['CKB:', cleanChildOutput(data)]));
+  ckbProcess.stderr?.on('data', (data) => logger.error(['CKB error:', cleanChildOutput(data)]));
 
-    ckbProcess.stderr?.on('data', (data) => {
-      logger.error(['CKB error:', data.toString()]);
-    });
+  let ckbExited = false;
+  ckbProcess.once('exit', () => {
+    ckbExited = true;
+  });
+  ckbProcess.once('error', () => {
+    ckbExited = true;
+  });
 
-    if (forkState?.firstRunPending) {
-      // Only clear the flag once the spawned node is actually up and reports
-      // the fork's genesis; if startup fails, the next run retries the flags.
-      void clearForkFirstRunWhenNodeUp(
-        ckbProcess,
-        settings.devnet.rpcUrl,
-        settings.devnet.configPath,
-        forkState.genesisHash,
-      );
-    }
-
-    // Start the second command after 3 seconds
-    setTimeout(async () => {
-      try {
-        // Run second command
-        const minerProcess = exec(minerCmd);
-        minerProcess.stdout?.on('data', (data) => {
-          logger.info(['CKB-Miner:', data.toString()]);
-        });
-        minerProcess.stderr?.on('data', (data) => {
-          logger.error(['CKB-Miner error:', data.toString()]);
-        });
-
-        // by default we start the proxy server
-        const ckbRpc = settings.devnet.rpcUrl;
-        const port = settings.devnet.rpcProxyPort;
-        const proxy = createRPCProxy(Network.devnet, ckbRpc, port);
-        proxy.start();
-      } catch (error) {
-        logger.error('Error running CKB-Miner:', error);
-      }
-    }, 3000);
-  } catch (error) {
-    logger.error('Error:', error);
+  const timeoutMs = forkState ? FORK_NODE_READY_TIMEOUT_MS : NODE_READY_TIMEOUT_MS;
+  const readiness = await waitForNodeReady(settings.devnet.rpcUrl, timeoutMs, () => !ckbExited);
+  if (!readiness.ready) {
+    if (!ckbExited) ckbProcess.kill('SIGTERM');
+    throw new Error(`CKB devnet failed to become ready: ${readiness.error ?? 'CKB process exited'}`);
   }
+  if (ckbExited) {
+    throw new Error('CKB devnet exited immediately after its readiness check.');
+  }
+
+  if (forkState?.firstRunPending) {
+    await clearForkFirstRunWhenNodeUp(
+      ckbProcess,
+      settings.devnet.rpcUrl,
+      settings.devnet.configPath,
+      forkState.genesisHash,
+    );
+  }
+
+  let minerProcess: ChildProcess;
+  try {
+    minerProcess = spawn(ckbBinPath, ['miner', '-C', devnetConfigPath], { stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (error) {
+    ckbProcess.kill('SIGTERM');
+    throw new Error(`CKB miner failed to start: ${(error as Error).message}`);
+  }
+  minerProcess.stdout?.on('data', (data) => logger.info(['CKB-Miner:', cleanChildOutput(data)]));
+  minerProcess.stderr?.on('data', (data) => logger.error(['CKB-Miner error:', cleanChildOutput(data)]));
+  try {
+    await waitForChildSpawn(minerProcess, 'CKB miner');
+  } catch (error) {
+    ckbProcess.kill('SIGTERM');
+    throw error;
+  }
+  if (ckbExited) {
+    if (!minerProcess.killed) minerProcess.kill('SIGTERM');
+    throw new Error('CKB devnet exited while the miner was starting.');
+  }
+
+  const proxy = createRPCProxy(Network.devnet, settings.devnet.rpcUrl, settings.devnet.rpcProxyPort);
+  proxy.start();
+  logger.success(`CKB devnet is ready at ${settings.devnet.rpcUrl}.`);
+  logger.result({
+    command: 'node',
+    network: Network.devnet,
+    daemon: false,
+    rpcUrl: settings.devnet.rpcUrl,
+    proxyUrl: `http://127.0.0.1:${settings.devnet.rpcProxyPort}`,
+  });
+
+  // Treat CKB, miner and proxy as one service. A dead CKB must not leave a
+  // healthy-looking proxy and a miner that retries forever.
+  let serviceStopping = false;
+  const stopService = (component: 'CKB node' | 'CKB miner', code: number | null, signal: NodeJS.Signals | null) => {
+    if (serviceStopping) return;
+    serviceStopping = true;
+    if (component !== 'CKB node' && !ckbProcess.killed) ckbProcess.kill('SIGTERM');
+    if (component !== 'CKB miner' && !minerProcess.killed) minerProcess.kill('SIGTERM');
+    proxy.stop();
+    if (process.env[DAEMON_CHILD_ENV] === '1') cleanupPidFile(resolveDaemonPaths().pidFile);
+    logger.error(`${component} exited unexpectedly (code=${code ?? 'null'}, signal=${signal ?? 'none'}).`);
+    process.exitCode = typeof code === 'number' && code > 0 ? code : 1;
+  };
+  ckbProcess.once('exit', (code, signal) => stopService('CKB node', code, signal));
+  minerProcess.once('exit', (code, signal) => stopService('CKB miner', code, signal));
+}
+
+function waitForChildSpawn(child: ChildProcess, label: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const onSpawn = () => {
+      child.removeListener('error', onError);
+      resolve();
+    };
+    const onError = (error: Error) => {
+      child.removeListener('spawn', onSpawn);
+      reject(new Error(`${label} failed to start: ${error.message}`));
+    };
+    child.once('spawn', onSpawn);
+    child.once('error', onError);
+  });
 }
 
 function resolveDaemonPaths() {
@@ -167,7 +221,10 @@ async function clearForkFirstRunWhenNodeUp(
         );
         return;
       }
-      markForkFirstRunComplete(configPath);
+      // The miner has not started yet, so this tip is the exact boundary
+      // between copied public-chain state and cells mined on the local fork.
+      const forkBlockNumber = BigInt(String(await callJsonRpc(rpcUrl, 'get_tip_block_number', [], 5000))).toString();
+      markForkFirstRunComplete(configPath, forkBlockNumber);
       logger.success('Forked devnet is up; first-run spec flags cleared.');
       return;
     } catch {
@@ -208,6 +265,7 @@ function readPidFile(pidFile: string): PidMetadata | null {
         pid,
         scriptPath: parsed.scriptPath,
         startedAt: parsed.startedAt ?? new Date(0).toISOString(),
+        status: parsed.status,
       };
     }
   } catch {
@@ -221,6 +279,38 @@ function readPidFile(pidFile: string): PidMetadata | null {
 
 function writePidFile(pidFile: string, metadata: PidMetadata) {
   fs.writeFileSync(pidFile, JSON.stringify(metadata, null, 2));
+}
+
+function reservePidFile(pidFile: string, scriptPath: string): void {
+  let fd: number;
+  try {
+    fd = fs.openSync(pidFile, 'wx');
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err.code === 'EEXIST') {
+      throw new Error('A CKB devnet daemon startup is already in progress. Try again after it completes.');
+    }
+    throw new Error(`Failed to reserve daemon PID file ${pidFile}: ${err.message}`);
+  }
+
+  let writeError: Error | undefined;
+  try {
+    const reservation: PidMetadata = {
+      pid: process.pid,
+      scriptPath,
+      startedAt: new Date().toISOString(),
+      status: 'starting',
+    };
+    fs.writeFileSync(fd, JSON.stringify(reservation, null, 2));
+  } catch (error) {
+    writeError = error as Error;
+  } finally {
+    fs.closeSync(fd);
+  }
+  if (writeError) {
+    cleanupPidFile(pidFile);
+    throw new Error(`Failed to initialize daemon PID reservation ${pidFile}: ${writeError.message}`);
+  }
 }
 
 function resolveCliEntry(): string | null {
@@ -247,11 +337,15 @@ function resolveCliEntry(): string | null {
 }
 
 function isProcessAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
     process.kill(pid, 0);
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err.code === 'ESRCH') return false;
+    if (err.code === 'EPERM') throw new Error(`Permission denied when checking daemon process ${pid}.`);
+    throw error;
   }
 }
 
@@ -265,10 +359,15 @@ function cleanupPidFile(pidFile: string) {
 
 function waitForProcessExit(pid: number, timeoutMs: number): Promise<boolean> {
   const start = Date.now();
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const check = () => {
-      if (!isProcessAlive(pid)) {
-        resolve(true);
+      try {
+        if (!isProcessAlive(pid)) {
+          resolve(true);
+          return;
+        }
+      } catch (error) {
+        reject(error);
         return;
       }
       if (Date.now() - start >= timeoutMs) {
@@ -352,37 +451,93 @@ function terminateProcess(pid: number, signal: 'SIGTERM' | 'SIGKILL'): Promise<v
   });
 }
 
-function startDaemon() {
+async function failDaemonStartup(error: Error, pid: number, pidFile: string): Promise<never> {
+  let exited = false;
+  try {
+    exited = !isProcessAlive(pid);
+    if (!exited) {
+      await terminateProcess(pid, 'SIGTERM');
+      exited = await waitForProcessExit(pid, 5000);
+      if (!exited) {
+        await terminateProcess(pid, 'SIGKILL');
+        exited = await waitForProcessExit(pid, 5000);
+      }
+    }
+  } catch {
+    // The child may have exited while cleanup signals were sent. If liveness
+    // cannot be checked, preserve the PID file for a later explicit stop.
+    try {
+      exited = !isProcessAlive(pid);
+    } catch {
+      exited = false;
+    }
+  }
+
+  if (exited) {
+    cleanupPidFile(pidFile);
+  } else {
+    error.message += ` Process ${pid} is still running; PID file was preserved.`;
+  }
+  throw error;
+}
+
+async function startDaemon() {
   const { logDir, logFile, pidFile } = resolveDaemonPaths();
+
+  try {
+    fs.mkdirSync(logDir, { recursive: true });
+  } catch (error) {
+    throw new Error(`Failed to prepare daemon log directory at ${logDir}: ${(error as Error).message}`);
+  }
+
+  const settings = readSettings();
+  const activeNode = await checkNodeReadiness(settings.devnet.rpcUrl, 1000);
+  if (activeNode.ready) {
+    throw new Error(
+      `A CKB node is already answering at ${settings.devnet.rpcUrl}. Stop it before starting daemon mode.`,
+    );
+  }
 
   // Prevent duplicate daemon starts. If a daemon is already running, refuse
   // to overwrite its PID file.
   const existing = readPidFile(pidFile);
-  if (existing && isProcessAlive(existing.pid)) {
-    logger.error(`A CKB devnet daemon is already running (PID ${existing.pid}). Stop it first with: offckb node stop`);
-    return;
-  }
-  if (existing && !isProcessAlive(existing.pid)) {
-    // Stale PID file from a crashed daemon; clean it up before starting anew.
+  if (existing) {
+    if (isProcessAlive(existing.pid)) {
+      const identityOk = await verifyDaemonIdentity(existing.pid, existing);
+      if (identityOk) {
+        if (existing.status === 'starting') {
+          throw new Error(`Another CKB devnet daemon startup is already in progress (PID ${existing.pid}).`);
+        }
+        throw new Error(
+          `A CKB devnet daemon is already running (PID ${existing.pid}). Stop it first with: offckb node stop`,
+        );
+      }
+      logger.warn(
+        `PID ${existing.pid} from ${pidFile} belongs to another process; removing stale daemon metadata without signaling it.`,
+      );
+    }
+    // Stale PID file from a crashed daemon; clean it up before atomically
+    // reserving the same control file for this startup attempt.
     cleanupPidFile(pidFile);
-  }
-
-  let out: number | undefined;
-  let err: number | undefined;
-  try {
-    fs.mkdirSync(logDir, { recursive: true });
-    out = fs.openSync(logFile, 'a');
-    err = fs.openSync(logFile, 'a');
-  } catch (error) {
-    logger.error(`Failed to prepare daemon log directory or log file at ${logFile}:`, error);
-    return;
   }
 
   const scriptPath = resolveCliEntry();
   if (!scriptPath) {
-    logger.error('Unable to determine the CLI entry point for daemon mode. Set OFFCKB_CLI_PATH to the offckb script.');
+    throw new Error(
+      'Unable to determine the CLI entry point for daemon mode. Set OFFCKB_CLI_PATH to the offckb script.',
+    );
+  }
+  reservePidFile(pidFile, scriptPath);
+
+  let out: number | undefined;
+  let err: number | undefined;
+  try {
+    out = fs.openSync(logFile, 'a');
+    err = fs.openSync(logFile, 'a');
+  } catch (error) {
     closeFileDescriptors(out, err);
-    return;
+    cleanupPidFile(pidFile);
+    throw new Error(`Failed to prepare daemon log directory or log file at ${logFile}: ${(error as Error).message}`);
   }
 
   const childArgs = process.argv.slice(2).filter((arg) => arg !== '--daemon');
@@ -396,15 +551,15 @@ function startDaemon() {
       env: childEnv,
     });
   } catch (error) {
-    logger.error('Failed to spawn daemon process:', error);
     closeFileDescriptors(out, err);
-    return;
+    cleanupPidFile(pidFile);
+    throw new Error(`Failed to spawn daemon process: ${(error as Error).message}`);
   }
 
   if (!child.pid) {
-    logger.error('Failed to spawn daemon process: no PID returned.');
     closeFileDescriptors(out, err);
-    return;
+    cleanupPidFile(pidFile);
+    throw new Error('Failed to spawn daemon process: no PID returned.');
   }
 
   child.unref();
@@ -418,16 +573,50 @@ function startDaemon() {
     pid: child.pid,
     scriptPath,
     startedAt: new Date().toISOString(),
+    status: 'starting',
   };
-  writePidFile(pidFile, metadata);
+  try {
+    writePidFile(pidFile, metadata);
+  } catch (error) {
+    closeFileDescriptors(out, err);
+    return failDaemonStartup(error as Error, child.pid, pidFile);
+  }
 
   // File descriptors are now owned by the spawned child; close our copies.
   closeFileDescriptors(out, err);
 
-  logger.success(`CKB devnet daemon started with PID ${child.pid}.`);
+  const proxyUrl = `http://127.0.0.1:${settings.devnet.rpcProxyPort}`;
+  try {
+    const forkState = readForkState(settings.devnet.configPath);
+    const timeoutMs = forkState ? FORK_NODE_READY_TIMEOUT_MS : NODE_READY_TIMEOUT_MS;
+    // The proxy only starts after the child has a healthy CKB RPC and has
+    // successfully spawned the miner, so this is the daemon's service-level
+    // readiness check rather than a port/process check.
+    const readiness = await waitForNodeReady(proxyUrl, timeoutMs, () => isProcessAlive(child.pid!));
+    if (!readiness.ready) {
+      throw new Error(
+        `CKB devnet daemon failed to become ready. See ${logFile}. ${readiness.error ?? 'Daemon process exited.'}`,
+      );
+    }
+    writePidFile(pidFile, { ...metadata, status: 'running' });
+  } catch (error) {
+    return failDaemonStartup(error as Error, child.pid, pidFile);
+  }
+
+  logger.success(`CKB devnet daemon started with PID ${child.pid} and passed its RPC/proxy health check.`);
   logger.info(`Logs: ${logFile}`);
   logger.info(`PID file: ${pidFile}`);
   logger.info('Stop the daemon with: offckb node stop');
+  logger.result({
+    command: 'node',
+    network: Network.devnet,
+    daemon: true,
+    pid: child.pid,
+    rpcUrl: settings.devnet.rpcUrl,
+    proxyUrl,
+    logFile,
+    pidFile,
+  });
 }
 
 function closeFileDescriptors(...fds: (number | undefined)[]) {
@@ -447,29 +636,33 @@ export async function stopNode() {
   const metadata = readPidFile(pidFile);
   if (!metadata) {
     logger.warn(`No daemon PID file found at ${pidFile}. Is the devnet daemon running?`);
+    logger.result({ command: 'node.stop', stopped: false, reason: 'not-running' });
     return;
   }
 
   const pid = metadata.pid;
   if (!Number.isInteger(pid) || pid <= 0) {
-    logger.error(`Invalid PID in ${pidFile}: ${pid}`);
     cleanupPidFile(pidFile);
-    return;
+    throw new Error(`Invalid PID in ${pidFile}: ${pid}`);
   }
 
-  if (!isProcessAlive(pid)) {
+  const processAlive = isProcessAlive(pid);
+  if (!processAlive) {
     logger.warn(`Daemon process ${pid} is not running.`);
     cleanupPidFile(pidFile);
+    logger.result({ command: 'node.stop', stopped: false, reason: 'stale-pid', pid });
     return;
+  }
+  if (metadata.status === 'starting') {
+    throw new Error(`CKB devnet daemon startup is still in progress (PID ${pid}). Try stopping it again shortly.`);
   }
 
   const identityOk = await verifyDaemonIdentity(pid, metadata);
   if (!identityOk) {
-    logger.error(
+    throw new Error(
       `Process ${pid} does not appear to be the offckb daemon. Refusing to send signals to avoid killing an unrelated process. ` +
         `If you are sure this is the daemon, stop it manually and remove ${pidFile}.`,
     );
-    return;
   }
 
   logger.info(`Stopping CKB devnet daemon (PID ${pid})...`);
@@ -480,16 +673,13 @@ export async function stopNode() {
     if (err.code === 'ESRCH') {
       logger.warn(`Daemon process ${pid} is not running.`);
       cleanupPidFile(pidFile);
+      logger.result({ command: 'node.stop', stopped: false, reason: 'already-exited', pid });
       return;
     }
     if (err.code === 'EPERM') {
-      logger.error(`Permission denied when sending SIGTERM to daemon process ${pid}.`);
-    } else {
-      logger.error(`Failed to send SIGTERM to daemon process ${pid}:`, error);
+      throw new Error(`Permission denied when sending SIGTERM to daemon process ${pid}.`);
     }
-    // Still try to clean up the PID file so the user can recover.
-    cleanupPidFile(pidFile);
-    return;
+    throw new Error(`Failed to send SIGTERM to daemon process ${pid}: ${err.message}`);
   }
 
   const exited = await waitForProcessExit(pid, 5000);
@@ -498,12 +688,13 @@ export async function stopNode() {
     try {
       await terminateProcess(pid, 'SIGKILL');
     } catch (error) {
-      logger.error(`Failed to send SIGKILL to daemon process ${pid}:`, error);
+      throw new Error(`Failed to send SIGKILL to daemon process ${pid}: ${(error as Error).message}`);
     }
   }
 
   cleanupPidFile(pidFile);
   logger.success('CKB devnet daemon stopped.');
+  logger.result({ command: 'node.stop', stopped: true, pid });
 }
 
 export async function nodeTestnet() {

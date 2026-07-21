@@ -59,8 +59,7 @@ export async function createScriptProject(name?: string, options: CreateScriptPr
 
     // Check if directory already exists
     if (fs.existsSync(fullProjectPath)) {
-      logger.error(`❌ Directory '${projectPath}' already exists!`);
-      process.exit(1);
+      throw new Error(`Directory '${projectPath}' already exists!`);
     }
 
     logger.info([
@@ -85,8 +84,7 @@ export async function createScriptProject(name?: string, options: CreateScriptPr
     const templateDir = possiblePaths.find((p) => fs.existsSync(p)) || possiblePaths[0];
 
     if (!fs.existsSync(templateDir)) {
-      logger.error(`❌ Template directory not found: ${templateDir}`);
-      process.exit(1);
+      throw new Error(`Template directory not found: ${templateDir}`);
     }
 
     // Initialize template processor
@@ -175,8 +173,7 @@ export async function createScriptProject(name?: string, options: CreateScriptPr
       CKBDebugger.createCkbDebuggerFallback();
     }
   } catch (error: unknown) {
-    logger.error(`\n❌ Failed to create project: ${(error as Error).message}`);
-    process.exit(1);
+    throw new Error(`Failed to create project: ${(error as Error).message}`);
   }
 }
 

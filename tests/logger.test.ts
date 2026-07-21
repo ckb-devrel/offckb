@@ -44,6 +44,16 @@ describe('UnifiedLogger JSON mode', () => {
     expect(parsed.timestamp).toBeDefined();
   });
 
+  it('initializes JSON stderr routing when created in JSON mode', () => {
+    const { transport } = createCapturingTransport();
+    UnifiedLogger.create({ transports: [transport], jsonMode: true });
+
+    const state = transport as unknown as { stderrLevels: Record<string, boolean> };
+    expect(state.stderrLevels).toEqual(
+      expect.objectContaining({ error: true, warn: true, success: true, info: true, debug: true }),
+    );
+  });
+
   it('joins array messages into a single string in JSON mode', () => {
     const { transport, logs } = createCapturingTransport();
     const log = UnifiedLogger.create({ transports: [transport] });
@@ -52,5 +62,33 @@ describe('UnifiedLogger JSON mode', () => {
 
     const parsed = JSON.parse(logs[0]);
     expect(parsed.message).toBe('line one\nline two');
+  });
+
+  it('does not filter success messages at the default info level', () => {
+    const { transport, logs } = createCapturingTransport();
+    const log = UnifiedLogger.create({ transports: [transport], showLevel: false });
+    log.success('completed');
+    expect(logs).toEqual(['completed']);
+  });
+
+  it('emits stable command result and failure records in JSON mode', () => {
+    const stdout = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const stderr = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const log = UnifiedLogger.create({ transports: [], jsonMode: true });
+
+    log.result({ command: 'balance', ckb: '42' });
+    log.failure('INVALID_ARGUMENT', 'bad amount');
+
+    expect(JSON.parse(String(stdout.mock.calls[0][0]))).toEqual({ ok: true, command: 'balance', ckb: '42' });
+    expect(JSON.parse(String(stderr.mock.calls[0][0]))).toEqual({
+      ok: false,
+      code: 'INVALID_ARGUMENT',
+      message: 'bad amount',
+    });
+    expect(log.hasResult()).toBe(true);
+    log.result({ command: 'duplicate' });
+    expect(stdout).toHaveBeenCalledTimes(1);
+    stdout.mockRestore();
+    stderr.mockRestore();
   });
 });

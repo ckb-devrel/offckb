@@ -11,6 +11,10 @@ import {
   readForkState,
   writeForkState,
   ForkState,
+  copySourceData,
+  isolateForkCkbConfig,
+  migrationNeededFromExitCode,
+  forkDevnet,
 } from '../src/devnet/fork';
 import { identifyPublicChainByGenesisHash, MAINNET_GENESIS_HASH, TESTNET_GENESIS_HASH } from '../src/scripts/const';
 
@@ -151,6 +155,61 @@ describe('patchDevSpecForFork', () => {
   });
 });
 
+describe('fork data isolation and migration preflight', () => {
+  let root: string;
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'offckb-fork-copy-test-'));
+  });
+  afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  it('copies chain state without persisted peers or transient data', () => {
+    const source = path.join(root, 'source');
+    const target = path.join(root, 'target');
+    for (const entry of ['db', 'indexer', 'network/peer_store', 'logs', 'tmp']) {
+      fs.mkdirSync(path.join(source, 'data', entry), { recursive: true });
+      fs.writeFileSync(path.join(source, 'data', entry, 'fixture'), entry);
+    }
+
+    copySourceData(source, target);
+
+    expect(fs.existsSync(path.join(target, 'data', 'db', 'fixture'))).toBe(true);
+    expect(fs.existsSync(path.join(target, 'data', 'indexer', 'fixture'))).toBe(true);
+    expect(fs.existsSync(path.join(target, 'data', 'network'))).toBe(false);
+    expect(fs.existsSync(path.join(target, 'data', 'logs'))).toBe(false);
+    expect(fs.existsSync(path.join(target, 'data', 'tmp'))).toBe(false);
+  });
+
+  it('forces forked nodes into an outbound-isolated network config', () => {
+    const config = isolateForkCkbConfig({
+      network: { bootnodes: ['mainnet-peer'], max_outbound_peers: 8, discovery_local_address: true },
+      logger: { filter: 'warn,ckb-script=debug' },
+    }) as Record<string, any>;
+
+    expect(config.network).toEqual(
+      expect.objectContaining({
+        bootnodes: [],
+        max_outbound_peers: 0,
+        whitelist_only: true,
+        discovery_local_address: false,
+      }),
+    );
+    expect(config.logger.filter).toBe('warn');
+  });
+
+  it('understands ckb migrate --check exit codes', () => {
+    expect(migrationNeededFromExitCode(0)).toBe(true);
+    expect(migrationNeededFromExitCode(64)).toBe(false);
+    expect(() => migrationNeededFromExitCode(1)).toThrow('migrate --check failed');
+    expect(() => migrationNeededFromExitCode(null)).toThrow('migrate --check failed');
+  });
+});
+
+describe('fork input mode', () => {
+  it('requires an explicit source directory for a database fork', async () => {
+    await expect(forkDevnet({})).rejects.toThrow('Database fork requires a source CKB directory');
+  });
+});
+
 describe('fork state file', () => {
   let dir: string;
   beforeEach(() => {
@@ -183,11 +242,11 @@ describe('fork state file', () => {
     expect(readForkState(dir)).toBeNull();
   });
 
-  it('clears firstRunPending while preserving the other fields', () => {
+  it('clears firstRunPending and records the fork boundary while preserving the other fields', () => {
     writeForkState(dir, state);
-    markForkFirstRunComplete(dir);
+    markForkFirstRunComplete(dir, '123');
     const updated = readForkState(dir);
-    expect(updated).toEqual({ ...state, firstRunPending: false });
+    expect(updated).toEqual({ ...state, firstRunPending: false, forkBlockNumber: '123' });
   });
 
   it('markForkFirstRunComplete is a no-op without a state file', () => {
