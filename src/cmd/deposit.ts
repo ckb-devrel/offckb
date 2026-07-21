@@ -7,9 +7,11 @@ import { Request } from '../util/request';
 import { RequestInit } from 'node-fetch';
 import { logger } from '../util/logger';
 import { warnIfForkIndexerIsBehind } from '../devnet/readiness';
-import { warnIfMainnetForkSigning } from '../util/fork-safety';
+import { validateMainnetForkSigning } from '../util/fork-safety';
 
 export interface DepositOptions extends NetworkOption {}
+
+const TESTNET_FAUCET_CLAIM_AMOUNT = '10000';
 
 export async function deposit(
   toAddress: string,
@@ -23,18 +25,27 @@ export async function deposit(
 
   if (network === 'testnet') {
     const txHash = await depositFromTestnetFaucet(toAddress, ckb);
-    logger.result({ command: 'deposit', network, amount: amountInCKB, toAddress, txHash });
+    logger.result({
+      command: 'deposit',
+      network,
+      source: 'fixed-testnet-faucet-claim',
+      requestedAmount: amountInCKB,
+      faucetClaimAmount: TESTNET_FAUCET_CLAIM_AMOUNT,
+      toAddress,
+      txHash,
+    });
     return txHash;
   }
 
   // deposit from devnet miner
   const privateKey = ckbDevnetMinerAccount.privkey;
-  warnIfMainnetForkSigning(network, privateKey);
+  const rejectInputsAtOrBeforeBlock = validateMainnetForkSigning(network, privateKey);
   await warnIfForkIndexerIsBehind(network);
   const txHash = await ckb.transfer({
     toAddress,
     privateKey,
     amountInCKB,
+    rejectInputsAtOrBeforeBlock,
   });
   logger.info('tx hash: ', txHash);
   logger.result({ command: 'deposit', network, amount: amountInCKB, toAddress, txHash });
@@ -84,7 +95,7 @@ async function sendClaimRequest(toAddress: string) {
   const body = JSON.stringify({
     claim_event: {
       address_hash: toAddress,
-      amount: '10000', // unit: CKB
+      amount: TESTNET_FAUCET_CLAIM_AMOUNT, // unit: CKB
     },
   });
 

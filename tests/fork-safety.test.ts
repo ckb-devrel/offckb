@@ -56,4 +56,11 @@ describe('Mainnet fork signing warning', () => {
       'boundary metadata is missing',
     );
   });
+
+  it('rejects a negative fork boundary', () => {
+    mockFork = { source: 'mainnet', forkBlockNumber: '-1' };
+    expect(() => validateMainnetForkSigning(Network.devnet, accountConfig[0].privkey)).toThrow(
+      'Invalid Mainnet fork boundary metadata',
+    );
+  });
 });

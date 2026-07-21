@@ -12,6 +12,7 @@ const mockExistsSync = jest.fn();
 const mockUnlinkSync = jest.fn();
 const mockStatSync = jest.fn();
 const mockCloseSync = jest.fn();
+const mockWaitForNodeReady = jest.fn();
 
 jest.mock('child_process', () => ({
   ...jest.requireActual('child_process'),
@@ -40,7 +41,7 @@ jest.mock('../src/tools/rpc-proxy', () => ({
 
 jest.mock('../src/devnet/readiness', () => ({
   checkNodeReadiness: jest.fn().mockResolvedValue({ ready: false, rpcUrl: 'http://127.0.0.1:8114' }),
-  waitForNodeReady: jest.fn().mockResolvedValue({ ready: true, rpcUrl: 'http://127.0.0.1:8114', nodeTip: 0n }),
+  waitForNodeReady: (...args: unknown[]) => mockWaitForNodeReady(...args),
 }));
 
 jest.mock('../src/cfg/setting', () => ({
@@ -104,6 +105,7 @@ describe('node command daemon mode', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockReadFileSync.mockReset();
+    mockWaitForNodeReady.mockResolvedValue({ ready: true, rpcUrl: 'http://127.0.0.1:8114', nodeTip: 0n });
     process.argv = ['node', '/path/to/offckb', 'node', '--daemon'];
     mockOpenSync.mockReturnValue(3);
     mockStatSync.mockReturnValue({ isFile: () => true });
@@ -141,10 +143,11 @@ describe('node command daemon mode', () => {
       }),
     );
 
-    const writtenMetadata = JSON.parse(mockWriteFileSync.mock.calls[0][1]);
+    const writtenMetadata = JSON.parse(mockWriteFileSync.mock.calls.at(-1)![1]);
     expect(writtenMetadata.pid).toBe(12345);
     expect(writtenMetadata.scriptPath).toBe(resolvedScriptPath);
     expect(writtenMetadata.startedAt).toBeDefined();
+    expect(writtenMetadata.status).toBe('running');
 
     expect(logger.success).toHaveBeenCalledWith(
       'CKB devnet daemon started with PID 12345 and passed its RPC/proxy health check.',
@@ -166,6 +169,23 @@ describe('node command daemon mode', () => {
     );
 
     await expect(startNode({ network: Network.devnet, daemon: true })).rejects.toThrow('already running');
+
+    expect(mockSpawn).not.toHaveBeenCalled();
+  });
+
+  it('atomically refuses startup when another invocation owns the PID reservation', async () => {
+    mockOpenSync.mockImplementation((file: string, flags: string) => {
+      if (file === pidFile && flags === 'wx') {
+        const error = new Error('EEXIST') as NodeJS.ErrnoException;
+        error.code = 'EEXIST';
+        throw error;
+      }
+      return 3;
+    });
+
+    await expect(startNode({ network: Network.devnet, daemon: true })).rejects.toThrow(
+      'startup is already in progress',
+    );
 
     expect(mockSpawn).not.toHaveBeenCalled();
   });
@@ -198,7 +218,8 @@ describe('node command daemon mode', () => {
       'Failed to spawn daemon process',
     );
     expect(mockCloseSync).toHaveBeenCalledWith(3);
-    expect(mockWriteFileSync).not.toHaveBeenCalled();
+    expect(mockWriteFileSync).toHaveBeenCalledTimes(1);
+    expect(mockUnlinkSync).toHaveBeenCalledWith(pidFile);
   });
 
   it('errors when the spawned child has no PID', async () => {
@@ -209,7 +230,30 @@ describe('node command daemon mode', () => {
     });
 
     await expect(startNode({ network: Network.devnet, daemon: true })).rejects.toThrow('no PID returned');
-    expect(mockWriteFileSync).not.toHaveBeenCalled();
+    expect(mockWriteFileSync).toHaveBeenCalledTimes(1);
+    expect(mockUnlinkSync).toHaveBeenCalledWith(pidFile);
+  });
+
+  it('keeps the PID reservation until failed startup termination is confirmed', async () => {
+    let livenessChecks = 0;
+    mockWaitForNodeReady.mockResolvedValueOnce({ ready: false, error: 'proxy unavailable' });
+    killSpy.mockImplementation((_pid: number, signal?: NodeJS.Signals | number) => {
+      if (signal === 0) {
+        livenessChecks += 1;
+        if (livenessChecks >= 3) {
+          const error = new Error('ESRCH') as NodeJS.ErrnoException;
+          error.code = 'ESRCH';
+          throw error;
+        }
+      }
+      return true;
+    });
+
+    await expect(startNode({ network: Network.devnet, daemon: true })).rejects.toThrow('proxy unavailable');
+
+    expect(killSpy).toHaveBeenCalledWith(-12345, 'SIGTERM');
+    expect(livenessChecks).toBeGreaterThanOrEqual(3);
+    expect(mockUnlinkSync).toHaveBeenCalledWith(pidFile);
   });
 
   it('handles backward-compatible plain PID files', async () => {
@@ -302,6 +346,17 @@ describe('node command stop', () => {
     expect(mockUnlinkSync).toHaveBeenCalledWith(pidFile);
   });
 
+  it('does not signal the CLI process while daemon startup is in progress', async () => {
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({ pid: 12345, scriptPath, startedAt: new Date().toISOString(), status: 'starting' }),
+    );
+
+    await expect(stopNode()).rejects.toThrow('startup is still in progress');
+
+    expect(killSpy).not.toHaveBeenCalledWith(-12345, expect.anything());
+    expect(mockUnlinkSync).not.toHaveBeenCalledWith(pidFile);
+  });
+
   it('stops the daemon gracefully with SIGTERM', async () => {
     await stopNode();
     expect(killSpy).toHaveBeenCalledWith(-12345, 'SIGTERM');
@@ -352,6 +407,21 @@ describe('node command stop', () => {
     });
 
     await expect(stopNode()).rejects.toThrow('Permission denied');
+
+    expect(mockUnlinkSync).not.toHaveBeenCalledWith(pidFile);
+  });
+
+  it('preserves the PID file when process liveness cannot be checked', async () => {
+    killSpy.mockImplementation((_pid: number, signal?: NodeJS.Signals | number) => {
+      if (signal === 0) {
+        const err = new Error('EPERM') as NodeJS.ErrnoException;
+        err.code = 'EPERM';
+        throw err;
+      }
+      return true;
+    });
+
+    await expect(stopNode()).rejects.toThrow('Permission denied when checking daemon process');
 
     expect(mockUnlinkSync).not.toHaveBeenCalledWith(pidFile);
   });

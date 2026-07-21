@@ -41,7 +41,9 @@ export function validateMainnetForkSigning(
     );
   }
   try {
-    return BigInt(fork.forkBlockNumber);
+    const blockNumber = BigInt(fork.forkBlockNumber);
+    if (blockNumber < BigInt(0)) throw new Error('negative block number');
+    return blockNumber;
   } catch {
     throw new Error(`Invalid Mainnet fork boundary metadata: ${fork.forkBlockNumber}`);
   }

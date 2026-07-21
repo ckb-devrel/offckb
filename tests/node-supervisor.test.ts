@@ -123,6 +123,7 @@ describe('foreground devnet supervisor', () => {
     await nodeDevnet({});
 
     expect(mockMarkForkFirstRunComplete).toHaveBeenCalledWith('/tmp/offckb-devnet', '100');
+    expect(mockMarkForkFirstRunComplete.mock.invocationCallOrder[0]).toBeLessThan(mockSpawn.mock.invocationCallOrder[1]);
     expect(mockProxyStart).toHaveBeenCalled();
   });
 });

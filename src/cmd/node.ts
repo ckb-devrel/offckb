@@ -22,6 +22,7 @@ interface PidMetadata {
   pid: number;
   scriptPath: string;
   startedAt: string;
+  status?: 'starting' | 'running';
 }
 
 const DAEMON_LOG_DIR = 'logs';
@@ -264,6 +265,7 @@ function readPidFile(pidFile: string): PidMetadata | null {
         pid,
         scriptPath: parsed.scriptPath,
         startedAt: parsed.startedAt ?? new Date(0).toISOString(),
+        status: parsed.status,
       };
     }
   } catch {
@@ -277,6 +279,38 @@ function readPidFile(pidFile: string): PidMetadata | null {
 
 function writePidFile(pidFile: string, metadata: PidMetadata) {
   fs.writeFileSync(pidFile, JSON.stringify(metadata, null, 2));
+}
+
+function reservePidFile(pidFile: string, scriptPath: string): void {
+  let fd: number;
+  try {
+    fd = fs.openSync(pidFile, 'wx');
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err.code === 'EEXIST') {
+      throw new Error('A CKB devnet daemon startup is already in progress. Try again after it completes.');
+    }
+    throw new Error(`Failed to reserve daemon PID file ${pidFile}: ${err.message}`);
+  }
+
+  let writeError: Error | undefined;
+  try {
+    const reservation: PidMetadata = {
+      pid: process.pid,
+      scriptPath,
+      startedAt: new Date().toISOString(),
+      status: 'starting',
+    };
+    fs.writeFileSync(fd, JSON.stringify(reservation, null, 2));
+  } catch (error) {
+    writeError = error as Error;
+  } finally {
+    fs.closeSync(fd);
+  }
+  if (writeError) {
+    cleanupPidFile(pidFile);
+    throw new Error(`Failed to initialize daemon PID reservation ${pidFile}: ${writeError.message}`);
+  }
 }
 
 function resolveCliEntry(): string | null {
@@ -303,11 +337,15 @@ function resolveCliEntry(): string | null {
 }
 
 function isProcessAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
     process.kill(pid, 0);
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err.code === 'ESRCH') return false;
+    if (err.code === 'EPERM') throw new Error(`Permission denied when checking daemon process ${pid}.`);
+    throw error;
   }
 }
 
@@ -321,10 +359,15 @@ function cleanupPidFile(pidFile: string) {
 
 function waitForProcessExit(pid: number, timeoutMs: number): Promise<boolean> {
   const start = Date.now();
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const check = () => {
-      if (!isProcessAlive(pid)) {
-        resolve(true);
+      try {
+        if (!isProcessAlive(pid)) {
+          resolve(true);
+          return;
+        }
+      } catch (error) {
+        reject(error);
         return;
       }
       if (Date.now() - start >= timeoutMs) {
@@ -411,6 +454,12 @@ function terminateProcess(pid: number, signal: 'SIGTERM' | 'SIGKILL'): Promise<v
 async function startDaemon() {
   const { logDir, logFile, pidFile } = resolveDaemonPaths();
 
+  try {
+    fs.mkdirSync(logDir, { recursive: true });
+  } catch (error) {
+    throw new Error(`Failed to prepare daemon log directory at ${logDir}: ${(error as Error).message}`);
+  }
+
   const settings = readSettings();
   const activeNode = await checkNodeReadiness(settings.devnet.rpcUrl, 1000);
   if (activeNode.ready) {
@@ -422,32 +471,37 @@ async function startDaemon() {
   // Prevent duplicate daemon starts. If a daemon is already running, refuse
   // to overwrite its PID file.
   const existing = readPidFile(pidFile);
-  if (existing && isProcessAlive(existing.pid)) {
-    throw new Error(
-      `A CKB devnet daemon is already running (PID ${existing.pid}). Stop it first with: offckb node stop`,
-    );
-  }
-  if (existing && !isProcessAlive(existing.pid)) {
-    // Stale PID file from a crashed daemon; clean it up before starting anew.
+  if (existing) {
+    if (isProcessAlive(existing.pid)) {
+      if (existing.status === 'starting') {
+        throw new Error(`Another CKB devnet daemon startup is already in progress (PID ${existing.pid}).`);
+      }
+      throw new Error(
+        `A CKB devnet daemon is already running (PID ${existing.pid}). Stop it first with: offckb node stop`,
+      );
+    }
+    // Stale PID file from a crashed daemon; clean it up before atomically
+    // reserving the same control file for this startup attempt.
     cleanupPidFile(pidFile);
-  }
-
-  let out: number | undefined;
-  let err: number | undefined;
-  try {
-    fs.mkdirSync(logDir, { recursive: true });
-    out = fs.openSync(logFile, 'a');
-    err = fs.openSync(logFile, 'a');
-  } catch (error) {
-    throw new Error(`Failed to prepare daemon log directory or log file at ${logFile}: ${(error as Error).message}`);
   }
 
   const scriptPath = resolveCliEntry();
   if (!scriptPath) {
-    closeFileDescriptors(out, err);
     throw new Error(
       'Unable to determine the CLI entry point for daemon mode. Set OFFCKB_CLI_PATH to the offckb script.',
     );
+  }
+  reservePidFile(pidFile, scriptPath);
+
+  let out: number | undefined;
+  let err: number | undefined;
+  try {
+    out = fs.openSync(logFile, 'a');
+    err = fs.openSync(logFile, 'a');
+  } catch (error) {
+    closeFileDescriptors(out, err);
+    cleanupPidFile(pidFile);
+    throw new Error(`Failed to prepare daemon log directory or log file at ${logFile}: ${(error as Error).message}`);
   }
 
   const childArgs = process.argv.slice(2).filter((arg) => arg !== '--daemon');
@@ -462,11 +516,13 @@ async function startDaemon() {
     });
   } catch (error) {
     closeFileDescriptors(out, err);
+    cleanupPidFile(pidFile);
     throw new Error(`Failed to spawn daemon process: ${(error as Error).message}`);
   }
 
   if (!child.pid) {
     closeFileDescriptors(out, err);
+    cleanupPidFile(pidFile);
     throw new Error('Failed to spawn daemon process: no PID returned.');
   }
 
@@ -481,6 +537,7 @@ async function startDaemon() {
     pid: child.pid,
     scriptPath,
     startedAt: new Date().toISOString(),
+    status: 'running',
   };
   writePidFile(pidFile, metadata);
 
@@ -495,14 +552,22 @@ async function startDaemon() {
   const proxyUrl = `http://127.0.0.1:${settings.devnet.rpcProxyPort}`;
   const readiness = await waitForNodeReady(proxyUrl, timeoutMs, () => isProcessAlive(child.pid!));
   if (!readiness.ready) {
+    let exited = !isProcessAlive(child.pid);
     try {
-      await terminateProcess(child.pid, 'SIGTERM');
+      if (!exited) {
+        await terminateProcess(child.pid, 'SIGTERM');
+        exited = await waitForProcessExit(child.pid, 5000);
+      }
     } catch {
       // The failed child may already have exited.
+      exited = !isProcessAlive(child.pid);
     }
-    cleanupPidFile(pidFile);
+    if (exited) {
+      cleanupPidFile(pidFile);
+    }
     throw new Error(
-      `CKB devnet daemon failed to become ready. See ${logFile}. ${readiness.error ?? 'Daemon process exited.'}`,
+      `CKB devnet daemon failed to become ready. See ${logFile}. ${readiness.error ?? 'Daemon process exited.'}` +
+        (exited ? '' : ` Process ${child.pid} is still running; PID file was preserved.`),
     );
   }
 
@@ -549,11 +614,15 @@ export async function stopNode() {
     throw new Error(`Invalid PID in ${pidFile}: ${pid}`);
   }
 
-  if (!isProcessAlive(pid)) {
+  const processAlive = isProcessAlive(pid);
+  if (!processAlive) {
     logger.warn(`Daemon process ${pid} is not running.`);
     cleanupPidFile(pidFile);
     logger.result({ command: 'node.stop', stopped: false, reason: 'stale-pid', pid });
     return;
+  }
+  if (metadata.status === 'starting') {
+    throw new Error(`CKB devnet daemon startup is still in progress (PID ${pid}). Try stopping it again shortly.`);
   }
 
   const identityOk = await verifyDaemonIdentity(pid, metadata);
