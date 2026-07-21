@@ -26,10 +26,12 @@ jest.mock('../../src/scripts/private', () => ({
 const mockKnownScript = jest.fn();
 const mockFindCellsByLock = jest.fn();
 const mockFindCells = jest.fn();
+const mockGetTransactionNoCache = jest.fn();
 const mockClient = {
   getKnownScript: mockKnownScript,
   findCellsByLock: mockFindCellsByLock,
   findCells: mockFindCells,
+  getTransactionNoCache: mockGetTransactionNoCache,
 };
 
 jest.mock('@ckb-ccc/core', () => {
@@ -116,9 +118,9 @@ describe('CKB SDK UDT helpers', () => {
 
     it('should build SUDT type script from system scripts', async () => {
       const ckb = createCKB();
-      const type = await ckb.buildUdtTypeScript('sudt', '0x' + '12'.repeat(20));
+      const type = await ckb.buildUdtTypeScript('sudt', '0x' + '12'.repeat(32));
       expect(type.codeHash).toBe('0x' + 'c3'.repeat(32));
-      expect(type.args).toBe('0x' + '12'.repeat(20));
+      expect(type.args).toBe('0x' + '12'.repeat(32));
     });
   });
 
@@ -173,11 +175,54 @@ describe('CKB SDK UDT helpers', () => {
         privateKey: '0x' + '11'.repeat(32),
         kind: 'sudt',
         amount: '100',
-        typeArgs: '0x' + '12'.repeat(20),
+        typeArgs: '0x' + '12'.repeat(32),
       });
 
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('--type-args is ignored'));
       warnSpy.mockRestore();
+    });
+  });
+
+  describe('Mainnet fork input boundary', () => {
+    const input = { previousOutput: { txHash: '0x' + 'ab'.repeat(32), index: 0 } };
+
+    it('rejects an input copied from at or before the fork boundary', async () => {
+      mockGetTransactionNoCache.mockResolvedValue({ blockNumber: 100n });
+      const ckb = createCKB();
+
+      await expect(
+        (
+          ckb as unknown as {
+            assertInputsCreatedAfter: (tx: { inputs: typeof input[] }, block: bigint) => Promise<void>;
+          }
+        ).assertInputsCreatedAfter({ inputs: [input] }, 100n),
+      ).rejects.toThrow('at or before the Mainnet fork boundary');
+    });
+
+    it('allows an input mined after the fork boundary', async () => {
+      mockGetTransactionNoCache.mockResolvedValue({ blockNumber: 101n });
+      const ckb = createCKB();
+
+      await expect(
+        (
+          ckb as unknown as {
+            assertInputsCreatedAfter: (tx: { inputs: typeof input[] }, block: bigint) => Promise<void>;
+          }
+        ).assertInputsCreatedAfter({ inputs: [input] }, 100n),
+      ).resolves.toBeUndefined();
+    });
+
+    it('fails closed when an input origin cannot be verified', async () => {
+      mockGetTransactionNoCache.mockResolvedValue(undefined);
+      const ckb = createCKB();
+
+      await expect(
+        (
+          ckb as unknown as {
+            assertInputsCreatedAfter: (tx: { inputs: typeof input[] }, block: bigint) => Promise<void>;
+          }
+        ).assertInputsCreatedAfter({ inputs: [input] }, 100n),
+      ).rejects.toThrow('could not verify the origin block');
     });
   });
 });

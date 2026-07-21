@@ -181,7 +181,6 @@ export async function buildContract(jsFile: string, outputFile: string, jsVmPath
     await CKBDebugger.runWithArgs(args);
     logger.success(`✅ Contract built successfully: ${outputFile}`);
   } catch (error) {
-    logger.error(`❌ Build failed: ${error}`);
-    process.exit(1);
+    throw new Error(`Build failed: ${error instanceof Error ? error.message : String(error)}`);
   }
 }

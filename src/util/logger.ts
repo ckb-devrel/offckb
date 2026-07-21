@@ -21,11 +21,17 @@ interface LoggerOptions {
   transports?: winston.transport[];
 }
 
+export interface CommandResult {
+  command: string;
+  [key: string]: unknown;
+}
+
 class UnifiedLogger {
   private logger: winston.Logger;
   private enableColors: boolean;
   private showLevel: boolean;
   private jsonMode: boolean;
+  private resultEmitted = false;
 
   constructor(options: LoggerOptions = {}) {
     this.enableColors = options.enableColors !== false;
@@ -38,8 +44,8 @@ class UnifiedLogger {
       levels: {
         error: 0,
         warn: 1,
-        info: 2,
-        success: 3,
+        success: 2,
+        info: 3,
         debug: 4,
       },
       format: winston.format.combine(
@@ -55,6 +61,7 @@ class UnifiedLogger {
         }),
       ],
     });
+    this.setJsonMode(this.jsonMode);
   }
 
   /**
@@ -63,6 +70,44 @@ class UnifiedLogger {
    */
   setJsonMode(enabled: boolean) {
     this.jsonMode = enabled;
+    // In machine mode stdout is reserved for command result records. Progress
+    // and diagnostics remain NDJSON, but go to stderr so callers can parse one
+    // stable stdout object without filtering human-oriented logs.
+    for (const transport of this.logger.transports) {
+      if (transport instanceof winston.transports.Console) {
+        const consoleTransport = transport as unknown as { stderrLevels: Record<string, boolean> };
+        consoleTransport.stderrLevels = Object.fromEntries(
+          (enabled ? Object.keys(levelColors) : ['error', 'warn']).map((level) => [level, true]),
+        );
+      }
+    }
+  }
+
+  isJsonMode(): boolean {
+    return this.jsonMode;
+  }
+
+  /** Emit one stable, command-level result record for programmatic callers. */
+  result(result: CommandResult) {
+    if (this.jsonMode && !this.resultEmitted) {
+      this.resultEmitted = true;
+      process.stdout.write(`${JSON.stringify({ ok: true, ...result })}\n`);
+    }
+  }
+
+  hasResult(): boolean {
+    return this.resultEmitted;
+  }
+
+  /** Emit a stable error record without exposing internal stack traces. */
+  failure(code: string, message: string, details?: unknown) {
+    if (this.jsonMode) {
+      process.stderr.write(
+        `${JSON.stringify({ ok: false, code, message, ...(details == null ? {} : { details }) })}\n`,
+      );
+      return;
+    }
+    this.error(message);
   }
 
   /**

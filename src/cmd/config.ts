@@ -27,8 +27,7 @@ export async function Config(action: ConfigAction, item: ConfigItem, value?: str
         const settings = readSettings();
         const proxy = settings.proxy;
         if (proxy == null) {
-          logger.info(`No Proxy.`);
-          process.exit(0);
+          return logger.info(`No Proxy.`);
         }
         return logger.info(`${Request.proxyConfigToUrl(proxy)}`);
       }
@@ -55,7 +54,7 @@ export async function Config(action: ConfigAction, item: ConfigItem, value?: str
           settings.proxy = proxy;
           return writeSettings(settings);
         } catch (error: unknown) {
-          return logger.error(`invalid proxyURL, `, (error as Error).message);
+          throw new Error(`invalid proxyURL: ${(error as Error).message}`);
         }
       }
 
@@ -67,12 +66,12 @@ export async function Config(action: ConfigAction, item: ConfigItem, value?: str
             settings.bins.defaultCKBVersion = version;
             return writeSettings(settings);
           } else {
-            return logger.error(
+            throw new Error(
               `invalid version value, ${value}. Check available versions on https://github.com/nervosnetwork/ckb/tags`,
             );
           }
         } catch (error: unknown) {
-          return logger.error(`invalid version value, `, (error as Error).message);
+          throw new Error(`invalid version value: ${(error as Error).message}`);
         }
       }
 

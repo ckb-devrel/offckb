@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { Command, Option } from 'commander';
+import { Command, CommanderError, Option } from 'commander';
 import { startNode, stopNode } from './cmd/node';
 import { accounts } from './cmd/accounts';
 import { clean } from './cmd/clean';
@@ -13,6 +13,7 @@ import { createScriptProject, CreateScriptProjectOptions } from './cmd/create';
 import { Config, ConfigItem } from './cmd/config';
 import { devnetConfig } from './cmd/devnet-config';
 import { devnetFork } from './cmd/devnet-fork';
+import { devnetInfo } from './cmd/devnet-info';
 import { debugSingleScript, debugTransaction, parseSingleScriptOption } from './cmd/debug';
 import { printSystemScripts } from './cmd/system-scripts';
 import { transferAll } from './cmd/transfer-all';
@@ -21,7 +22,6 @@ import { CKBDebugger } from './tools/ckb-debugger';
 import { logger } from './util/logger';
 import { Network } from './type/base';
 import { status } from './cmd/status';
-import { validateNetworkOpt } from './util/validator';
 
 const version = require('../package.json').version;
 const description = require('../package.json').description;
@@ -31,10 +31,22 @@ setUTF8EncodingForWindows();
 
 const program = new Command();
 program.name('offckb').description(description).version(version).enablePositionalOptions();
+let activeCommand = 'offckb';
+
+function commandPath(command: Command): string {
+  const names: string[] = [];
+  let current: Command | null = command;
+  while (current?.parent) {
+    names.unshift(current.name());
+    current = current.parent;
+  }
+  return names.join('.') || 'offckb';
+}
 
 program.option('--json', 'Output logs in JSON format for agent/programmatic consumption');
-program.hook('preAction', (thisCommand) => {
-  const opts = thisCommand.opts();
+program.hook('preAction', (_thisCommand, actionCommand) => {
+  activeCommand = commandPath(actionCommand);
+  const opts = actionCommand.optsWithGlobals();
   if (opts.json) {
     logger.setJsonMode(true);
   }
@@ -78,7 +90,8 @@ program
   .option('--target <target>', 'Specify the script binaries file/folder path to deploy', './')
   .option('-o, --output <output>', 'Specify the output folder path for the deployment record files', './deployment')
   .option('-t, --type-id', 'Specify if use upgradable type id to deploy the script')
-  .option('--privkey <privkey>', 'Specify the private key to deploy scripts')
+  .option('--privkey <privkey>', 'Specify the private key to deploy scripts (visible in shell history)')
+  .option('--privkey-file <path>', 'Read the private key from a local file')
   .option('-y, --yes', 'Skip confirmation prompt and deploy immediately')
   .action((options: DeployOptions) => deploy(options));
 
@@ -92,8 +105,7 @@ program
   .action(async (option) => {
     // For debugging, tx-hash is required
     if (!option.txHash) {
-      logger.error('Error: --tx-hash is required for debugging operations');
-      process.exit(1);
+      throw new Error('--tx-hash is required for debugging operations');
     }
 
     const txHash = option.txHash;
@@ -129,7 +141,13 @@ program
   .description('Clean the devnet data, need to stop running the chain first')
   .option('-d, --data', 'Only remove chain data, keep devnet config files')
   .action((options: { data?: boolean }) => clean(options));
-program.command('accounts').description('Print account list info').action(accounts);
+program
+  .command('accounts')
+  .description('Print account list info')
+  .option('--show-private-keys', 'Include built-in dev private keys (hidden by default)')
+  .action(async (options) => {
+    await accounts(options);
+  });
 
 program
   .command('deposit [toAddress] [amountInCKB]')
@@ -137,29 +155,32 @@ program
   .option('--network <network>', 'Specify the network to deposit to', 'devnet')
   .option('-r, --proxy-rpc', 'Use Proxy RPC to connect to blockchain')
   .action(async (toAddress: string, amountInCKB: string, options: DepositOptions) => {
-    return deposit(toAddress, amountInCKB, options);
+    await deposit(toAddress, amountInCKB, options);
   });
 
 program
   .command('transfer [toAddress] [amount]')
   .description('Transfer CKB or UDT tokens to address, only devnet and testnet')
   .option('--network <network>', 'Specify the network to transfer to', 'devnet')
-  .option('--privkey <privkey>', 'Specify the private key to transfer')
-  .addOption(new Option('--udt-kind <kind>', 'Specify the UDT kind').choices(['sudt', 'xudt']).default('sudt'))
+  .option('--privkey <privkey>', 'Specify the private key to transfer (visible in shell history)')
+  .option('--privkey-file <path>', 'Read the private key from a local file')
+  .addOption(new Option('--udt-kind <kind>', 'Specify the UDT kind').choices(['sudt', 'xudt']))
   .option('--udt-type-args <typeArgs>', 'Specify the UDT type script args to transfer UDT')
+  .option('--allow-mainnet-replay-risk', 'Allow a non-built-in key on a Mainnet fork (copied inputs remain blocked)')
   .option('-r, --proxy-rpc', 'Use Proxy RPC to connect to blockchain')
   .action(async (toAddress: string, amount: string, options: TransferOptions) => {
-    return transfer(toAddress, amount, options);
+    await transfer(toAddress, amount, options);
   });
 
 program
   .command('transfer-all [toAddress]')
   .description('Transfer All CKB tokens to address, only devnet and testnet')
   .option('--network <network>', 'Specify the network to transfer to', 'devnet')
-  .option('--privkey <privkey>', 'Specify the private key to deploy scripts')
+  .option('--privkey <privkey>', 'Specify the private key (visible in shell history)')
+  .option('--privkey-file <path>', 'Read the private key from a local file')
   .option('-r, --proxy-rpc', 'Use Proxy RPC to connect to blockchain')
   .action(async (toAddress: string, options: TransferOptions) => {
-    return transferAll(toAddress, options);
+    await transferAll(toAddress, options);
   });
 
 program
@@ -170,7 +191,7 @@ program
   .option('--udt-type-args <typeArgs>', 'Filter by UDT type script args')
   .option('--no-udt', 'Skip UDT balance scan')
   .action(async (toAddress: string, options: BalanceOption) => {
-    return balanceOf(toAddress, options);
+    await balanceOf(toAddress, options);
   });
 
 const udtCommand = program.command('udt').description('UDT token commands');
@@ -182,9 +203,10 @@ udtCommand
   .addOption(new Option('--udt-kind <kind>', 'Specify the UDT kind').choices(['sudt', 'xudt']).default('sudt'))
   .option('--type-args <typeArgs>', 'Specify the UDT type script args (xudt only; defaults to signer lock hash)')
   .option('--to <toAddress>', 'Specify the receiver address (defaults to signer)')
-  .option('--privkey <privkey>', 'Specify the private key to issue UDT')
+  .option('--privkey <privkey>', 'Specify the private key to issue UDT (visible in shell history)')
+  .option('--privkey-file <path>', 'Read the private key from a local file')
   .action(async (amount: string, options: UdtIssueOption) => {
-    return udtIssue(amount, options);
+    await udtIssue(amount, options);
   });
 
 udtCommand
@@ -193,9 +215,10 @@ udtCommand
   .option('--network <network>', 'Specify the network', 'devnet')
   .addOption(new Option('--udt-kind <kind>', 'Specify the UDT kind').choices(['sudt', 'xudt']).default('sudt'))
   .requiredOption('--type-args <typeArgs>', 'Specify the UDT type script args')
-  .option('--privkey <privkey>', 'Specify the private key to destroy UDT')
+  .option('--privkey <privkey>', 'Specify the private key to destroy UDT (visible in shell history)')
+  .option('--privkey-file <path>', 'Read the private key from a local file')
   .action(async (amount: string, options: UdtDestroyOption) => {
-    return udtDestroy(amount, options);
+    await udtDestroy(amount, options);
   });
 
 program
@@ -211,10 +234,13 @@ program
 program
   .command('status')
   .description('Show ckb-tui status interface')
-  .option('--network <network>', 'Specify the network whose node status to monitor', 'devnet')
+  .addOption(
+    new Option('--network <network>', 'Specify the network whose node status to monitor')
+      .choices(['devnet', 'testnet', 'mainnet'])
+      .default('devnet'),
+  )
   .action(async (option) => {
-    validateNetworkOpt(option.network);
-    return await status({ network: option.network });
+    await status({ network: option.network });
   });
 
 program
@@ -236,17 +262,76 @@ devnetCommand
   .action(devnetConfig);
 
 devnetCommand
+  .command('info')
+  .description('Show fork metadata and node/indexer readiness')
+  .action(async () => {
+    await devnetInfo();
+  });
+
+devnetCommand
   .command('fork')
   .description('Fork an existing mainnet/testnet chain data directory into the local devnet')
-  .requiredOption('--from <dir>', 'Path to the source CKB node directory (the one passed to ckb -C)')
+  .option('--from <dir>', 'Path to the source CKB node directory used with `ckb -C`')
   .option('--source <source>', 'Source chain: mainnet or testnet (auto-detected from the source ckb.toml when omitted)')
   .option('--spec-file <path>', 'Use a local chain spec file instead of downloading it')
   .option('--force', 'Replace the existing devnet (or a previous fork)')
+  .option('--migrate', 'Migrate only the copied database when the selected CKB version requires it')
+  .option('--dry-run', 'Run source/spec/database preflight without replacing the current devnet')
   .action(devnetFork);
 
-program.parse(process.argv);
+function normalizeGlobalJsonFlag(argv: string[]): string[] {
+  const jsonRequested = argv.slice(2).includes('--json');
+  if (!jsonRequested) return argv;
+  return [argv[0], argv[1], '--json', ...argv.slice(2).filter((arg) => arg !== '--json')];
+}
 
-// If no command is specified, display help
-if (!process.argv.slice(2).length) {
-  program.outputHelp();
+function installBrokenPipeHandlers() {
+  for (const stream of [process.stdout, process.stderr]) {
+    stream.on('error', (error: NodeJS.ErrnoException) => {
+      if (error.code === 'EPIPE') {
+        process.exit(0);
+      }
+      throw error;
+    });
+  }
+}
+
+function configureCommanderErrors(command: Command) {
+  command.exitOverride();
+  command.configureOutput({
+    writeErr: (text) => {
+      if (!logger.isJsonMode()) process.stderr.write(text);
+    },
+  });
+  command.commands.forEach(configureCommanderErrors);
+}
+
+export async function runCli(argv: string[] = process.argv): Promise<void> {
+  installBrokenPipeHandlers();
+  const normalizedArgv = normalizeGlobalJsonFlag(argv);
+  if (normalizedArgv.includes('--json')) logger.setJsonMode(true);
+
+  if (!normalizedArgv.slice(2).length) {
+    program.outputHelp();
+    return;
+  }
+
+  configureCommanderErrors(program);
+
+  try {
+    await program.parseAsync(normalizedArgv);
+    if (logger.isJsonMode() && !logger.hasResult() && (process.exitCode == null || process.exitCode === 0)) {
+      logger.result({ command: activeCommand, completed: true });
+    }
+  } catch (error) {
+    if (error instanceof CommanderError && error.exitCode === 0) return;
+    const message = error instanceof Error ? error.message : String(error);
+    const code = error instanceof CommanderError ? error.code : 'COMMAND_FAILED';
+    logger.failure(code, message);
+    process.exitCode = error instanceof CommanderError ? error.exitCode : 1;
+  }
+}
+
+if (require.main === module) {
+  void runCli();
 }

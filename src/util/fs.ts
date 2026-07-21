@@ -48,20 +48,26 @@ export function copyFileSync(source: string, target: string) {
   fs.writeFileSync(targetFile, fs.readFileSync(source));
 }
 
-export async function copyFilesWithExclusion(sourceDir: string, destinationDir: string, excludedFolders: string[]) {
+export async function copyFilesWithExclusion(
+  sourceDir: string,
+  destinationDir: string,
+  excludedFolders: string[],
+  overwrite = true,
+) {
   try {
     // Ensure the destination directory exists
     await fs.promises.mkdir(destinationDir, { recursive: true });
 
     // Start copying recursively from the source directory
-    await copyRecursive(sourceDir, destinationDir, excludedFolders);
+    await copyRecursive(sourceDir, destinationDir, excludedFolders, overwrite);
   } catch (error) {
     logger.error('An error occurred during copying files:', error);
+    throw error;
   }
 }
 
 // Function to recursively copy files and directories
-export async function copyRecursive(source: string, destination: string, excludedFolders: string[]) {
+export async function copyRecursive(source: string, destination: string, excludedFolders: string[], overwrite = true) {
   // Get a list of all files and directories in the source directory
   const files = await fs.promises.readdir(source);
 
@@ -80,11 +86,13 @@ export async function copyRecursive(source: string, destination: string, exclude
       } else {
         // Ensure destination directory exists before copying
         await fs.promises.mkdir(destPath, { recursive: true });
-        await copyRecursive(sourcePath, destPath, excludedFolders);
+        await copyRecursive(sourcePath, destPath, excludedFolders, overwrite);
       }
     } else {
       // Otherwise, copy the file
-      await fs.promises.copyFile(sourcePath, destPath);
+      if (overwrite || !fs.existsSync(destPath)) {
+        await fs.promises.copyFile(sourcePath, destPath);
+      }
     }
   }
 }
