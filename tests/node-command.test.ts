@@ -110,9 +110,12 @@ describe('node command daemon mode', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockReadFileSync.mockReset();
+    mockWriteFileSync.mockReset();
+    mockUnlinkSync.mockReset();
     mockWaitForNodeReady.mockResolvedValue({ ready: true, rpcUrl: 'http://127.0.0.1:8114', nodeTip: 0n });
     setPlatform('linux');
     process.argv = ['node', '/path/to/offckb', 'node', '--daemon'];
+    mockDaemonCommandLine(path.resolve('/path/to/offckb'));
     mockOpenSync.mockReturnValue(3);
     mockStatSync.mockReturnValue({ isFile: () => true });
     mockSpawn.mockReturnValue({
@@ -155,6 +158,14 @@ describe('node command daemon mode', () => {
     expect(writtenMetadata.scriptPath).toBe(resolvedScriptPath);
     expect(writtenMetadata.startedAt).toBeDefined();
     expect(writtenMetadata.status).toBe('running');
+    const childStatuses = mockWriteFileSync.mock.calls
+      .map(([, data]) => JSON.parse(data))
+      .filter((metadata) => metadata.pid === 12345)
+      .map((metadata) => metadata.status);
+    expect(childStatuses).toEqual(['starting', 'running']);
+    expect(mockWaitForNodeReady.mock.invocationCallOrder[0]).toBeLessThan(
+      mockWriteFileSync.mock.invocationCallOrder.at(-1)!,
+    );
 
     expect(logger.success).toHaveBeenCalledWith(
       'CKB devnet daemon started with PID 12345 and passed its RPC/proxy health check.',
@@ -178,6 +189,22 @@ describe('node command daemon mode', () => {
     await expect(startNode({ network: Network.devnet, daemon: true })).rejects.toThrow('already running');
 
     expect(mockSpawn).not.toHaveBeenCalled();
+  });
+
+  it('removes reused PID metadata without signaling the unrelated process', async () => {
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({ pid: 9999, scriptPath: '/path/to/offckb', startedAt: new Date().toISOString() }),
+    );
+    mockExec.mockImplementation((_cmd: string, callback: (err: Error | null, stdout?: string) => void) => {
+      callback(null, '/usr/bin/some-unrelated-process');
+      return undefined as unknown as ReturnType<typeof mockExec>;
+    });
+
+    await startNode({ network: Network.devnet, daemon: true });
+
+    expect(mockUnlinkSync).toHaveBeenCalledWith(pidFile);
+    expect(killSpy).not.toHaveBeenCalledWith(-9999, expect.anything());
+    expect(mockSpawn).toHaveBeenCalled();
   });
 
   it('atomically refuses startup when another invocation owns the PID reservation', async () => {
@@ -238,6 +265,54 @@ describe('node command daemon mode', () => {
 
     await expect(startNode({ network: Network.devnet, daemon: true })).rejects.toThrow('no PID returned');
     expect(mockWriteFileSync).toHaveBeenCalledTimes(1);
+    expect(mockUnlinkSync).toHaveBeenCalledWith(pidFile);
+  });
+
+  it('terminates the detached child when readiness checking throws', async () => {
+    let processAlive = true;
+    mockWaitForNodeReady.mockRejectedValueOnce(new Error('readiness check failed'));
+    killSpy.mockImplementation((_pid: number, signal?: NodeJS.Signals | number) => {
+      if (signal === 0) {
+        if (!processAlive) {
+          const error = new Error('ESRCH') as NodeJS.ErrnoException;
+          error.code = 'ESRCH';
+          throw error;
+        }
+        return true;
+      }
+      if (signal === 'SIGTERM') processAlive = false;
+      return true;
+    });
+
+    await expect(startNode({ network: Network.devnet, daemon: true })).rejects.toThrow('readiness check failed');
+
+    expect(killSpy).toHaveBeenCalledWith(-12345, 'SIGTERM');
+    expect(mockUnlinkSync).toHaveBeenCalledWith(pidFile);
+  });
+
+  it('terminates the detached child when child PID metadata cannot be written', async () => {
+    let processAlive = true;
+    mockWriteFileSync.mockImplementation((file: number | string, data: string) => {
+      const metadata = JSON.parse(data);
+      if (file === pidFile && metadata.pid === 12345) throw new Error('PID write failed');
+    });
+    killSpy.mockImplementation((_pid: number, signal?: NodeJS.Signals | number) => {
+      if (signal === 0) {
+        if (!processAlive) {
+          const error = new Error('ESRCH') as NodeJS.ErrnoException;
+          error.code = 'ESRCH';
+          throw error;
+        }
+        return true;
+      }
+      if (signal === 'SIGTERM') processAlive = false;
+      return true;
+    });
+
+    await expect(startNode({ network: Network.devnet, daemon: true })).rejects.toThrow('PID write failed');
+
+    expect(killSpy).toHaveBeenCalledWith(-12345, 'SIGTERM');
+    expect(mockWaitForNodeReady).not.toHaveBeenCalled();
     expect(mockUnlinkSync).toHaveBeenCalledWith(pidFile);
   });
 

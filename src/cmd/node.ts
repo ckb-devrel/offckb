@@ -451,6 +451,36 @@ function terminateProcess(pid: number, signal: 'SIGTERM' | 'SIGKILL'): Promise<v
   });
 }
 
+async function failDaemonStartup(error: Error, pid: number, pidFile: string): Promise<never> {
+  let exited = false;
+  try {
+    exited = !isProcessAlive(pid);
+    if (!exited) {
+      await terminateProcess(pid, 'SIGTERM');
+      exited = await waitForProcessExit(pid, 5000);
+      if (!exited) {
+        await terminateProcess(pid, 'SIGKILL');
+        exited = await waitForProcessExit(pid, 5000);
+      }
+    }
+  } catch {
+    // The child may have exited while cleanup signals were sent. If liveness
+    // cannot be checked, preserve the PID file for a later explicit stop.
+    try {
+      exited = !isProcessAlive(pid);
+    } catch {
+      exited = false;
+    }
+  }
+
+  if (exited) {
+    cleanupPidFile(pidFile);
+  } else {
+    error.message += ` Process ${pid} is still running; PID file was preserved.`;
+  }
+  throw error;
+}
+
 async function startDaemon() {
   const { logDir, logFile, pidFile } = resolveDaemonPaths();
 
@@ -473,11 +503,17 @@ async function startDaemon() {
   const existing = readPidFile(pidFile);
   if (existing) {
     if (isProcessAlive(existing.pid)) {
-      if (existing.status === 'starting') {
-        throw new Error(`Another CKB devnet daemon startup is already in progress (PID ${existing.pid}).`);
+      const identityOk = await verifyDaemonIdentity(existing.pid, existing);
+      if (identityOk) {
+        if (existing.status === 'starting') {
+          throw new Error(`Another CKB devnet daemon startup is already in progress (PID ${existing.pid}).`);
+        }
+        throw new Error(
+          `A CKB devnet daemon is already running (PID ${existing.pid}). Stop it first with: offckb node stop`,
+        );
       }
-      throw new Error(
-        `A CKB devnet daemon is already running (PID ${existing.pid}). Stop it first with: offckb node stop`,
+      logger.warn(
+        `PID ${existing.pid} from ${pidFile} belongs to another process; removing stale daemon metadata without signaling it.`,
       );
     }
     // Stale PID file from a crashed daemon; clean it up before atomically
@@ -537,42 +573,34 @@ async function startDaemon() {
     pid: child.pid,
     scriptPath,
     startedAt: new Date().toISOString(),
-    status: 'running',
+    status: 'starting',
   };
-  writePidFile(pidFile, metadata);
+  try {
+    writePidFile(pidFile, metadata);
+  } catch (error) {
+    closeFileDescriptors(out, err);
+    return failDaemonStartup(error as Error, child.pid, pidFile);
+  }
 
   // File descriptors are now owned by the spawned child; close our copies.
   closeFileDescriptors(out, err);
 
-  const forkState = readForkState(settings.devnet.configPath);
-  const timeoutMs = forkState ? FORK_NODE_READY_TIMEOUT_MS : NODE_READY_TIMEOUT_MS;
-  // The proxy only starts after the child has a healthy CKB RPC and has
-  // successfully spawned the miner, so this is the daemon's service-level
-  // readiness check rather than a port/process check.
   const proxyUrl = `http://127.0.0.1:${settings.devnet.rpcProxyPort}`;
-  const readiness = await waitForNodeReady(proxyUrl, timeoutMs, () => isProcessAlive(child.pid!));
-  if (!readiness.ready) {
-    let exited = !isProcessAlive(child.pid);
-    try {
-      if (!exited) {
-        await terminateProcess(child.pid, 'SIGTERM');
-        exited = await waitForProcessExit(child.pid, 5000);
-        if (!exited) {
-          await terminateProcess(child.pid, 'SIGKILL');
-          exited = await waitForProcessExit(child.pid, 5000);
-        }
-      }
-    } catch {
-      // The failed child may already have exited while signals were sent.
-      exited = !isProcessAlive(child.pid);
+  try {
+    const forkState = readForkState(settings.devnet.configPath);
+    const timeoutMs = forkState ? FORK_NODE_READY_TIMEOUT_MS : NODE_READY_TIMEOUT_MS;
+    // The proxy only starts after the child has a healthy CKB RPC and has
+    // successfully spawned the miner, so this is the daemon's service-level
+    // readiness check rather than a port/process check.
+    const readiness = await waitForNodeReady(proxyUrl, timeoutMs, () => isProcessAlive(child.pid!));
+    if (!readiness.ready) {
+      throw new Error(
+        `CKB devnet daemon failed to become ready. See ${logFile}. ${readiness.error ?? 'Daemon process exited.'}`,
+      );
     }
-    if (exited) {
-      cleanupPidFile(pidFile);
-    }
-    throw new Error(
-      `CKB devnet daemon failed to become ready. See ${logFile}. ${readiness.error ?? 'Daemon process exited.'}` +
-        (exited ? '' : ` Process ${child.pid} is still running; PID file was preserved.`),
-    );
+    writePidFile(pidFile, { ...metadata, status: 'running' });
+  } catch (error) {
+    return failDaemonStartup(error as Error, child.pid, pidFile);
   }
 
   logger.success(`CKB devnet daemon started with PID ${child.pid} and passed its RPC/proxy health check.`);
