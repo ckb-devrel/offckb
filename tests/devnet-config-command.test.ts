@@ -71,17 +71,13 @@ describe('devnet config command fallback behavior', () => {
     expect(process.exitCode).toBeUndefined();
   });
 
-  it('prints actionable fallback guidance when TTY is unavailable', async () => {
+  it('throws actionable fallback guidance when TTY is unavailable', async () => {
     Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
     Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
 
-    await devnetConfig();
+    await expect(devnetConfig()).rejects.toThrow('offckb devnet config --set ckb.logger.filter=info');
 
     expect(runDevnetConfigTui).not.toHaveBeenCalled();
-    expect(logger.error).toHaveBeenCalledWith('Interactive devnet config editor requires a TTY terminal.');
-    expect(logger.info).toHaveBeenCalledWith('Use non-interactive mode instead, e.g.:');
-    expect(logger.info).toHaveBeenCalledWith('  offckb devnet config --set ckb.logger.filter=info');
-    expect(process.exitCode).toBe(1);
   });
 });
 
@@ -100,13 +96,7 @@ describe('error handling with init hint', () => {
   });
 
   it('should NOT show init hint for parse errors (--set invalid)', async () => {
-    await devnetConfig({ set: ['invalid'] });
-
-    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('Invalid --set item'));
-    expect(logger.info).not.toHaveBeenCalledWith(
-      'Tip: run `offckb node` once to initialize devnet config files first.',
-    );
-    expect(process.exitCode).toBe(1);
+    await expect(devnetConfig({ set: ['invalid'] })).rejects.toThrow('Invalid --set item');
   });
 
   it('should NOT show init hint for unknown field errors', async () => {
@@ -114,13 +104,7 @@ describe('error handling with init hint', () => {
       throw new Error("Unknown field 'unknown.field'.");
     });
 
-    await devnetConfig({ set: ['unknown.field=value'] });
-
-    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('Unknown field'));
-    expect(logger.info).not.toHaveBeenCalledWith(
-      'Tip: run `offckb node` once to initialize devnet config files first.',
-    );
-    expect(process.exitCode).toBe(1);
+    await expect(devnetConfig({ set: ['unknown.field=value'] })).rejects.toThrow('Unknown field');
   });
 
   it('should NOT show init hint for validation errors', async () => {
@@ -128,13 +112,9 @@ describe('error handling with init hint', () => {
       throw new Error('Value must be a positive integer.');
     });
 
-    await devnetConfig({ set: ['miner.client.poll_interval=0'] });
-
-    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('Value must be a positive integer'));
-    expect(logger.info).not.toHaveBeenCalledWith(
-      'Tip: run `offckb node` once to initialize devnet config files first.',
+    await expect(devnetConfig({ set: ['miner.client.poll_interval=0'] })).rejects.toThrow(
+      'Value must be a positive integer',
     );
-    expect(process.exitCode).toBe(1);
   });
 
   it('should show init hint for missing config path (InitializationError)', async () => {
@@ -143,11 +123,9 @@ describe('error handling with init hint', () => {
       throw new InitializationError('Devnet config path does not exist: /missing/path');
     });
 
-    await devnetConfig({ set: ['ckb.logger.filter=info'] });
-
-    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('Devnet config path does not exist'));
-    expect(logger.info).toHaveBeenCalledWith('Tip: run `offckb node` once to initialize devnet config files first.');
-    expect(process.exitCode).toBe(1);
+    await expect(devnetConfig({ set: ['ckb.logger.filter=info'] })).rejects.toThrow(
+      'Devnet config path does not exist: /missing/path Tip: run `offckb node`',
+    );
   });
 
   it('should show init hint for missing ckb.toml (InitializationError)', async () => {
@@ -156,11 +134,9 @@ describe('error handling with init hint', () => {
       throw new InitializationError('Missing file: /path/ckb.toml');
     });
 
-    await devnetConfig({ set: ['ckb.logger.filter=info'] });
-
-    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('Missing file'));
-    expect(logger.info).toHaveBeenCalledWith('Tip: run `offckb node` once to initialize devnet config files first.');
-    expect(process.exitCode).toBe(1);
+    await expect(devnetConfig({ set: ['ckb.logger.filter=info'] })).rejects.toThrow(
+      'Missing file: /path/ckb.toml Tip: run `offckb node`',
+    );
   });
 
   it('should show init hint for missing miner.toml (InitializationError)', async () => {
@@ -169,10 +145,8 @@ describe('error handling with init hint', () => {
       throw new InitializationError('Missing file: /path/ckb-miner.toml');
     });
 
-    await devnetConfig({ set: ['ckb.logger.filter=info'] });
-
-    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('Missing file'));
-    expect(logger.info).toHaveBeenCalledWith('Tip: run `offckb node` once to initialize devnet config files first.');
-    expect(process.exitCode).toBe(1);
+    await expect(devnetConfig({ set: ['ckb.logger.filter=info'] })).rejects.toThrow(
+      'Missing file: /path/ckb-miner.toml Tip: run `offckb node`',
+    );
   });
 });

@@ -13,3 +13,5 @@ export type H256 = string;
 
 export type HexString = string;
 export type HexNumber = string;
+
+export type UdtKind = 'sudt' | 'xudt';

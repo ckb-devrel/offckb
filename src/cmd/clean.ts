@@ -20,8 +20,7 @@ export function clean(options?: CleanOptions) {
         fs.rmSync(chainDataPath, { recursive: true });
         logger.info(`Chain data cleaned. Devnet config files preserved.`);
       } catch (error: unknown) {
-        logger.info(`Did you stop running the chain first?`);
-        logger.error((error as Error).message);
+        throw new Error(`Failed to clean chain data. Did you stop the chain first? ${(error as Error).message}`);
       }
     } else {
       logger.info(`Nothing to clean. Chain data directory ${chainDataPath} not found.`);
@@ -34,8 +33,7 @@ export function clean(options?: CleanOptions) {
         fs.rmSync(allDevnetDataPath, { recursive: true });
         logger.info(`Chain data cleaned.`);
       } catch (error: unknown) {
-        logger.info(`Did you stop running the chain first?`);
-        logger.error((error as Error).message);
+        throw new Error(`Failed to clean devnet data. Did you stop the chain first? ${(error as Error).message}`);
       }
     } else {
       logger.info(`Nothing to clean. Devnet data directory ${allDevnetDataPath} not found.`);

@@ -17,16 +17,26 @@ interface LoggerOptions {
   level?: LogLevel;
   enableColors?: boolean;
   showLevel?: boolean;
+  jsonMode?: boolean;
+  transports?: winston.transport[];
+}
+
+export interface CommandResult {
+  command: string;
+  [key: string]: unknown;
 }
 
 class UnifiedLogger {
   private logger: winston.Logger;
   private enableColors: boolean;
   private showLevel: boolean;
+  private jsonMode: boolean;
+  private resultEmitted = false;
 
   constructor(options: LoggerOptions = {}) {
     this.enableColors = options.enableColors !== false;
     this.showLevel = options.showLevel !== false;
+    this.jsonMode = options.jsonMode === true;
 
     // Create Winston logger with custom format and levels
     this.logger = winston.createLogger({
@@ -34,8 +44,8 @@ class UnifiedLogger {
       levels: {
         error: 0,
         warn: 1,
-        info: 2,
-        success: 3,
+        success: 2,
+        info: 3,
         debug: 4,
       },
       format: winston.format.combine(
@@ -45,18 +55,75 @@ class UnifiedLogger {
           return this.formatMessage(level as LogLevel, message as string, timestamp as string);
         }),
       ),
-      transports: [
+      transports: options.transports || [
         new winston.transports.Console({
           stderrLevels: ['error', 'warn'],
         }),
       ],
     });
+    this.setJsonMode(this.jsonMode);
+  }
+
+  /**
+   * Toggle JSON output mode. When enabled, every log line is emitted as a
+   * structured JSON object, which is easier for agents and scripts to parse.
+   */
+  setJsonMode(enabled: boolean) {
+    this.jsonMode = enabled;
+    // In machine mode stdout is reserved for command result records. Progress
+    // and diagnostics remain NDJSON, but go to stderr so callers can parse one
+    // stable stdout object without filtering human-oriented logs.
+    for (const transport of this.logger.transports) {
+      if (transport instanceof winston.transports.Console) {
+        const consoleTransport = transport as unknown as { stderrLevels: Record<string, boolean> };
+        consoleTransport.stderrLevels = Object.fromEntries(
+          (enabled ? Object.keys(levelColors) : ['error', 'warn']).map((level) => [level, true]),
+        );
+      }
+    }
+  }
+
+  isJsonMode(): boolean {
+    return this.jsonMode;
+  }
+
+  /** Emit one stable, command-level result record for programmatic callers. */
+  result(result: CommandResult) {
+    if (this.jsonMode && !this.resultEmitted) {
+      this.resultEmitted = true;
+      process.stdout.write(`${JSON.stringify({ ok: true, ...result })}\n`);
+    }
+  }
+
+  hasResult(): boolean {
+    return this.resultEmitted;
+  }
+
+  /** Emit a stable error record without exposing internal stack traces. */
+  failure(code: string, message: string, details?: unknown) {
+    if (this.jsonMode) {
+      process.stderr.write(
+        `${JSON.stringify({ ok: false, code, message, ...(details == null ? {} : { details }) })}\n`,
+      );
+      return;
+    }
+    this.error(message);
   }
 
   /**
    * Format the message with appropriate colors and structure
    */
-  private formatMessage(level: LogLevel, message: string, _timestamp?: string): string {
+  private formatMessage(level: LogLevel, message: string, timestamp?: string): string {
+    // Agent-friendly JSON output: one JSON object per log line
+    if (this.jsonMode) {
+      const normalizedMessage = Array.isArray(message) ? message.join('\n') : String(message);
+      return JSON.stringify({
+        level,
+        message: normalizedMessage,
+        timestamp,
+      });
+    }
+
     // If showLevel is false, return just the message
     if (!this.showLevel) {
       if (Array.isArray(message)) {
@@ -148,6 +215,13 @@ class UnifiedLogger {
    * Log a message with the specified level
    */
   private log(level: LogLevel, message: string | string[]) {
+    // In JSON mode, emit multi-line messages as a single structured log entry
+    // so agents can parse one complete JSON object per line.
+    if (this.jsonMode && Array.isArray(message)) {
+      this.logger.log(level, message.join('\n'));
+      return;
+    }
+
     if (Array.isArray(message)) {
       message.forEach((line) => this.logger.log(level, line));
     } else {

@@ -7,11 +7,15 @@ import { deployBinaries, saveArtifacts } from '../deploy';
 import { CKB } from '../sdk/ckb';
 import { confirm } from '@inquirer/prompts';
 import { logger } from '../util/logger';
+import { resolvePrivateKey } from '../util/private-key';
+import { warnIfForkIndexerIsBehind } from '../devnet/readiness';
+import { warnIfMainnetForkSigning } from '../util/fork-safety';
 
 export interface DeployOptions extends NetworkOption {
   target?: string;
   output?: string;
   privkey?: string | null;
+  privkeyFile?: string | null;
   typeId?: boolean;
   yes?: boolean;
 }
@@ -22,10 +26,11 @@ export async function deploy(
   const network = opt.network as Network;
   validateNetworkOpt(network);
 
-  const ckb = new CKB({ network });
-
   // we use deployerAccount to deploy contract by default
-  const privateKey = opt.privkey || deployerAccount.privkey;
+  const privateKey = resolvePrivateKey(opt, deployerAccount.privkey);
+  warnIfMainnetForkSigning(network, privateKey);
+  await warnIfForkIndexerIsBehind(network);
+  const ckb = new CKB({ network });
   const enableTypeId = opt.typeId ?? false;
   const targetFolder = opt.target!;
   const output = opt.output!;
@@ -52,7 +57,7 @@ export async function deploy(
     '',
     `   📁 Deployment artifacts will be saved to: ${outputFolder}`,
     `   🌐 Network: ${network}`,
-    `   🔑 Using ${opt.privkey ? 'custom' : 'default'} private key`,
+    `   🔑 Using ${opt.privkey || opt.privkeyFile || process.env.OFFCKB_PRIVATE_KEY ? 'custom' : 'default'} private key`,
     `   🔄 Type ID: ${enableTypeId ? 'enabled (upgradable)' : 'disabled (immutable)'}`,
   ]);
 

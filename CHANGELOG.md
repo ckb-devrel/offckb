@@ -1,5 +1,38 @@
 # @offckb/cli
 
+## 0.4.9
+
+### Patch Changes
+
+- 6f54296: Add daemon mode and structured JSON output for agent-friendly usage, plus a `node stop` command to terminate the daemon.
+
+  - `offckb node --daemon` starts the CKB devnet as a detached background process and writes the PID and logs to the devnet data folder.
+  - `offckb --json <command>` emits structured JSON log output for programmatic consumption.
+  - `offckb node stop` reads the daemon PID file and gracefully shuts down the daemon, falling back to force-kill if necessary. It now verifies the target process identity, handles stale PID files, and cleans up on error paths.
+  - Hardened daemon lifecycle: duplicate daemon starts are rejected, CLI entry resolution supports packaged/npx environments via `OFFCKB_CLI_PATH`, and log/PID directory creation failures are handled gracefully.
+
+- 8f8d0a4: Fix canary DevRel findings across daemon lifecycle, SUDT type args, fork isolation and migration, Indexer readiness, account safety, verified ckb-tui downloads, private-key input, and stable JSON command results.
+- b3fe233: Add `offckb devnet fork` to fork an existing mainnet/testnet data directory into the local devnet ([Devnet From Existing Data](https://docs.nervos.org/docs/node/devnet-from-existing-data) flow), plus fork-aware system scripts and local-first debugging.
+
+  - `offckb devnet fork --from <dir> [--source mainnet|testnet] [--spec-file <path>] [--force]` copies the source chain data, imports the matching chain spec, patches it for local mining (Dummy PoW, `cellbase_maturity = 0`, correct `genesis_epoch_length` per chain), verifies the genesis hash, and records the fork state. The first `offckb node` run boots with `--skip-spec-check --overwrite-spec` automatically; `offckb clean` resets back to a pure devnet.
+  - Devnet system scripts now self-identify the chain via the genesis hash in `ckb list-hashes`: on a mainnet/testnet fork, genesis scripts come from the chain's own spec and post-genesis deployments (sudt/xudt/omnilock/spore/…) are filled from the well-known static records, so `system-scripts`, transfers, deploys and fee estimation keep working on a fork.
+  - The devnet ccc client follows the forked chain too: a mainnet fork uses the `ckb` address prefix.
+  - `offckb debug` falls back to fetching the transaction from the node when it is not in the local proxy cache, and the tx dumper now embeds full header objects in `mock_info.header_deps` (previously bare hashes, which broke debugging for transactions with header deps).
+
+- 303f54e: Resolve Dependabot security alerts via pnpm overrides for transitive dependencies:
+
+  - `qs` 6.15.0 → 6.15.2
+  - `ip-address` 10.1.0 → 10.1.1
+  - `js-yaml` 3.14.2 → 3.15.0 / 4.1.1 → 4.2.0
+  - `@babel/core` 7.28.6 → 7.29.7
+  - `@eslint/plugin-kit` 0.2.8 → 0.3.4
+  - `brace-expansion` 5.0.5 → 5.0.6
+
+  `elliptic` remains unfixed because a patched version (>=6.6.2) is not yet published on npm.
+
+- 43ce3a3: Add `status` command to launch ckb-tui for monitoring CKB network from your node
+- 463b2ff: Refactor UDT CLI support: reuse `balance` and `transfer` commands for CKB and UDT queries, and add `offckb udt issue` / `offckb udt destroy` subcommands.
+
 ## 0.4.8
 
 ### Patch Changes

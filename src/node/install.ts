@@ -65,6 +65,7 @@ export async function downloadCKBBinaryAndUnzip(version: string) {
     logger.info(`CKB ${version} installed successfully.`);
   } catch (error: unknown) {
     logger.error('Error installing dependency binary:', (error as Error).message);
+    throw error;
   }
 }
 

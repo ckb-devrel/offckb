@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import { DeploymentRecipe, getNewestMigrationFile, readDeploymentMigrationFile } from '../deploy/migration';
 import { MyScriptsRecord, ScriptInfo } from '../scripts/type';
+import { SystemCell } from '../util/list-hashes';
 import path from 'path';
 import { logger } from '../util/logger';
 
@@ -96,4 +97,73 @@ export function extractScriptNameFromPath(pathString: string): string {
   // This is robust and handles the platform's native path separator correctly
   // On Windows, it handles backslashes; on Unix, it handles forward slashes
   return path.basename(pathString);
+}
+
+export function systemCellToScriptInfo({
+  cell,
+  depType,
+  depGroup,
+  extraCellDeps,
+}: {
+  cell: SystemCell;
+  depType: 'code' | 'depGroup';
+  depGroup?: {
+    txHash: string;
+    index: number;
+  };
+  extraCellDeps?: ScriptInfo['cellDeps'];
+}): ScriptInfo {
+  // todo: we left the type in cellDepsInfo since it requires async fetching and
+  // chain running to get the full type script of the type-id deps.
+  // Also, in devnet there is no real need to auto upgrade the system scripts with type-id
+  if (depType === 'code') {
+    let cellDeps: ScriptInfo['cellDeps'] = [
+      {
+        cellDep: {
+          outPoint: {
+            txHash: cell.tx_hash as `0x${string}`,
+            index: cell.index,
+          },
+          depType,
+        },
+      },
+    ];
+    if (extraCellDeps && extraCellDeps.length > 0) {
+      cellDeps = [...extraCellDeps, ...cellDeps];
+    }
+    return {
+      codeHash: (cell.type_hash || cell.data_hash) as `0x${string}`,
+      hashType: cell.type_hash ? 'type' : 'data2',
+      cellDeps,
+    };
+  }
+
+  if (depType === 'depGroup') {
+    if (!depGroup) {
+      throw new Error('require depGroup info since the dep type is depGroup');
+    }
+
+    let cellDeps: ScriptInfo['cellDeps'] = [
+      {
+        cellDep: {
+          outPoint: {
+            txHash: depGroup!.txHash as `0x${string}`,
+            index: depGroup!.index,
+          },
+          depType,
+        },
+      },
+    ];
+    if (extraCellDeps && extraCellDeps.length > 0) {
+      cellDeps = [...extraCellDeps, ...cellDeps];
+    }
+
+    return {
+      codeHash: (cell.type_hash || cell.data_hash) as `0x${string}`,
+      hashType: cell.type_hash ? 'type' : 'data2',
+      cellDeps,
+    };
+  }
+
+  throw new Error(`unknown DepType ${depType}`);
 }
