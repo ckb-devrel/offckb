@@ -100,12 +100,18 @@ function mockDaemonCommandLine(scriptPath: string) {
 
 describe('node command daemon mode', () => {
   const originalArgv = process.argv;
+  const originalPlatform = process.platform;
   let killSpy: jest.SpyInstance;
+
+  function setPlatform(value: string) {
+    Object.defineProperty(process, 'platform', { value });
+  }
 
   beforeEach(() => {
     jest.clearAllMocks();
     mockReadFileSync.mockReset();
     mockWaitForNodeReady.mockResolvedValue({ ready: true, rpcUrl: 'http://127.0.0.1:8114', nodeTip: 0n });
+    setPlatform('linux');
     process.argv = ['node', '/path/to/offckb', 'node', '--daemon'];
     mockOpenSync.mockReturnValue(3);
     mockStatSync.mockReturnValue({ isFile: () => true });
@@ -126,6 +132,7 @@ describe('node command daemon mode', () => {
   afterEach(() => {
     process.argv = originalArgv;
     killSpy.mockRestore();
+    setPlatform(originalPlatform);
   });
 
   it('spawns a detached child process without the --daemon flag', async () => {
