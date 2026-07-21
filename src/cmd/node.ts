@@ -557,9 +557,13 @@ async function startDaemon() {
       if (!exited) {
         await terminateProcess(child.pid, 'SIGTERM');
         exited = await waitForProcessExit(child.pid, 5000);
+        if (!exited) {
+          await terminateProcess(child.pid, 'SIGKILL');
+          exited = await waitForProcessExit(child.pid, 5000);
+        }
       }
     } catch {
-      // The failed child may already have exited.
+      // The failed child may already have exited while signals were sent.
       exited = !isProcessAlive(child.pid);
     }
     if (exited) {

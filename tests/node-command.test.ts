@@ -243,6 +243,10 @@ describe('node command daemon mode', () => {
 
   it('keeps the PID reservation until failed startup termination is confirmed', async () => {
     let livenessChecks = 0;
+    let livenessChecksWhenPidFileRemoved: number | undefined;
+    mockUnlinkSync.mockImplementation((file: string) => {
+      if (file === pidFile) livenessChecksWhenPidFileRemoved = livenessChecks;
+    });
     mockWaitForNodeReady.mockResolvedValueOnce({ ready: false, error: 'proxy unavailable' });
     killSpy.mockImplementation((_pid: number, signal?: NodeJS.Signals | number) => {
       if (signal === 0) {
@@ -261,6 +265,39 @@ describe('node command daemon mode', () => {
     expect(killSpy).toHaveBeenCalledWith(-12345, 'SIGTERM');
     expect(livenessChecks).toBeGreaterThanOrEqual(3);
     expect(mockUnlinkSync).toHaveBeenCalledWith(pidFile);
+    expect(livenessChecksWhenPidFileRemoved).toBeGreaterThanOrEqual(3);
+  });
+
+  it('escalates failed startup cleanup to SIGKILL before removing the PID file', async () => {
+    jest.useFakeTimers();
+    let processAlive = true;
+    mockWaitForNodeReady.mockResolvedValueOnce({ ready: false, error: 'proxy unavailable' });
+    killSpy.mockImplementation((_pid: number, signal?: NodeJS.Signals | number) => {
+      if (signal === 0) {
+        if (!processAlive) {
+          const error = new Error('ESRCH') as NodeJS.ErrnoException;
+          error.code = 'ESRCH';
+          throw error;
+        }
+        return true;
+      }
+      if (signal === 'SIGKILL') processAlive = false;
+      return true;
+    });
+
+    try {
+      const startupFailure = expect(startNode({ network: Network.devnet, daemon: true })).rejects.toThrow(
+        'proxy unavailable',
+      );
+      await jest.advanceTimersByTimeAsync(5000);
+      await startupFailure;
+
+      expect(killSpy).toHaveBeenCalledWith(-12345, 'SIGTERM');
+      expect(killSpy).toHaveBeenCalledWith(-12345, 'SIGKILL');
+      expect(mockUnlinkSync).toHaveBeenCalledWith(pidFile);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('handles backward-compatible plain PID files', async () => {
