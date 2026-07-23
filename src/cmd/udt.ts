@@ -5,7 +5,7 @@ import { validateNetworkOpt, validateUdtAmount, validateUdtKind, validateUdtType
 import { resolvePrivateKey } from '../util/private-key';
 import { logger } from '../util/logger';
 import { warnIfForkIndexerIsBehind } from '../devnet/readiness';
-import { warnIfMainnetForkSigning } from '../util/fork-safety';
+import { validateMainnetForkSigning } from '../util/fork-safety';
 
 export interface UdtIssueOption extends NetworkOption {
   udtKind: UdtKind;
@@ -13,6 +13,7 @@ export interface UdtIssueOption extends NetworkOption {
   to?: string;
   privkey?: string;
   privkeyFile?: string;
+  allowExternalKeyOnMainnetFork?: boolean;
 }
 
 export interface UdtDestroyOption extends NetworkOption {
@@ -20,6 +21,7 @@ export interface UdtDestroyOption extends NetworkOption {
   typeArgs: string;
   privkey?: string;
   privkeyFile?: string;
+  allowExternalKeyOnMainnetFork?: boolean;
 }
 
 export async function udtIssue(amount: string, opt: UdtIssueOption = { network: Network.devnet, udtKind: 'sudt' }) {
@@ -30,7 +32,11 @@ export async function udtIssue(amount: string, opt: UdtIssueOption = { network: 
   const typeArgs = opt.typeArgs ? validateUdtTypeArgs(opt.udtKind, opt.typeArgs) : undefined;
 
   const privateKey = resolvePrivateKey(opt);
-  warnIfMainnetForkSigning(network, privateKey);
+  const rejectInputsAtOrBeforeBlock = validateMainnetForkSigning(
+    network,
+    privateKey,
+    opt.allowExternalKeyOnMainnetFork,
+  );
   await warnIfForkIndexerIsBehind(network);
 
   const ckb = new CKB({ network });
@@ -40,6 +46,7 @@ export async function udtIssue(amount: string, opt: UdtIssueOption = { network: 
     amount,
     typeArgs,
     toAddress: opt.to,
+    rejectInputsAtOrBeforeBlock,
   });
 
   logTxSuccess(network, result.txHash, 'issued UDT');
@@ -70,7 +77,11 @@ export async function udtDestroy(
   const typeArgs = validateUdtTypeArgs(opt.udtKind, opt.typeArgs);
 
   const privateKey = resolvePrivateKey(opt);
-  warnIfMainnetForkSigning(network, privateKey);
+  const rejectInputsAtOrBeforeBlock = validateMainnetForkSigning(
+    network,
+    privateKey,
+    opt.allowExternalKeyOnMainnetFork,
+  );
   await warnIfForkIndexerIsBehind(network);
 
   const ckb = new CKB({ network });
@@ -79,6 +90,7 @@ export async function udtDestroy(
     kind: opt.udtKind,
     amount,
     typeArgs,
+    rejectInputsAtOrBeforeBlock,
   });
 
   logTxSuccess(network, txHash, 'destroyed UDT');
