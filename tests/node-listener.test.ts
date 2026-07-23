@@ -43,11 +43,33 @@ function lsofError(stderr: string, code?: string): Error & { stderr: Buffer; cod
 }
 
 describe('isProcessListeningOnPort', () => {
+  const realPlatform = process.platform;
+
+  // The implementation short-circuits to null on win32 without invoking lsof;
+  // force a unix platform so the lsof-probing behavior is exercised on every
+  // CI OS, including the Windows runners.
+  beforeAll(() => Object.defineProperty(process, 'platform', { value: 'linux' }));
+  afterAll(() => Object.defineProperty(process, 'platform', { value: realPlatform }));
   beforeEach(() => jest.clearAllMocks());
 
   it('returns true when lsof finds the process listening', () => {
     mockExecFileSync.mockReturnValue(Buffer.from('p1234'));
     expect(isProcessListeningOnPort(1234, 8114)).toBe(true);
+    expect(mockExecFileSync).toHaveBeenCalledWith(
+      'lsof',
+      ['-a', '-p', '1234', '-iTCP:8114', '-sTCP:LISTEN'],
+      expect.objectContaining({ timeout: 5000 }),
+    );
+  });
+
+  it('returns null on Windows without probing lsof', () => {
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    try {
+      expect(isProcessListeningOnPort(1234, 8114)).toBeNull();
+      expect(mockExecFileSync).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(process, 'platform', { value: 'linux' });
+    }
   });
 
   it('returns false when lsof reports no match (empty stderr)', () => {
@@ -84,7 +106,7 @@ describe('isProcessListeningOnPort', () => {
     expect(mockExecFileSync).toHaveBeenCalledWith(
       'lsof',
       ['-a', '-p', '1234', '-iTCP:8114', '-sTCP:LISTEN'],
-      expect.objectContaining({ timeout: expect.any(Number) }),
+      expect.objectContaining({ timeout: 5000 }),
     );
   });
 });
