@@ -80,16 +80,19 @@ support_protocols = ["Ping", "Discovery", "Identify", "Feeler", "DisconnectMessa
 #
 # Allowing arbitrary machines to access the JSON-RPC port is dangerous and strongly discouraged.
 # Please strictly limit the access to only trusted machines.
-listen_address = "0.0.0.0:8114"
+listen_address = "127.0.0.1:8114"
 
 # Default is 10MiB = 10 * 1024 * 1024
 max_request_body_size = 10485760
 
-# List of API modules: ["Net", "Pool", "Miner", "Chain", "Stats", "Subscription", "Experiment", "Debug", "Indexer"]
-modules = ["Net", "Pool", "Miner", "Chain", "Stats", "Subscription", "Experiment", "Debug", "Indexer"]
+# List of API modules: ["Net", "Pool", "Miner", "Chain", "Stats", "Subscription", "Experiment", "Debug", "Indexer", "RichIndexer", "Terminal"]
+# "Terminal" powers ckb-tui's `get_overview` system metrics; without it those panels show N/A.
+modules = ["Net", "Pool", "Miner", "Chain", "Stats", "Subscription", "Experiment", "Debug", "Indexer", "Terminal"]
 
 # By default RPC only binds to HTTP service, you can bind it to TCP and WebSocket.
-# tcp_listen_address = "127.0.0.1:18114"
+# The TCP service streams subscription topics (new_transaction, rejected_transaction, log, ...)
+# that ckb-tui's mempool and logs dashboards rely on.
+tcp_listen_address = "127.0.0.1:18114"
 # ws_listen_address = "127.0.0.1:28114"
 reject_ill_transactions = true
 
