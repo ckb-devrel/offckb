@@ -80,7 +80,7 @@ support_protocols = ["Ping", "Discovery", "Identify", "Feeler", "DisconnectMessa
 #
 # Allowing arbitrary machines to access the JSON-RPC port is dangerous and strongly discouraged.
 # Please strictly limit the access to only trusted machines.
-listen_address = "0.0.0.0:8114"
+listen_address = "127.0.0.1:8114"
 
 # Default is 10MiB = 10 * 1024 * 1024
 max_request_body_size = 10485760
