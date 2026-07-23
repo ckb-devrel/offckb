@@ -70,4 +70,21 @@ describe('isProcessListeningOnPort', () => {
     });
     expect(isProcessListeningOnPort(1234, 8114)).toBeNull();
   });
+
+  it('returns null when lsof hangs and hits the probe timeout', () => {
+    mockExecFileSync.mockImplementation(() => {
+      throw lsofError('', 'ETIMEDOUT');
+    });
+    expect(isProcessListeningOnPort(1234, 8114)).toBeNull();
+  });
+
+  it('bounds the lsof probe with a timeout', () => {
+    mockExecFileSync.mockReturnValue(Buffer.from('p1234'));
+    isProcessListeningOnPort(1234, 8114);
+    expect(mockExecFileSync).toHaveBeenCalledWith(
+      'lsof',
+      ['-a', '-p', '1234', '-iTCP:8114', '-sTCP:LISTEN'],
+      expect.objectContaining({ timeout: expect.any(Number) }),
+    );
+  });
 });
