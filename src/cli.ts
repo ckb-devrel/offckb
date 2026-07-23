@@ -92,6 +92,10 @@ program
   .option('-t, --type-id', 'Specify if use upgradable type id to deploy the script')
   .option('--privkey <privkey>', 'Specify the private key to deploy scripts (visible in shell history)')
   .option('--privkey-file <path>', 'Read the private key from a local file')
+  .option(
+    '--allow-external-key-on-mainnet-fork',
+    'Allow a non-built-in key on a Mainnet fork (copied inputs remain blocked)',
+  )
   .option('-y, --yes', 'Skip confirmation prompt and deploy immediately')
   .action((options: DeployOptions) => deploy(options));
 
@@ -166,7 +170,10 @@ program
   .option('--privkey-file <path>', 'Read the private key from a local file')
   .addOption(new Option('--udt-kind <kind>', 'Specify the UDT kind').choices(['sudt', 'xudt']))
   .option('--udt-type-args <typeArgs>', 'Specify the UDT type script args to transfer UDT')
-  .option('--allow-mainnet-replay-risk', 'Allow a non-built-in key on a Mainnet fork (copied inputs remain blocked)')
+  .option(
+    '--allow-external-key-on-mainnet-fork',
+    'Allow a non-built-in key on a Mainnet fork (copied inputs remain blocked)',
+  )
   .option('-r, --proxy-rpc', 'Use Proxy RPC to connect to blockchain')
   .action(async (toAddress: string, amount: string, options: TransferOptions) => {
     await transfer(toAddress, amount, options);
@@ -178,6 +185,10 @@ program
   .option('--network <network>', 'Specify the network to transfer to', 'devnet')
   .option('--privkey <privkey>', 'Specify the private key (visible in shell history)')
   .option('--privkey-file <path>', 'Read the private key from a local file')
+  .option(
+    '--allow-external-key-on-mainnet-fork',
+    'Allow a non-built-in key on a Mainnet fork (copied inputs remain blocked)',
+  )
   .option('-r, --proxy-rpc', 'Use Proxy RPC to connect to blockchain')
   .action(async (toAddress: string, options: TransferOptions) => {
     await transferAll(toAddress, options);
@@ -205,6 +216,10 @@ udtCommand
   .option('--to <toAddress>', 'Specify the receiver address (defaults to signer)')
   .option('--privkey <privkey>', 'Specify the private key to issue UDT (visible in shell history)')
   .option('--privkey-file <path>', 'Read the private key from a local file')
+  .option(
+    '--allow-external-key-on-mainnet-fork',
+    'Allow a non-built-in key on a Mainnet fork (copied inputs remain blocked)',
+  )
   .action(async (amount: string, options: UdtIssueOption) => {
     await udtIssue(amount, options);
   });
@@ -217,6 +232,10 @@ udtCommand
   .requiredOption('--type-args <typeArgs>', 'Specify the UDT type script args')
   .option('--privkey <privkey>', 'Specify the private key to destroy UDT (visible in shell history)')
   .option('--privkey-file <path>', 'Read the private key from a local file')
+  .option(
+    '--allow-external-key-on-mainnet-fork',
+    'Allow a non-built-in key on a Mainnet fork (copied inputs remain blocked)',
+  )
   .action(async (amount: string, options: UdtDestroyOption) => {
     await udtDestroy(amount, options);
   });

@@ -23,16 +23,16 @@ export function warnIfMainnetForkSigning(network: Network, privateKey: string): 
 export function validateMainnetForkSigning(
   network: Network,
   privateKey: string,
-  allowMainnetReplayRisk = false,
+  allowExternalKeyOnMainnetFork = false,
 ): bigint | undefined {
   const fork = readMainnetForkState(network);
   if (!fork) return undefined;
 
   logMainnetForkSigningWarning(privateKey);
-  if (!BUILT_IN_DEV_KEYS.has(privateKey.trim().toLowerCase()) && !allowMainnetReplayRisk) {
+  if (!BUILT_IN_DEV_KEYS.has(privateKey.trim().toLowerCase()) && !allowExternalKeyOnMainnetFork) {
     throw new Error(
       'Refusing to sign with a non-built-in private key on a Mainnet fork. ' +
-        'Use --allow-mainnet-replay-risk only after verifying that no copied Mainnet input will be selected.',
+        'Use --allow-external-key-on-mainnet-fork only after verifying that no copied Mainnet input will be selected.',
     );
   }
   if (fork.forkBlockNumber == null) {

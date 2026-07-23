@@ -8,8 +8,10 @@ import { Network } from '../type/base';
 import { encodeBinPathForTerminal } from '../util/encoding';
 import { callJsonRpc } from '../util/json-rpc';
 import { logger } from '../util/logger';
+import { validateTxHash } from '../util/validator';
 
 export async function debugTransaction(txHash: string, network: Network) {
+  validateTxHash(txHash);
   const txFile = await buildTxFileOptionBy(txHash, network);
   const opts = buildTransactionDebugOptions(txHash, network);
   for (const opt of opts) {
@@ -19,6 +21,7 @@ export async function debugTransaction(txHash: string, network: Network) {
 }
 
 export function buildTransactionDebugOptions(txHash: string, network: Network) {
+  validateTxHash(txHash);
   const txJsonFilePath = buildTransactionJsonFilePath(network, txHash);
   const txJson = JSON.parse(fs.readFileSync(txJsonFilePath, 'utf-8'));
   const cccTx = cccA.JsonRpcTransformers.transactionTo(txJson);
@@ -57,6 +60,7 @@ export async function debugSingleScript(
   network: Network,
   bin?: string,
 ) {
+  validateTxHash(txHash);
   const txFile = await buildTxFileOptionBy(txHash, network);
   let opt = `--cell-index ${cellIndex} --cell-type ${cellType} --script-group-type ${scriptType}`;
   if (bin) {
@@ -83,6 +87,9 @@ export function parseSingleScriptOption(value: string) {
 }
 
 export async function buildTxFileOptionBy(txHash: string, network: Network) {
+  // The hash is interpolated into cache file paths below; reject anything that
+  // is not a plain 32-byte hash before touching the filesystem.
+  validateTxHash(txHash);
   const settings = readSettings();
   const outputFilePath = buildDebugFullTransactionFilePath(network, txHash);
   if (!fs.existsSync(outputFilePath)) {

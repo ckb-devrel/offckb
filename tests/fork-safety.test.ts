@@ -41,7 +41,7 @@ describe('Mainnet fork signing warning', () => {
   it('requires an explicit override for an external key', () => {
     mockFork = { source: 'mainnet', forkBlockNumber: '100' };
     expect(() => validateMainnetForkSigning(Network.devnet, '0x' + '11'.repeat(32))).toThrow(
-      '--allow-mainnet-replay-risk',
+      '--allow-external-key-on-mainnet-fork',
     );
   });
 

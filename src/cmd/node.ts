@@ -1,4 +1,4 @@
-import { exec, spawn, ChildProcess } from 'child_process';
+import { execFile, execFileSync, spawn, ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { initChainIfNeeded } from '../node/init-chain';
@@ -190,12 +190,42 @@ function resolveDaemonPaths() {
   return { logDir, logFile, pidFile };
 }
 
+// Best-effort check that the spawned process is the one listening on the RPC
+// port. Returns null when the check cannot be performed (Windows, no lsof) so
+// callers can fall back to weaker signals.
+function isProcessListeningOnPort(pid: number, port: number): boolean | null {
+  if (process.platform === 'win32') return null;
+  try {
+    execFileSync('lsof', ['-a', '-p', String(pid), '-iTCP:' + port, '-sTCP:LISTEN'], {
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    return false;
+  }
+}
+
+function rpcPortOf(rpcUrl: string): number | null {
+  try {
+    const url = new URL(rpcUrl);
+    if (url.port) return Number(url.port);
+    return url.protocol === 'https:' ? 443 : 80;
+  } catch {
+    return null;
+  }
+}
+
 // Poll the devnet RPC until the spawned node answers with the fork's genesis
 // hash, then mark the first run as done so subsequent `offckb node` runs boot
-// normally. Two guards against clearing the flag on the wrong signal:
+// normally. Guards against clearing the flag on the wrong signal:
 //   - the poll aborts when the spawned ckb process exits (e.g. failed boot),
 //   - an answering node is only trusted when its genesis matches the fork
-//     state — an unrelated node occupying the port must not clear the flag.
+//     state — an unrelated node occupying the port must not clear the flag,
+//   - when it can be determined, the spawned process must be the RPC listener:
+//     the fork keeps the source chain's genesis hash, so a stale source or
+//     fork node sharing the port would otherwise pass the genesis check and
+//     supply a wrong fork boundary.
 async function clearForkFirstRunWhenNodeUp(
   ckbProcess: ChildProcess,
   rpcUrl: string,
@@ -220,6 +250,16 @@ async function clearForkFirstRunWhenNodeUp(
             'leaving the first-run flags in place.',
         );
         return;
+      }
+      const rpcPort = rpcPortOf(rpcUrl);
+      const listening =
+        ckbProcess.pid != null && rpcPort != null ? isProcessListeningOnPort(ckbProcess.pid, rpcPort) : null;
+      if (listening === false) {
+        // Something else is answering at the RPC URL while our process has not
+        // bound the port (yet). Do not read the fork boundary from it.
+        logger.debug(`Waiting for the spawned CKB process to bind the RPC port ${rpcPort} ..`);
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        continue;
       }
       // The miner has not started yet, so this tip is the exact boundary
       // between copied public-chain state and cells mined on the local fork.
@@ -382,24 +422,25 @@ function waitForProcessExit(pid: number, timeoutMs: number): Promise<boolean> {
 
 function getProcessCommandLine(pid: number): Promise<string | null> {
   return new Promise((resolve) => {
-    if (process.platform === 'win32') {
-      exec(`wmic process where ProcessId=${pid} get CommandLine /format:list`, (error, stdout) => {
-        if (error) {
-          resolve(null);
-          return;
-        }
+    // Argument arrays, never an interpolated shell string: even though pid is
+    // validated as a positive integer on every path here, execFile keeps that
+    // true after any future refactor.
+    const [cmd, args]: [string, string[]] =
+      process.platform === 'win32'
+        ? ['wmic', ['process', 'where', `ProcessId=${pid}`, 'get', 'CommandLine', '/format:list']]
+        : ['ps', ['-p', String(pid), '-o', 'args=']];
+    execFile(cmd, args, (error, stdout) => {
+      if (error) {
+        resolve(null);
+        return;
+      }
+      if (process.platform === 'win32') {
         const match = stdout.match(/CommandLine=(.+)/);
         resolve(match ? match[1].trim() : null);
-      });
-    } else {
-      exec(`ps -p ${pid} -o args=`, (error, stdout) => {
-        if (error) {
-          resolve(null);
-          return;
-        }
+      } else {
         resolve(stdout.trim());
-      });
-    }
+      }
+    });
   });
 }
 

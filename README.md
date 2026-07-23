@@ -30,6 +30,7 @@ There are BREAKING CHANGES between v0.3.x and v0.4.x, make sure to read the [mig
   - [4. Debug Your Contract {#debug-contract}](#4-debug-your-contract-debug-contract)
   - [5. Explore Built-in Scripts {#explore-scripts}](#5-explore-built-in-scripts-explore-scripts)
   - [6. Tweak Devnet Config {#tweak-devnet-config}](#6-tweak-devnet-config-tweak-devnet-config)
+  - [7. Fork Mainnet/Testnet Into Your Devnet {#fork-devnet}](#7-fork-mainnettestnet-into-your-devnet-fork-devnet)
 - [Config Setting](#config-setting)
   - [List All Settings](#list-all-settings)
   - [Set CKB version](#set-ckb-version)
@@ -414,7 +415,7 @@ On a forked devnet, `offckb system-scripts`, transfers, deploys and `offckb debu
 > [!CAUTION]
 > CKB transactions carry no chain id, so a transaction built on a mainnet fork that spends copied mainnet cells is also valid on mainnet (CKB provides no replay protection). offckb's own flows only use dev keys and fork-mined cells, which cannot replay. Never sign transactions with real mainnet keys against a fork unless you intend to broadcast them yourself.
 
-`offckb transfer` fails closed on a Mainnet fork: non-built-in keys require `--allow-mainnet-replay-risk`, and inputs copied from Mainnet are rejected even with that override.
+`offckb transfer` fails closed on a Mainnet fork: non-built-in keys require `--allow-external-key-on-mainnet-fork`, and inputs copied from Mainnet are rejected even with that override.
 
 ## Config Setting
 
