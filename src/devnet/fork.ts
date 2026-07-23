@@ -264,6 +264,9 @@ export function copySourceData(sourceDir: string, configPath: string): void {
   // place, and linked files would corrupt the source chain.
   const excludedTopLevelEntries = new Set(['network', 'logs', 'tmp']);
   fs.mkdirSync(targetData, { recursive: true });
+  // A symlinked data root would bypass the per-entry checks below:
+  // readdirSync follows it and its ordinary children would pass assertNoSymlink.
+  assertNoSymlink(sourceData);
   // Enumerate top-level entries instead of relying on fs.cp's filter paths,
   // which may use Windows extended-length prefixes and bypass relative-path
   // comparisons.

@@ -5,6 +5,23 @@ import { ForkState, readForkState } from '../devnet/fork';
 import { Network } from '../type/base';
 import { logger } from './logger';
 
+export interface MainnetForkOverrideOptions {
+  allowExternalKeyOnMainnetFork?: boolean;
+  allowMainnetReplayRisk?: boolean;
+}
+
+/**
+ * Map the deprecated --allow-mainnet-replay-risk flag (0.4.9) onto its
+ * replacement so scripts written against the old name keep working.
+ */
+export function resolveMainnetForkOverride<T extends MainnetForkOverrideOptions>(options: T): T {
+  if (options.allowMainnetReplayRisk) {
+    logger.warn('`--allow-mainnet-replay-risk` is deprecated; use `--allow-external-key-on-mainnet-fork` instead.');
+    options.allowExternalKeyOnMainnetFork = true;
+  }
+  return options;
+}
+
 const BUILT_IN_DEV_KEYS = new Set(
   [...accountConfig.map((account) => account.privkey), ckbDevnetMinerAccount.privkey].map((key) => key.toLowerCase()),
 );

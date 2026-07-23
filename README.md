@@ -415,7 +415,7 @@ On a forked devnet, `offckb system-scripts`, transfers, deploys and `offckb debu
 > [!CAUTION]
 > CKB transactions carry no chain id, so a transaction built on a mainnet fork that spends copied mainnet cells is also valid on mainnet (CKB provides no replay protection). offckb's own flows only use dev keys and fork-mined cells, which cannot replay. Never sign transactions with real mainnet keys against a fork unless you intend to broadcast them yourself.
 
-`offckb transfer` fails closed on a Mainnet fork: non-built-in keys require `--allow-external-key-on-mainnet-fork`, and inputs copied from Mainnet are rejected even with that override.
+`offckb transfer` fails closed on a Mainnet fork: non-built-in keys require `--allow-external-key-on-mainnet-fork`, and inputs copied from Mainnet are rejected even with that override. (`--allow-mainnet-replay-risk` from 0.4.9 remains as a deprecated alias.)
 
 ## Config Setting
 

@@ -191,18 +191,22 @@ function resolveDaemonPaths() {
 }
 
 // Best-effort check that the spawned process is the one listening on the RPC
-// port. Returns null when the check cannot be performed (Windows, no lsof) so
-// callers can fall back to weaker signals.
-function isProcessListeningOnPort(pid: number, port: number): boolean | null {
+// port. Returns null when the check cannot be performed (Windows, no lsof, or
+// an lsof inspection error) so callers can fall back to weaker signals.
+// lsof exits 1 both for "no match" and for permission/inspection errors; only
+// an empty stderr is a genuine no-match, anything else is indeterminate.
+export function isProcessListeningOnPort(pid: number, port: number): boolean | null {
   if (process.platform === 'win32') return null;
   try {
     execFileSync('lsof', ['-a', '-p', String(pid), '-iTCP:' + port, '-sTCP:LISTEN'], {
-      stdio: ['ignore', 'pipe', 'ignore'],
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
     return true;
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
-    return false;
+    const err = error as NodeJS.ErrnoException & { stderr?: Buffer | string };
+    if (err.code === 'ENOENT') return null;
+    const stderr = err.stderr?.toString().trim() ?? '';
+    return stderr === '' ? false : null;
   }
 }
 

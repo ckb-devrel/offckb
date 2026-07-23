@@ -208,6 +208,20 @@ describe('fork data isolation and migration preflight', () => {
     expect(fs.existsSync(path.join(target, 'data', 'db', 'linked'))).toBe(false);
   });
 
+  it('rejects a symlinked data directory at the source root', () => {
+    if (process.platform === 'win32') return;
+    const source = path.join(root, 'source');
+    const target = path.join(root, 'target');
+    const outside = path.join(root, 'outside');
+    fs.mkdirSync(source, { recursive: true });
+    fs.mkdirSync(outside, { recursive: true });
+    fs.writeFileSync(path.join(outside, 'fixture'), 'secret');
+    fs.symlinkSync(outside, path.join(source, 'data'), 'dir');
+
+    expect(() => copySourceData(source, target)).toThrow('symlinked entries are not allowed');
+    expect(fs.existsSync(path.join(target, 'data', 'fixture'))).toBe(false);
+  });
+
   it('forces forked nodes into an outbound-isolated network config', () => {
     const config = isolateForkCkbConfig({
       network: { bootnodes: ['mainnet-peer'], max_outbound_peers: 8, discovery_local_address: true },

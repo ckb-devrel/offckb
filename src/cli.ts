@@ -19,6 +19,7 @@ import { printSystemScripts } from './cmd/system-scripts';
 import { transferAll } from './cmd/transfer-all';
 import { genSystemScriptsJsonFile } from './scripts/gen';
 import { CKBDebugger } from './tools/ckb-debugger';
+import { resolveMainnetForkOverride } from './util/fork-safety';
 import { logger } from './util/logger';
 import { Network } from './type/base';
 import { status } from './cmd/status';
@@ -41,6 +42,20 @@ function commandPath(command: Command): string {
     current = current.parent;
   }
   return names.join('.') || 'offckb';
+}
+
+// Registers the Mainnet-fork override flag plus the 0.4.9 name as a hidden
+// deprecated alias; resolveMainnetForkOverride folds the alias into the new
+// option before the command handler runs.
+function mainnetForkOverrideOption(command: Command): Command {
+  return command
+    .option(
+      '--allow-external-key-on-mainnet-fork',
+      'Allow a non-built-in key on a Mainnet fork (copied inputs remain blocked)',
+    )
+    .addOption(
+      new Option('--allow-mainnet-replay-risk', 'Deprecated alias of --allow-external-key-on-mainnet-fork').hideHelp(),
+    );
 }
 
 program.option('--json', 'Output logs in JSON format for agent/programmatic consumption');
@@ -83,21 +98,18 @@ program
     return await createScriptProject(projectName, options);
   });
 
-program
-  .command('deploy')
-  .description('Deploy contracts to different networks, only supports devnet and testnet')
-  .option('--network <network>', 'Specify the network to deploy to', 'devnet')
-  .option('--target <target>', 'Specify the script binaries file/folder path to deploy', './')
-  .option('-o, --output <output>', 'Specify the output folder path for the deployment record files', './deployment')
-  .option('-t, --type-id', 'Specify if use upgradable type id to deploy the script')
-  .option('--privkey <privkey>', 'Specify the private key to deploy scripts (visible in shell history)')
-  .option('--privkey-file <path>', 'Read the private key from a local file')
-  .option(
-    '--allow-external-key-on-mainnet-fork',
-    'Allow a non-built-in key on a Mainnet fork (copied inputs remain blocked)',
-  )
-  .option('-y, --yes', 'Skip confirmation prompt and deploy immediately')
-  .action((options: DeployOptions) => deploy(options));
+mainnetForkOverrideOption(
+  program
+    .command('deploy')
+    .description('Deploy contracts to different networks, only supports devnet and testnet')
+    .option('--network <network>', 'Specify the network to deploy to', 'devnet')
+    .option('--target <target>', 'Specify the script binaries file/folder path to deploy', './')
+    .option('-o, --output <output>', 'Specify the output folder path for the deployment record files', './deployment')
+    .option('-t, --type-id', 'Specify if use upgradable type id to deploy the script')
+    .option('--privkey <privkey>', 'Specify the private key to deploy scripts (visible in shell history)')
+    .option('--privkey-file <path>', 'Read the private key from a local file')
+    .option('-y, --yes', 'Skip confirmation prompt and deploy immediately'),
+).action((options: DeployOptions) => deploy(resolveMainnetForkOverride(options)));
 
 program
   .command('debug')
@@ -162,37 +174,31 @@ program
     await deposit(toAddress, amountInCKB, options);
   });
 
-program
-  .command('transfer [toAddress] [amount]')
-  .description('Transfer CKB or UDT tokens to address, only devnet and testnet')
-  .option('--network <network>', 'Specify the network to transfer to', 'devnet')
-  .option('--privkey <privkey>', 'Specify the private key to transfer (visible in shell history)')
-  .option('--privkey-file <path>', 'Read the private key from a local file')
-  .addOption(new Option('--udt-kind <kind>', 'Specify the UDT kind').choices(['sudt', 'xudt']))
-  .option('--udt-type-args <typeArgs>', 'Specify the UDT type script args to transfer UDT')
-  .option(
-    '--allow-external-key-on-mainnet-fork',
-    'Allow a non-built-in key on a Mainnet fork (copied inputs remain blocked)',
-  )
-  .option('-r, --proxy-rpc', 'Use Proxy RPC to connect to blockchain')
-  .action(async (toAddress: string, amount: string, options: TransferOptions) => {
-    await transfer(toAddress, amount, options);
-  });
+mainnetForkOverrideOption(
+  program
+    .command('transfer [toAddress] [amount]')
+    .description('Transfer CKB or UDT tokens to address, only devnet and testnet')
+    .option('--network <network>', 'Specify the network to transfer to', 'devnet')
+    .option('--privkey <privkey>', 'Specify the private key to transfer (visible in shell history)')
+    .option('--privkey-file <path>', 'Read the private key from a local file')
+    .addOption(new Option('--udt-kind <kind>', 'Specify the UDT kind').choices(['sudt', 'xudt']))
+    .option('--udt-type-args <typeArgs>', 'Specify the UDT type script args to transfer UDT')
+    .option('-r, --proxy-rpc', 'Use Proxy RPC to connect to blockchain'),
+).action(async (toAddress: string, amount: string, options: TransferOptions) => {
+  await transfer(toAddress, amount, resolveMainnetForkOverride(options));
+});
 
-program
-  .command('transfer-all [toAddress]')
-  .description('Transfer All CKB tokens to address, only devnet and testnet')
-  .option('--network <network>', 'Specify the network to transfer to', 'devnet')
-  .option('--privkey <privkey>', 'Specify the private key (visible in shell history)')
-  .option('--privkey-file <path>', 'Read the private key from a local file')
-  .option(
-    '--allow-external-key-on-mainnet-fork',
-    'Allow a non-built-in key on a Mainnet fork (copied inputs remain blocked)',
-  )
-  .option('-r, --proxy-rpc', 'Use Proxy RPC to connect to blockchain')
-  .action(async (toAddress: string, options: TransferOptions) => {
-    await transferAll(toAddress, options);
-  });
+mainnetForkOverrideOption(
+  program
+    .command('transfer-all [toAddress]')
+    .description('Transfer All CKB tokens to address, only devnet and testnet')
+    .option('--network <network>', 'Specify the network to transfer to', 'devnet')
+    .option('--privkey <privkey>', 'Specify the private key (visible in shell history)')
+    .option('--privkey-file <path>', 'Read the private key from a local file')
+    .option('-r, --proxy-rpc', 'Use Proxy RPC to connect to blockchain'),
+).action(async (toAddress: string, options: TransferOptions) => {
+  await transferAll(toAddress, resolveMainnetForkOverride(options));
+});
 
 program
   .command('balance [toAddress]')
@@ -207,38 +213,32 @@ program
 
 const udtCommand = program.command('udt').description('UDT token commands');
 
-udtCommand
-  .command('issue <amount>')
-  .description('Issue new UDT tokens, only devnet and testnet')
-  .option('--network <network>', 'Specify the network', 'devnet')
-  .addOption(new Option('--udt-kind <kind>', 'Specify the UDT kind').choices(['sudt', 'xudt']).default('sudt'))
-  .option('--type-args <typeArgs>', 'Specify the UDT type script args (xudt only; defaults to signer lock hash)')
-  .option('--to <toAddress>', 'Specify the receiver address (defaults to signer)')
-  .option('--privkey <privkey>', 'Specify the private key to issue UDT (visible in shell history)')
-  .option('--privkey-file <path>', 'Read the private key from a local file')
-  .option(
-    '--allow-external-key-on-mainnet-fork',
-    'Allow a non-built-in key on a Mainnet fork (copied inputs remain blocked)',
-  )
-  .action(async (amount: string, options: UdtIssueOption) => {
-    await udtIssue(amount, options);
-  });
+mainnetForkOverrideOption(
+  udtCommand
+    .command('issue <amount>')
+    .description('Issue new UDT tokens, only devnet and testnet')
+    .option('--network <network>', 'Specify the network', 'devnet')
+    .addOption(new Option('--udt-kind <kind>', 'Specify the UDT kind').choices(['sudt', 'xudt']).default('sudt'))
+    .option('--type-args <typeArgs>', 'Specify the UDT type script args (xudt only; defaults to signer lock hash)')
+    .option('--to <toAddress>', 'Specify the receiver address (defaults to signer)')
+    .option('--privkey <privkey>', 'Specify the private key to issue UDT (visible in shell history)')
+    .option('--privkey-file <path>', 'Read the private key from a local file'),
+).action(async (amount: string, options: UdtIssueOption) => {
+  await udtIssue(amount, resolveMainnetForkOverride(options));
+});
 
-udtCommand
-  .command('destroy <amount>')
-  .description('Destroy UDT tokens, only devnet and testnet')
-  .option('--network <network>', 'Specify the network', 'devnet')
-  .addOption(new Option('--udt-kind <kind>', 'Specify the UDT kind').choices(['sudt', 'xudt']).default('sudt'))
-  .requiredOption('--type-args <typeArgs>', 'Specify the UDT type script args')
-  .option('--privkey <privkey>', 'Specify the private key to destroy UDT (visible in shell history)')
-  .option('--privkey-file <path>', 'Read the private key from a local file')
-  .option(
-    '--allow-external-key-on-mainnet-fork',
-    'Allow a non-built-in key on a Mainnet fork (copied inputs remain blocked)',
-  )
-  .action(async (amount: string, options: UdtDestroyOption) => {
-    await udtDestroy(amount, options);
-  });
+mainnetForkOverrideOption(
+  udtCommand
+    .command('destroy <amount>')
+    .description('Destroy UDT tokens, only devnet and testnet')
+    .option('--network <network>', 'Specify the network', 'devnet')
+    .addOption(new Option('--udt-kind <kind>', 'Specify the UDT kind').choices(['sudt', 'xudt']).default('sudt'))
+    .requiredOption('--type-args <typeArgs>', 'Specify the UDT type script args')
+    .option('--privkey <privkey>', 'Specify the private key to destroy UDT (visible in shell history)')
+    .option('--privkey-file <path>', 'Read the private key from a local file'),
+).action(async (amount: string, options: UdtDestroyOption) => {
+  await udtDestroy(amount, resolveMainnetForkOverride(options));
+});
 
 program
   .command('debugger')

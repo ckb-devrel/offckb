@@ -186,13 +186,21 @@ export class CKBTui {
 
       // 5. Move to the final location. renameSync is atomic but throws EXDEV
       // when the temp dir and the data path live on different filesystems
-      // (common in containers), so fall back to copy+unlink there.
+      // (common in containers). In that case stage the copy inside binDir and
+      // publish it with a rename, so a concurrent ensureInstalled() never sees
+      // a partially copied binary at the final path.
       try {
         fs.renameSync(extractedBinary, this.binaryPath);
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === 'EXDEV') {
-          fs.copyFileSync(extractedBinary, this.binaryPath);
-          fs.unlinkSync(extractedBinary);
+          const stagingPath = path.join(binDir, `.${binaryName}.staging-${process.pid}`);
+          try {
+            fs.copyFileSync(extractedBinary, stagingPath);
+            fs.renameSync(stagingPath, this.binaryPath);
+            fs.unlinkSync(extractedBinary);
+          } finally {
+            fs.rmSync(stagingPath, { force: true });
+          }
         } else {
           throw error;
         }

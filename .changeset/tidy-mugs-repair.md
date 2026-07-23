@@ -2,7 +2,7 @@
 '@offckb/cli': patch
 ---
 
-Rename `--allow-mainnet-replay-risk` to `--allow-external-key-on-mainnet-fork` (#460) and apply the fixes left over from the 0.4.9 review (#462):
+Rename `--allow-mainnet-replay-risk` to `--allow-external-key-on-mainnet-fork` (#460) — the old flag remains as a hidden deprecated alias so existing scripts keep working — and apply the fixes left over from the 0.4.9 review (#462):
 
 - Enforce the Mainnet-fork replay guard (instead of warn-only) in `transfer-all`, `udt issue`, `udt destroy`, and `deploy`, and reject inputs created at or before the fork boundary in those transactions, mirroring `transfer`/`deposit`.
 - Validate `--tx-hash` as a 0x-prefixed 32-byte hex string before it is used in debug cache paths.
