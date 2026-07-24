@@ -90,12 +90,16 @@ function addTerminalModule(lines: string[], section: { start: number; end: numbe
   return true;
 }
 
-// Enables rpc.tcp_listen_address by uncommenting the stock commented line when
-// present, otherwise inserting one after the modules array.
+// Enables rpc.tcp_listen_address. Only the stock loopback default is
+// uncommented in place — a commented non-loopback value (e.g. 0.0.0.0) stays
+// disabled and a fresh loopback entry is inserted after the modules array
+// instead, so the migration never turns the RPC into a public listener.
 function enableTcpListenAddress(lines: string[], section: { start: number; end: number }): boolean {
   for (let i = section.start + 1; i < section.end; i++) {
     const commented = lines[i].match(/^(\s*)#\s*(tcp_listen_address\s*=.*)$/);
-    if (commented) {
+    if (!commented) continue;
+    const value = commented[2].match(/tcp_listen_address\s*=\s*"([^"]*)"/);
+    if (value?.[1] === DEFAULT_TCP_LISTEN_ADDRESS) {
       lines[i] = `${commented[1]}${commented[2]}`;
       return true;
     }

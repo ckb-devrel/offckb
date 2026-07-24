@@ -166,6 +166,22 @@ describe('migrateLegacyDevnetRpcConfig', () => {
     expect(rpc.tcp_listen_address).toBe('127.0.0.1:18114');
   });
 
+  it('never enables a commented non-loopback tcp_listen_address; adds the loopback default instead', () => {
+    const exposed = LEGACY_CKB_TOML.replace(
+      '# tcp_listen_address = "127.0.0.1:18114"',
+      '# tcp_listen_address = "0.0.0.0:18114"',
+    );
+    fs.writeFileSync(path.join(mockConfigPath, 'ckb.toml'), exposed);
+
+    expect(migrateLegacyDevnetRpcConfig(mockConfigPath)).toBe(true);
+
+    const text = fs.readFileSync(path.join(mockConfigPath, 'ckb.toml'), 'utf8');
+    expect(text).toContain('# tcp_listen_address = "0.0.0.0:18114"');
+    expect(text).not.toMatch(/^tcp_listen_address\s*=\s*"0\.0\.0\.0/m);
+    const rpc = readCkbToml(mockConfigPath).rpc as JsonMap;
+    expect(rpc.tcp_listen_address).toBe('127.0.0.1:18114');
+  });
+
   it('keeps an explicitly configured tcp_listen_address', () => {
     const custom = LEGACY_CKB_TOML.replace(
       '# tcp_listen_address = "127.0.0.1:18114"',
