@@ -12,7 +12,7 @@ export interface TransferOptions extends NetworkOption {
   privkeyFile?: string | null;
   udtKind?: UdtKind;
   udtTypeArgs?: string;
-  allowMainnetReplayRisk?: boolean;
+  allowExternalKeyOnMainnetFork?: boolean;
 }
 
 export async function transfer(toAddress: string, amount: string, opt: TransferOptions = { network: Network.devnet }) {
@@ -32,7 +32,11 @@ export async function transfer(toAddress: string, amount: string, opt: TransferO
   }
 
   const privateKey = resolvePrivateKey(opt);
-  const rejectInputsAtOrBeforeBlock = validateMainnetForkSigning(network, privateKey, opt.allowMainnetReplayRisk);
+  const rejectInputsAtOrBeforeBlock = validateMainnetForkSigning(
+    network,
+    privateKey,
+    opt.allowExternalKeyOnMainnetFork,
+  );
   await warnIfForkIndexerIsBehind(network);
   const ckb = new CKB({ network });
 

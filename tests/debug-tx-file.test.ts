@@ -120,4 +120,15 @@ describe('buildTxFileOptionBy', () => {
       `Failed to fetch transaction ${TX_HASH} from http://127.0.0.1:8114: connect ECONNREFUSED`,
     );
   });
+
+  it('rejects a malformed tx hash before touching any cache path', async () => {
+    for (const badHash of ['0x../escape', 'not-a-hash', '0x' + 'ab'.repeat(31), '0x' + 'ab'.repeat(33)]) {
+      await expect(buildTxFileOptionBy(badHash, Network.devnet)).rejects.toThrow('invalid transaction hash');
+    }
+
+    expect(mockExistsSync).not.toHaveBeenCalled();
+    expect(mockCallJsonRpc).not.toHaveBeenCalled();
+    expect(mockWriteFileSync).not.toHaveBeenCalled();
+    expect(mockDumpTransaction).not.toHaveBeenCalled();
+  });
 });

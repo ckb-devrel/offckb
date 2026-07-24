@@ -3,7 +3,7 @@ import { Network } from '../src/type/base';
 import * as path from 'path';
 
 const mockSpawn = jest.fn();
-const mockExec = jest.fn();
+const mockExecFile = jest.fn();
 const mockOpenSync = jest.fn();
 const mockWriteFileSync = jest.fn();
 const mockMkdirSync = jest.fn();
@@ -17,7 +17,7 @@ const mockWaitForNodeReady = jest.fn();
 jest.mock('child_process', () => ({
   ...jest.requireActual('child_process'),
   spawn: (...args: unknown[]) => mockSpawn(...args),
-  exec: (...args: unknown[]) => mockExec(...args),
+  execFile: (...args: unknown[]) => mockExecFile(...args),
 }));
 
 jest.mock('fs', () => ({
@@ -80,22 +80,23 @@ import { logger } from '../src/util/logger';
 const dataPath = '/tmp/offckb-devnet-data';
 const logDir = path.join(dataPath, 'logs');
 const pidFile = path.join(logDir, 'daemon.pid');
-const logFile = path.join(logDir, 'daemon.log');
 
 function mockDaemonCommandLine(scriptPath: string) {
-  mockExec.mockImplementation((cmd: string, callback: (err: Error | null, stdout?: string) => void) => {
-    if (cmd.startsWith('ps ')) {
-      callback(null, `/usr/bin/node ${scriptPath} node`);
-      return undefined as unknown as ReturnType<typeof mockExec>;
-    }
-    if (cmd.startsWith('wmic ')) {
-      // WMIC returns key/value pairs, e.g. "CommandLine=..."
-      callback(null, `CommandLine=/usr/bin/node ${scriptPath} node`);
-      return undefined as unknown as ReturnType<typeof mockExec>;
-    }
-    callback(null, '');
-    return undefined as unknown as ReturnType<typeof mockExec>;
-  });
+  mockExecFile.mockImplementation(
+    (file: string, _args: string[], callback: (err: Error | null, stdout?: string) => void) => {
+      if (file === 'ps') {
+        callback(null, `/usr/bin/node ${scriptPath} node`);
+        return undefined as unknown as ReturnType<typeof mockExecFile>;
+      }
+      if (file === 'wmic') {
+        // WMIC returns key/value pairs, e.g. "CommandLine=..."
+        callback(null, `CommandLine=/usr/bin/node ${scriptPath} node`);
+        return undefined as unknown as ReturnType<typeof mockExecFile>;
+      }
+      callback(null, '');
+      return undefined as unknown as ReturnType<typeof mockExecFile>;
+    },
+  );
 }
 
 describe('node command daemon mode', () => {
@@ -195,10 +196,12 @@ describe('node command daemon mode', () => {
     mockReadFileSync.mockReturnValue(
       JSON.stringify({ pid: 9999, scriptPath: '/path/to/offckb', startedAt: new Date().toISOString() }),
     );
-    mockExec.mockImplementation((_cmd: string, callback: (err: Error | null, stdout?: string) => void) => {
-      callback(null, '/usr/bin/some-unrelated-process');
-      return undefined as unknown as ReturnType<typeof mockExec>;
-    });
+    mockExecFile.mockImplementation(
+      (_file: string, _args: string[], callback: (err: Error | null, stdout?: string) => void) => {
+        callback(null, '/usr/bin/some-unrelated-process');
+        return undefined as unknown as ReturnType<typeof mockExecFile>;
+      },
+    );
 
     await startNode({ network: Network.devnet, daemon: true });
 
@@ -407,7 +410,7 @@ describe('node command stop', () => {
     jest.useFakeTimers();
     jest.clearAllMocks();
     processAlive = true;
-    mockExec.mockReset();
+    mockExecFile.mockReset();
     mockStatSync.mockReturnValue({ isFile: () => true });
     mockReadFileSync.mockReturnValue(JSON.stringify({ pid: 12345, scriptPath, startedAt: new Date().toISOString() }));
     mockDaemonCommandLine(scriptPath);
@@ -504,10 +507,12 @@ describe('node command stop', () => {
   });
 
   it('refuses to kill a process that does not look like the daemon', async () => {
-    mockExec.mockImplementation((cmd: string, callback: (err: Error | null, stdout?: string) => void) => {
-      callback(null, '/usr/bin/some-other-process');
-      return undefined as unknown as ReturnType<typeof mockExec>;
-    });
+    mockExecFile.mockImplementation(
+      (_file: string, _args: string[], callback: (err: Error | null, stdout?: string) => void) => {
+        callback(null, '/usr/bin/some-other-process');
+        return undefined as unknown as ReturnType<typeof mockExecFile>;
+      },
+    );
 
     await expect(stopNode()).rejects.toThrow('does not appear to be the offckb daemon');
 

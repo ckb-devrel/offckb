@@ -149,12 +149,17 @@ export class CKBTui {
     const archivePath = path.join(tempDir, assetName);
 
     try {
-      // 1. Download
+      // 1. Download. Keep curl's own limit aligned with the outer spawnSync
+      // timeout so the two never disagree about who gives up first.
       logger.info(`Downloading ckb-tui from ${downloadUrl}...`);
-      const curlResult = spawnSync('curl', ['-fsSL', '--max-time', '300', '-o', archivePath, downloadUrl], {
-        stdio: 'inherit',
-        timeout: DOWNLOAD_TIMEOUT_MS,
-      });
+      const curlResult = spawnSync(
+        'curl',
+        ['-fsSL', '--max-time', String(DOWNLOAD_TIMEOUT_MS / 1000), '-o', archivePath, downloadUrl],
+        {
+          stdio: 'inherit',
+          timeout: DOWNLOAD_TIMEOUT_MS,
+        },
+      );
 
       if (curlResult.error) {
         throw new Error(`Failed to download ckb-tui: ${curlResult.error.message}`);
@@ -179,8 +184,27 @@ export class CKBTui {
         throw new Error(`ckb-tui binary ("${binaryName}") was not found after extraction.`);
       }
 
-      // 5. Atomically move to the final location
-      fs.renameSync(extractedBinary, this.binaryPath);
+      // 5. Move to the final location. renameSync is atomic but throws EXDEV
+      // when the temp dir and the data path live on different filesystems
+      // (common in containers). In that case stage the copy inside binDir and
+      // publish it with a rename, so a concurrent ensureInstalled() never sees
+      // a partially copied binary at the final path.
+      try {
+        fs.renameSync(extractedBinary, this.binaryPath);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'EXDEV') {
+          const stagingPath = path.join(binDir, `.${binaryName}.staging-${process.pid}`);
+          try {
+            fs.copyFileSync(extractedBinary, stagingPath);
+            fs.renameSync(stagingPath, this.binaryPath);
+            fs.unlinkSync(extractedBinary);
+          } finally {
+            fs.rmSync(stagingPath, { force: true });
+          }
+        } else {
+          throw error;
+        }
+      }
 
       // 6. Make executable on Unix
       if (process.platform !== 'win32') {
