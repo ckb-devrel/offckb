@@ -1,5 +1,21 @@
 # @offckb/cli
 
+## 0.4.10
+
+### Patch Changes
+
+- 699a850: Fix the `status` command showing missing data on devnet: enable the Terminal RPC module and the TCP listen address in the devnet `ckb.toml` template (and the config editor's embedded reference template), and pass the node's TCP listen address to ckb-tui so the system metrics, mempool, and log panels populate correctly. The devnet RPC now binds to `127.0.0.1` instead of `0.0.0.0` so the unauthenticated RPC (including the new host metrics) is no longer reachable from other machines on the network; edit `rpc.listen_address` in the devnet `ckb.toml` if you rely on remote access.
+- 45b0e98: Rename `--allow-mainnet-replay-risk` to `--allow-external-key-on-mainnet-fork` (#460) — the old flag remains as a hidden deprecated alias so existing scripts keep working — and apply the fixes left over from the 0.4.9 review (#462):
+
+  - Enforce the Mainnet-fork replay guard (instead of warn-only) in `transfer-all`, `udt issue`, `udt destroy`, and `deploy`, and reject inputs created at or before the fork boundary in those transactions, mirroring `transfer`/`deposit`.
+  - Validate `--tx-hash` as a 0x-prefixed 32-byte hex string before it is used in debug cache paths.
+  - Read the fork boundary only from the spawned CKB process once it is the RPC listener, so a stale node sharing the port cannot clear the first-run flags.
+  - Refuse symlinked entries when copying source chain data for a fork.
+  - Accept xUDT type args longer than 32 bytes (owner lock hash plus flags/extension) while keeping SUDT at exactly 32 bytes.
+  - Give SUDT and xUDT balance scans independent `maxCells` budgets, return deep clones of the default settings from `readSettings` fallbacks, keep `config set` error messages accurate, preserve the original error in `devnet config`, use `execFile` for process lookups, align the ckb-tui download timeouts, handle cross-device installs, and add the missing Fork Mainnet/Testnet entry to the README table of contents.
+
+- 00bfe6c: Fix the devnet config editor and `status` for existing installs. The config editor's "Edit RPC Modules" dialog now offers the `Terminal` (and `RichIndexer`) modules — its option list was still the pre-ckb-tui hardcoded set, so there was no way to enable `Terminal` from the TUI even though the bundled `ckb.toml` enables it. In addition, starting the node now upgrades a legacy devnet `ckb.toml` in place: configs initialized before the ckb-tui fix never received the `Terminal` RPC module or the enabled `tcp_listen_address` (the template is only copied into fresh config folders, and clearing chain `data/` does not touch config files), which left `offckb status` dashboards empty. The migration adds `"Terminal"` to `rpc.modules` and enables `tcp_listen_address = "127.0.0.1:18114"` while preserving existing comments and custom settings; restart the node to apply.
+
 ## 0.4.9
 
 ### Patch Changes
