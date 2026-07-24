@@ -142,6 +142,7 @@ export function validateUdtAmount(amount: string): bigint {
 }
 
 const HEX_REGEX = /^0x[0-9a-fA-F]*$/;
+const TX_HASH_REGEX = /^0x[0-9a-fA-F]{64}$/;
 
 export function validateHexString(value: string, name: string): HexString {
   if (!value || !HEX_REGEX.test(value)) {
@@ -150,14 +151,26 @@ export function validateHexString(value: string, name: string): HexString {
   return value as HexString;
 }
 
+export function validateTxHash(txHash: string): HexString {
+  if (!TX_HASH_REGEX.test(txHash)) {
+    throw new Error(`invalid transaction hash "${txHash}", must be a 0x-prefixed 32-byte hex string`);
+  }
+  return txHash as HexString;
+}
+
 export function validateUdtTypeArgs(kind: UdtKind, typeArgs: string): HexString {
   const hex = validateHexString(typeArgs, 'type args');
+  if ((hex.length - 2) % 2 !== 0) {
+    throw new Error(`invalid ${kind === 'sudt' ? 'SUDT' : 'xUDT'} type args: hex must encode whole bytes`);
+  }
   const byteLength = (hex.length - 2) / 2;
   if (kind === 'sudt' && byteLength !== 32) {
     throw new Error(`invalid SUDT type args length: expected 32 bytes, got ${byteLength}`);
   }
-  if (kind === 'xudt' && byteLength !== 32) {
-    throw new Error(`invalid xUDT type args length: expected 32 bytes, got ${byteLength}`);
+  // xUDT args are the 32-byte owner lock hash plus optional flags and
+  // extension data, so 32 bytes is the minimum, not the exact, length.
+  if (kind === 'xudt' && byteLength < 32) {
+    throw new Error(`invalid xUDT type args length: expected at least 32 bytes, got ${byteLength}`);
   }
   return hex;
 }

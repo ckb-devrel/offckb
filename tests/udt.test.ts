@@ -124,14 +124,12 @@ describe('transfer command', () => {
     await transfer('ckt1q9gry5zgmceslalm9x6s5xgnqe9cjn6y0q3c9', '100', {
       network: Network.devnet,
       privkey: privateKey,
-      allowMainnetReplayRisk: true,
+      allowExternalKeyOnMainnetFork: true,
     });
 
     const ckbInstance = (CKB as jest.Mock).mock.results[0].value;
     expect(mockValidateMainnetForkSigning).toHaveBeenCalledWith(Network.devnet, privateKey, true);
-    expect(ckbInstance.transfer).toHaveBeenCalledWith(
-      expect.objectContaining({ rejectInputsAtOrBeforeBlock: 100n }),
-    );
+    expect(ckbInstance.transfer).toHaveBeenCalledWith(expect.objectContaining({ rejectInputsAtOrBeforeBlock: 100n }));
   });
 
   it('should transfer UDT when --udt-type-args is provided', async () => {
@@ -185,6 +183,7 @@ describe('transfer command', () => {
 describe('udt command', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockValidateMainnetForkSigning.mockReturnValue(undefined);
   });
 
   describe('udtIssue', () => {
@@ -208,6 +207,22 @@ describe('udt command', () => {
       const ckbInstance = (CKB as jest.Mock).mock.results[0].value;
       expect(ckbInstance.udtIssue).toHaveBeenCalled();
       expect(logger.info).toHaveBeenCalledWith('Successfully issued UDT, txHash:', '0xissuehash');
+    });
+
+    it('passes the Mainnet fork boundary to input selection checks', async () => {
+      mockValidateMainnetForkSigning.mockReturnValue(100n);
+      const privateKey = '0x1234567812345678123456781234567812345678123456781234567812345678';
+
+      await udtIssue('100', {
+        network: Network.devnet,
+        udtKind: 'sudt',
+        privkey: privateKey,
+        allowExternalKeyOnMainnetFork: true,
+      });
+
+      const ckbInstance = (CKB as jest.Mock).mock.results[0].value;
+      expect(mockValidateMainnetForkSigning).toHaveBeenCalledWith(Network.devnet, privateKey, true);
+      expect(ckbInstance.udtIssue).toHaveBeenCalledWith(expect.objectContaining({ rejectInputsAtOrBeforeBlock: 100n }));
     });
   });
 
@@ -234,6 +249,25 @@ describe('udt command', () => {
       const ckbInstance = (CKB as jest.Mock).mock.results[0].value;
       expect(ckbInstance.udtDestroy).toHaveBeenCalled();
       expect(logger.info).toHaveBeenCalledWith('Successfully destroyed UDT, txHash:', '0xdestroyhash');
+    });
+
+    it('passes the Mainnet fork boundary to input selection checks', async () => {
+      mockValidateMainnetForkSigning.mockReturnValue(100n);
+      const privateKey = '0x1234567812345678123456781234567812345678123456781234567812345678';
+
+      await udtDestroy('100', {
+        network: Network.devnet,
+        udtKind: 'sudt',
+        typeArgs: mockTypeArgs,
+        privkey: privateKey,
+        allowExternalKeyOnMainnetFork: true,
+      });
+
+      const ckbInstance = (CKB as jest.Mock).mock.results[0].value;
+      expect(mockValidateMainnetForkSigning).toHaveBeenCalledWith(Network.devnet, privateKey, true);
+      expect(ckbInstance.udtDestroy).toHaveBeenCalledWith(
+        expect.objectContaining({ rejectInputsAtOrBeforeBlock: 100n }),
+      );
     });
   });
 });
