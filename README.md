@@ -331,7 +331,7 @@ offckb system-scripts --output <output-file-path>
 
 ### 6. Tweak Devnet Config {#tweak-devnet-config}
 
-By default, OffCKB use a fixed Devnet config. You can customize it, for example by modifying the default log level (`warn,ckb-script=debug`).
+By default, OffCKB use a fixed Devnet config. You can customize it, for example by modifying the default log level (`info,ckb-script=debug`).
 
 1. Open the interactive Devnet config editor:
 
