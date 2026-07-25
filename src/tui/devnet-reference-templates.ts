@@ -10,7 +10,7 @@ data_dir = "data"
 spec = { file = "specs/dev.toml" }
 
 [logger]
-filter = "warn,ckb-script=debug"
+filter = "info,ckb-script=debug"
 color = true
 log_to_file = true
 log_to_stdout = true
@@ -193,7 +193,7 @@ data_dir = "data"
 spec = { file = "specs/dev.toml" }
 
 [logger]
-filter = "warn,ckb-script=debug"
+filter = "info,ckb-script=debug"
 color = true
 log_to_file = true
 log_to_stdout = true
