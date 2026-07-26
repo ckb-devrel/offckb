@@ -48,31 +48,29 @@ export async function Config(action: ConfigAction, item: ConfigItem, value?: str
       case ConfigItem.proxy: {
         if (value == null) throw new Error('No proxyUrl!');
 
+        // Only the parse belongs in the try: an I/O failure from
+        // readSettings/writeSettings must not be mislabeled as a bad URL.
+        let proxy;
         try {
-          const proxy = Request.parseProxyUrl(value);
-          const settings = readSettings();
-          settings.proxy = proxy;
-          return writeSettings(settings);
+          proxy = Request.parseProxyUrl(value);
         } catch (error: unknown) {
           throw new Error(`invalid proxyURL: ${(error as Error).message}`);
         }
+        const settings = readSettings();
+        settings.proxy = proxy;
+        return writeSettings(settings);
       }
 
       case ConfigItem.ckbVersion: {
-        const settings = readSettings();
-        try {
-          if (isValidVersion(value)) {
-            const version = extractVersion(value!);
-            settings.bins.defaultCKBVersion = version;
-            return writeSettings(settings);
-          } else {
-            throw new Error(
-              `invalid version value, ${value}. Check available versions on https://github.com/nervosnetwork/ckb/tags`,
-            );
-          }
-        } catch (error: unknown) {
-          throw new Error(`invalid version value: ${(error as Error).message}`);
+        if (!isValidVersion(value)) {
+          throw new Error(
+            `invalid version value, ${value}. Check available versions on https://github.com/nervosnetwork/ckb/tags`,
+          );
         }
+        const settings = readSettings();
+        const version = extractVersion(value!);
+        settings.bins.defaultCKBVersion = version;
+        return writeSettings(settings);
       }
 
       default:

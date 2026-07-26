@@ -9,7 +9,7 @@ import { confirm } from '@inquirer/prompts';
 import { logger } from '../util/logger';
 import { resolvePrivateKey } from '../util/private-key';
 import { warnIfForkIndexerIsBehind } from '../devnet/readiness';
-import { warnIfMainnetForkSigning } from '../util/fork-safety';
+import { validateMainnetForkSigning } from '../util/fork-safety';
 
 export interface DeployOptions extends NetworkOption {
   target?: string;
@@ -18,6 +18,7 @@ export interface DeployOptions extends NetworkOption {
   privkeyFile?: string | null;
   typeId?: boolean;
   yes?: boolean;
+  allowExternalKeyOnMainnetFork?: boolean;
 }
 
 export async function deploy(
@@ -28,7 +29,11 @@ export async function deploy(
 
   // we use deployerAccount to deploy contract by default
   const privateKey = resolvePrivateKey(opt, deployerAccount.privkey);
-  warnIfMainnetForkSigning(network, privateKey);
+  const rejectInputsAtOrBeforeBlock = validateMainnetForkSigning(
+    network,
+    privateKey,
+    opt.allowExternalKeyOnMainnetFork,
+  );
   await warnIfForkIndexerIsBehind(network);
   const ckb = new CKB({ network });
   const enableTypeId = opt.typeId ?? false;
@@ -73,7 +78,14 @@ export async function deploy(
     }
   }
 
-  const results = await deployBinaries(outputFolder, binPaths, privateKey, enableTypeId, ckb);
+  const results = await deployBinaries(
+    outputFolder,
+    binPaths,
+    privateKey,
+    enableTypeId,
+    ckb,
+    rejectInputsAtOrBeforeBlock,
+  );
 
   logger.info('');
   // record the deployed contract infos

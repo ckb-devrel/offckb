@@ -111,11 +111,13 @@ export function readSettings(): Settings {
       // Deep-clone defaults before merging to prevent mutation of the shared default
       return deepMerge(deepClone(defaultSettings), parsed) as Settings;
     } else {
-      return defaultSettings;
+      // Callers mutate the returned settings in place; never hand out the
+      // shared module-level defaults.
+      return deepClone(defaultSettings);
     }
   } catch (error) {
     logger.error('Error reading settings:', error);
-    return defaultSettings;
+    return deepClone(defaultSettings);
   }
 }
 

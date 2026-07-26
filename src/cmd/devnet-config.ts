@@ -70,10 +70,14 @@ export async function devnetConfig(options: DevnetConfigOptions = {}) {
 
     logger.info('No changes saved.');
   } catch (error) {
-    let message = error instanceof Error ? error.message : String(error);
     if (error instanceof InitializationError) {
-      message += ' Tip: run `offckb node` once to initialize devnet config files first.';
+      // Rethrow the same object so its name and stack stay intact.
+      error.message += ' Tip: run `offckb node` once to initialize devnet config files first.';
+      throw error;
     }
-    throw new Error(message);
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error(String(error));
   }
 }

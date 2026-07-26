@@ -111,6 +111,20 @@ describe('UDT validation helpers', () => {
       expect(validateUdtTypeArgs('xudt', args)).toBe(args);
     });
 
+    it('should accept xUDT type args with flags and extension data', () => {
+      // owner lock hash (32 bytes) + 4-byte flags
+      const withFlags = '0x' + '12'.repeat(36);
+      expect(validateUdtTypeArgs('xudt', withFlags)).toBe(withFlags);
+      // owner lock hash + flags + extension data
+      const withExtension = '0x' + '12'.repeat(64);
+      expect(validateUdtTypeArgs('xudt', withExtension)).toBe(withExtension);
+    });
+
+    it('should reject type args that do not encode whole bytes', () => {
+      expect(() => validateUdtTypeArgs('xudt', '0x' + '1'.repeat(65))).toThrow('whole bytes');
+      expect(() => validateUdtTypeArgs('sudt', '0x' + '1'.repeat(63))).toThrow('whole bytes');
+    });
+
     it('should reject invalid hex', () => {
       expect(() => validateUdtTypeArgs('sudt', 'not-hex')).toThrow('invalid type args');
       expect(() => validateUdtTypeArgs('sudt', '')).toThrow('invalid type args');

@@ -81,13 +81,14 @@ export async function deployBinaries(
   privateKey: HexString,
   enableTypeId: boolean,
   ckb: CKB,
+  rejectInputsAtOrBeforeBlock?: bigint,
 ) {
   if (binPaths.length === 0) {
     logger.info('No binary to deploy.');
   }
   const results: DeployedInterfaceType[] = [];
   for (const bin of binPaths) {
-    const result = await deployBinary(outputFolder, bin, privateKey, enableTypeId, ckb);
+    const result = await deployBinary(outputFolder, bin, privateKey, enableTypeId, ckb, rejectInputsAtOrBeforeBlock);
     results.push(result);
   }
   return results;
@@ -99,6 +100,7 @@ export async function deployBinary(
   privateKey: HexString,
   enableTypeId: boolean,
   ckb: CKB,
+  rejectInputsAtOrBeforeBlock?: bigint,
 ): Promise<{
   deploymentRecipe: DeploymentRecipe;
   deploymentOptions: DeploymentOptions;
@@ -107,10 +109,10 @@ export async function deployBinary(
   const contractName = path.basename(binPath);
 
   const result = !enableTypeId
-    ? await ckb.deployScript(bin, privateKey)
+    ? await ckb.deployScript(bin, privateKey, rejectInputsAtOrBeforeBlock)
     : Migration.isDeployedWithTypeId(outputFolder, contractName, ckb.network)
-      ? await ckb.upgradeTypeIdScript(outputFolder, contractName, bin, privateKey)
-      : await ckb.deployNewTypeIDScript(bin, privateKey);
+      ? await ckb.upgradeTypeIdScript(outputFolder, contractName, bin, privateKey, rejectInputsAtOrBeforeBlock)
+      : await ckb.deployNewTypeIDScript(bin, privateKey, rejectInputsAtOrBeforeBlock);
 
   logger.info(`contract ${contractName} deployed, tx hash:`, result.txHash);
   logger.info('wait for tx confirmed on-chain...');

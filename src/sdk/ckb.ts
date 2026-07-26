@@ -43,7 +43,7 @@ export interface TransferOption {
   rejectInputsAtOrBeforeBlock?: bigint;
 }
 
-export type TransferAllOption = Pick<TransferOption, 'privateKey' | 'toAddress'>;
+export type TransferAllOption = Pick<TransferOption, 'privateKey' | 'toAddress' | 'rejectInputsAtOrBeforeBlock'>;
 
 export interface UdtTransferOption {
   privateKey: HexString;
@@ -60,6 +60,7 @@ export interface UdtIssueOption {
   amount: HexNumber;
   typeArgs?: HexString;
   toAddress?: string;
+  rejectInputsAtOrBeforeBlock?: bigint;
 }
 
 export interface UdtIssueResult {
@@ -73,6 +74,7 @@ export interface UdtDestroyOption {
   kind: UdtKind;
   typeArgs: HexString;
   amount: HexNumber;
+  rejectInputsAtOrBeforeBlock?: bigint;
 }
 
 export interface UdtBalanceInfo {
@@ -203,7 +205,7 @@ export class CKB {
     return txHash;
   }
 
-  async transferAll({ privateKey, toAddress }: TransferAllOption): Promise<HexString> {
+  async transferAll({ privateKey, toAddress, rejectInputsAtOrBeforeBlock }: TransferAllOption): Promise<HexString> {
     const signer = this.buildSigner(privateKey);
     const to = await ccc.Address.fromString(toAddress, this.client);
     const balanceInCKB = await this.balance((await signer.getRecommendedAddressObj()).toString());
@@ -219,6 +221,7 @@ export class CKB {
       ],
     });
     await tx.completeInputsByCapacity(signer);
+    await this.assertInputsCreatedAfter(tx, rejectInputsAtOrBeforeBlock);
     const txHash = await signer.sendTransaction(tx);
     return txHash;
   }
@@ -277,9 +280,10 @@ export class CKB {
       { kind: UdtKind; codeHash: HexString; hashType: string; args: HexString; balance: bigint }
     >();
 
-    let scanned = 0;
-
+    // Each kind gets its own scan budget: if the SUDT scan alone reached
+    // maxCells, a shared counter would silently drop every XUDT balance.
     const scan = async (scriptInfo: UdtScriptInfo, kind: UdtKind) => {
+      let scanned = 0;
       for await (const cell of this.client.findCells(
         {
           script: {
@@ -435,7 +439,14 @@ export class CKB {
     }
   }
 
-  async udtIssue({ privateKey, kind, amount, typeArgs, toAddress }: UdtIssueOption): Promise<UdtIssueResult> {
+  async udtIssue({
+    privateKey,
+    kind,
+    amount,
+    typeArgs,
+    toAddress,
+    rejectInputsAtOrBeforeBlock,
+  }: UdtIssueOption): Promise<UdtIssueResult> {
     const signer = this.buildSigner(privateKey);
     const signerAddress = await signer.getAddressObjSecp256k1();
     const to = toAddress ? await ccc.Address.fromString(toAddress, this.client) : signerAddress;
@@ -476,12 +487,13 @@ export class CKB {
 
     await tx.completeInputsByCapacity(signer);
     await tx.completeFeeBy(signer, this.feeRate);
+    await this.assertInputsCreatedAfter(tx, rejectInputsAtOrBeforeBlock);
     const txHash = await signer.sendTransaction(tx);
     return { txHash, typeArgs: resolvedTypeArgs, receiver: to.toString() };
   }
 
   async udtDestroy(
-    { privateKey, kind, typeArgs, amount }: UdtDestroyOption,
+    { privateKey, kind, typeArgs, amount, rejectInputsAtOrBeforeBlock }: UdtDestroyOption,
     { maxInputCells = DEFAULT_UDT_DESTROY_MAX_INPUT_CELLS }: { maxInputCells?: number } = {},
   ): Promise<HexString> {
     const signer = this.buildSigner(privateKey);
@@ -537,11 +549,16 @@ export class CKB {
 
     await tx.completeInputsByCapacity(signer);
     await tx.completeFeeBy(signer, this.feeRate);
+    await this.assertInputsCreatedAfter(tx, rejectInputsAtOrBeforeBlock);
     const txHash = await signer.sendTransaction(tx);
     return txHash;
   }
 
-  async deployScript(scriptBinBytes: Uint8Array, privateKey: string): Promise<DeploymentResult> {
+  async deployScript(
+    scriptBinBytes: Uint8Array,
+    privateKey: string,
+    rejectInputsAtOrBeforeBlock?: bigint,
+  ): Promise<DeploymentResult> {
     const signer = this.buildSigner(privateKey);
     const signerSecp256k1Address = await signer.getAddressObjSecp256k1();
     const tx = ccc.Transaction.from({
@@ -554,11 +571,16 @@ export class CKB {
     });
     await tx.completeInputsByCapacity(signer);
     await tx.completeFeeBy(signer, this.feeRate);
+    await this.assertInputsCreatedAfter(tx, rejectInputsAtOrBeforeBlock);
     const txHash = await signer.sendTransaction(tx);
     return { txHash, tx, scriptOutputCellIndex: 0, isTypeId: false };
   }
 
-  async deployNewTypeIDScript(scriptBinBytes: Uint8Array, privateKey: string): Promise<DeploymentResult> {
+  async deployNewTypeIDScript(
+    scriptBinBytes: Uint8Array,
+    privateKey: string,
+    rejectInputsAtOrBeforeBlock?: bigint,
+  ): Promise<DeploymentResult> {
     const signer = this.buildSigner(privateKey);
     const signerSecp256k1Address = await signer.getAddressObjSecp256k1();
     const typeIdTx = ccc.Transaction.from({
@@ -576,6 +598,7 @@ export class CKB {
     }
     typeIdTx.outputs[0].type.args = ccc.hashTypeId(typeIdTx.inputs[0], 0);
     await typeIdTx.completeFeeBy(signer, this.feeRate);
+    await this.assertInputsCreatedAfter(typeIdTx, rejectInputsAtOrBeforeBlock);
     const txHash = await signer.sendTransaction(typeIdTx);
     return { txHash, tx: typeIdTx, scriptOutputCellIndex: 0, isTypeId: true, typeId: typeIdTx.outputs[0].type };
   }
@@ -585,6 +608,7 @@ export class CKB {
     scriptName: string,
     newScriptBinBytes: Uint8Array,
     privateKey: HexString,
+    rejectInputsAtOrBeforeBlock?: bigint,
   ): Promise<DeploymentResult> {
     const deploymentReceipt = Migration.find(baseFolder, scriptName, this.network);
     if (deploymentReceipt == null) throw new Error("no migration file, can't be updated.");
@@ -635,6 +659,7 @@ export class CKB {
     }
     typeIdTx.outputs[0].type.args = typeIdArgs as `0x{string}`;
     await typeIdTx.completeFeeBy(signer, this.feeRate);
+    await this.assertInputsCreatedAfter(typeIdTx, rejectInputsAtOrBeforeBlock);
     const txHash = await signer.sendTransaction(typeIdTx);
     return { txHash, tx: typeIdTx, scriptOutputCellIndex: 0, isTypeId: true, typeId: typeIdTx.outputs[0].type };
   }

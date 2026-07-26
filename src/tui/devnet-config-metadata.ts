@@ -149,6 +149,8 @@ const FIXED_ARRAY_SPECS: FixedArraySpec[] = [
   {
     pathPattern: 'rpc.modules',
     label: 'RPC Modules',
+    // Keep in sync with the module list in ckb/devnet/ckb.toml; "Terminal"
+    // powers ckb-tui's get_overview metrics used by `offckb status`.
     options: [
       'Net',
       'Pool',
@@ -159,7 +161,9 @@ const FIXED_ARRAY_SPECS: FixedArraySpec[] = [
       'Debug',
       'IntegrationTest',
       'Indexer',
+      'RichIndexer',
       'Subscription',
+      'Terminal',
     ],
     unique: true,
     allowCustom: true,

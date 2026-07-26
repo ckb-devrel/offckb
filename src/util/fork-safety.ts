@@ -5,6 +5,23 @@ import { ForkState, readForkState } from '../devnet/fork';
 import { Network } from '../type/base';
 import { logger } from './logger';
 
+export interface MainnetForkOverrideOptions {
+  allowExternalKeyOnMainnetFork?: boolean;
+  allowMainnetReplayRisk?: boolean;
+}
+
+/**
+ * Map the deprecated --allow-mainnet-replay-risk flag (0.4.9) onto its
+ * replacement so scripts written against the old name keep working.
+ */
+export function resolveMainnetForkOverride<T extends MainnetForkOverrideOptions>(options: T): T {
+  if (options.allowMainnetReplayRisk) {
+    logger.warn('`--allow-mainnet-replay-risk` is deprecated; use `--allow-external-key-on-mainnet-fork` instead.');
+    options.allowExternalKeyOnMainnetFork = true;
+  }
+  return options;
+}
+
 const BUILT_IN_DEV_KEYS = new Set(
   [...accountConfig.map((account) => account.privkey), ckbDevnetMinerAccount.privkey].map((key) => key.toLowerCase()),
 );
@@ -23,16 +40,16 @@ export function warnIfMainnetForkSigning(network: Network, privateKey: string): 
 export function validateMainnetForkSigning(
   network: Network,
   privateKey: string,
-  allowMainnetReplayRisk = false,
+  allowExternalKeyOnMainnetFork = false,
 ): bigint | undefined {
   const fork = readMainnetForkState(network);
   if (!fork) return undefined;
 
   logMainnetForkSigningWarning(privateKey);
-  if (!BUILT_IN_DEV_KEYS.has(privateKey.trim().toLowerCase()) && !allowMainnetReplayRisk) {
+  if (!BUILT_IN_DEV_KEYS.has(privateKey.trim().toLowerCase()) && !allowExternalKeyOnMainnetFork) {
     throw new Error(
       'Refusing to sign with a non-built-in private key on a Mainnet fork. ' +
-        'Use --allow-mainnet-replay-risk only after verifying that no copied Mainnet input will be selected.',
+        'Use --allow-external-key-on-mainnet-fork only after verifying that no copied Mainnet input will be selected.',
     );
   }
   if (fork.forkBlockNumber == null) {

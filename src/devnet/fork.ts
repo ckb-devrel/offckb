@@ -264,14 +264,36 @@ export function copySourceData(sourceDir: string, configPath: string): void {
   // place, and linked files would corrupt the source chain.
   const excludedTopLevelEntries = new Set(['network', 'logs', 'tmp']);
   fs.mkdirSync(targetData, { recursive: true });
+  // A symlinked data root would bypass the per-entry checks below:
+  // readdirSync follows it and its ordinary children would pass assertNoSymlink.
+  assertNoSymlink(sourceData);
   // Enumerate top-level entries instead of relying on fs.cp's filter paths,
   // which may use Windows extended-length prefixes and bypass relative-path
   // comparisons.
   for (const entry of fs.readdirSync(sourceData)) {
     if (excludedTopLevelEntries.has(entry)) continue;
-    fs.cpSync(path.join(sourceData, entry), path.join(targetData, entry), { recursive: true });
+    const sourceEntry = path.join(sourceData, entry);
+    // fs.cpSync resolves symlinks by default; a symlinked entry (especially
+    // data/db) would silently copy data from outside the source directory.
+    assertNoSymlink(sourceEntry);
+    fs.cpSync(sourceEntry, path.join(targetData, entry), {
+      recursive: true,
+      filter: (src) => {
+        assertNoSymlink(src);
+        return true;
+      },
+    });
   }
   logger.info('Excluded source network peers and transient logs/tmp data from the fork.');
+}
+
+function assertNoSymlink(entryPath: string): void {
+  if (fs.lstatSync(entryPath).isSymbolicLink()) {
+    throw new Error(
+      `Refusing to copy ${entryPath}: symlinked entries are not allowed in the source chain data. ` +
+        'Replace the symlink with the real directory and retry.',
+    );
+  }
 }
 
 export function isolateForkCkbConfig(config: Record<string, unknown>): Record<string, unknown> {

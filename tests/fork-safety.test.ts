@@ -7,7 +7,11 @@ jest.mock('../src/devnet/fork', () => ({ readForkState: () => mockFork }));
 jest.mock('../src/util/logger', () => ({ logger: { warn: jest.fn() } }));
 
 import accountConfig from '../account/account.json';
-import { validateMainnetForkSigning, warnIfMainnetForkSigning } from '../src/util/fork-safety';
+import {
+  resolveMainnetForkOverride,
+  validateMainnetForkSigning,
+  warnIfMainnetForkSigning,
+} from '../src/util/fork-safety';
 import { logger } from '../src/util/logger';
 import { Network } from '../src/type/base';
 
@@ -41,7 +45,7 @@ describe('Mainnet fork signing warning', () => {
   it('requires an explicit override for an external key', () => {
     mockFork = { source: 'mainnet', forkBlockNumber: '100' };
     expect(() => validateMainnetForkSigning(Network.devnet, '0x' + '11'.repeat(32))).toThrow(
-      '--allow-mainnet-replay-risk',
+      '--allow-external-key-on-mainnet-fork',
     );
   });
 
@@ -62,5 +66,21 @@ describe('Mainnet fork signing warning', () => {
     expect(() => validateMainnetForkSigning(Network.devnet, accountConfig[0].privkey)).toThrow(
       'Invalid Mainnet fork boundary metadata',
     );
+  });
+});
+
+describe('deprecated --allow-mainnet-replay-risk alias', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('folds the deprecated flag into the new option with a warning', () => {
+    const options = resolveMainnetForkOverride({ allowMainnetReplayRisk: true });
+    expect(options.allowExternalKeyOnMainnetFork).toBe(true);
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('--allow-external-key-on-mainnet-fork'));
+  });
+
+  it('leaves options untouched when the deprecated flag is absent', () => {
+    const options = resolveMainnetForkOverride({ allowExternalKeyOnMainnetFork: true });
+    expect(options.allowExternalKeyOnMainnetFork).toBe(true);
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 });
