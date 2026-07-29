@@ -15,12 +15,15 @@ import { callJsonRpc } from '../util/json-rpc';
 import { Network } from '../type/base';
 import { logger } from '../util/logger';
 import { checkNodeReadiness, waitForNodeReady } from '../devnet/readiness';
+import { devnetTcpListenAddress, subscribeToNodeLogs, SubscriptionHandle } from '../devnet/log-subscription';
+import { SCRIPT_LOG_TARGET } from '../devnet/log-file';
 
 export interface NodeProp {
   version?: string;
   network?: Network;
   binaryPath?: string;
   daemon?: boolean;
+  verbose?: boolean;
 }
 
 interface PidMetadata {
@@ -43,7 +46,7 @@ function cleanChildOutput(data: unknown): string {
   return String(data).replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '');
 }
 
-export function startNode({ version, network = Network.devnet, binaryPath, daemon }: NodeProp) {
+export function startNode({ version, network = Network.devnet, binaryPath, daemon, verbose }: NodeProp) {
   if (binaryPath && network !== Network.devnet) {
     logger.warn('Custom binaryPath is only supported for devnet. The provided binaryPath will be ignored.');
   }
@@ -53,7 +56,7 @@ export function startNode({ version, network = Network.devnet, binaryPath, daemo
 
   switch (network) {
     case Network.devnet:
-      return nodeDevnet({ version, binaryPath, daemon });
+      return nodeDevnet({ version, binaryPath, daemon, verbose });
     case Network.testnet:
       return nodeTestnet();
     case Network.mainnet:
@@ -63,7 +66,7 @@ export function startNode({ version, network = Network.devnet, binaryPath, daemo
   }
 }
 
-export async function nodeDevnet({ version, binaryPath, daemon }: NodeProp) {
+export async function nodeDevnet({ version, binaryPath, daemon, verbose }: NodeProp) {
   if (daemon) {
     return startDaemon();
   }
@@ -119,14 +122,23 @@ export async function nodeDevnet({ version, binaryPath, daemon }: NodeProp) {
   const runArgs = ['run', '-C', devnetConfigPath];
   if (firstRunFlags) runArgs.push('--skip-spec-check', '--overwrite-spec');
   const ckbProcess = spawn(ckbBinPath, runArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
-  ckbProcess.stdout?.on('data', (data) => logger.info(['CKB:', cleanChildOutput(data)]));
+  // Quiet by default: the node keeps its full log in data/logs/run.log
+  // (see `offckb logs`), and contract script debug output streams over the
+  // TCP log subscription below. --verbose restores the raw stdout/stderr relay.
+  // stdout must be drained either way or the child blocks on a full pipe
+  // buffer once the OS pipe fills.
+  if (verbose) {
+    ckbProcess.stdout?.on('data', (data) => logger.info(['CKB:', cleanChildOutput(data)]));
+  } else {
+    ckbProcess.stdout?.on('data', () => {});
+  }
   // Keep a bounded stderr tail so a startup crash can be translated into an
   // actionable error below (CKB's own config errors are notoriously opaque).
   let ckbStderrTail = '';
   ckbProcess.stderr?.on('data', (data) => {
     const text = cleanChildOutput(data);
     ckbStderrTail = (ckbStderrTail + text).slice(-4096);
-    logger.error(['CKB error:', text]);
+    if (verbose) logger.error(['CKB error:', text]);
   });
 
   let ckbExited = false;
@@ -142,7 +154,10 @@ export async function nodeDevnet({ version, binaryPath, daemon }: NodeProp) {
   if (!readiness.ready) {
     if (!ckbExited) ckbProcess.kill('SIGTERM');
     const hint = terminalRpcUnknownVariantHint(ckbStderrTail, devnetConfigPath);
-    throw new Error(`CKB devnet failed to become ready: ${readiness.error ?? 'CKB process exited'}${hint ?? ''}`);
+    throw new Error(
+      `CKB devnet failed to become ready: ${readiness.error ?? 'CKB process exited'}${hint ?? ''} ` +
+        'Check the node log with `offckb logs` or rerun with --verbose for full output.',
+    );
   }
   if (ckbExited) {
     throw new Error('CKB devnet exited immediately after its readiness check.');
@@ -164,8 +179,13 @@ export async function nodeDevnet({ version, binaryPath, daemon }: NodeProp) {
     ckbProcess.kill('SIGTERM');
     throw new Error(`CKB miner failed to start: ${(error as Error).message}`);
   }
-  minerProcess.stdout?.on('data', (data) => logger.info(['CKB-Miner:', cleanChildOutput(data)]));
-  minerProcess.stderr?.on('data', (data) => logger.error(['CKB-Miner error:', cleanChildOutput(data)]));
+  if (verbose) {
+    minerProcess.stdout?.on('data', (data) => logger.info(['CKB-Miner:', cleanChildOutput(data)]));
+    minerProcess.stderr?.on('data', (data) => logger.error(['CKB-Miner error:', cleanChildOutput(data)]));
+  } else {
+    minerProcess.stdout?.on('data', () => {});
+    minerProcess.stderr?.on('data', () => {});
+  }
   try {
     await waitForChildSpawn(minerProcess, 'CKB miner');
   } catch (error) {
@@ -179,7 +199,27 @@ export async function nodeDevnet({ version, binaryPath, daemon }: NodeProp) {
 
   const proxy = createRPCProxy(Network.devnet, settings.devnet.rpcUrl, settings.devnet.rpcProxyPort);
   proxy.start();
+
+  // Contract script debug output (debug! in scripts) streams live over the
+  // node's TCP log subscription; everything else stays in the log files.
+  let logSubscription: SubscriptionHandle | null = null;
+  const tcpAddress = devnetTcpListenAddress();
+  if (tcpAddress) {
+    logSubscription = subscribeToNodeLogs(
+      tcpAddress,
+      (entry) => {
+        if (entry.target === SCRIPT_LOG_TARGET) logger.info(['CKB-Script:', entry.message]);
+      },
+      (error) => logger.warn(`${error.message} Full logs remain available via: offckb logs -f`),
+    );
+  } else if (!verbose) {
+    logger.debug('No tcp_listen_address in ckb.toml; script debug output will not stream live.');
+  }
+
   logger.success(`CKB devnet is ready at ${settings.devnet.rpcUrl}.`);
+  if (!verbose) {
+    logger.info('Follow the full node log with: offckb logs -f');
+  }
   logger.result({
     command: 'node',
     network: Network.devnet,
@@ -194,6 +234,7 @@ export async function nodeDevnet({ version, binaryPath, daemon }: NodeProp) {
   const stopService = (component: 'CKB node' | 'CKB miner', code: number | null, signal: NodeJS.Signals | null) => {
     if (serviceStopping) return;
     serviceStopping = true;
+    logSubscription?.close();
     if (component !== 'CKB node' && !ckbProcess.killed) ckbProcess.kill('SIGTERM');
     if (component !== 'CKB miner' && !minerProcess.killed) minerProcess.kill('SIGTERM');
     proxy.stop();

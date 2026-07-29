@@ -85,6 +85,7 @@ Commands:
   balance [options] [toAddress]                 Check account balance, only devnet and testnet
   debugger                                      Port of the raw CKB Standalone Debugger
   status [options]                              Show ckb-tui status interface
+  logs [options] [target]                       Show devnet logs: node (default), contract script debug output, miner, or RPC proxy events
   config <action> [item] [value]                do a configuration action
   devnet config                                 Edit devnet configuration
   devnet info                                   Show fork metadata and node/indexer readiness
@@ -143,6 +144,21 @@ Stop the daemon later with:
 ```sh
 offckb node stop
 ```
+
+**View Logs**
+
+A foreground `offckb node` stays quiet by default: it prints lifecycle events, contract script debug output (`debug!` in your scripts), submitted transaction hashes, and RPC errors. The node, miner, and RPC proxy always write full logs to files under the devnet data folder, and `offckb logs` reads them in any run mode (foreground, daemon, or while `offckb status` is attached):
+
+```sh
+offckb logs                # node log (default)
+offckb logs script         # contract script debug output only
+offckb logs miner          # miner log
+offckb logs rpc            # RPC requests, transaction hashes, RPC errors
+offckb logs -f             # stream new lines, tail -f style
+offckb logs --tail 200 --grep ERROR
+```
+
+Use `offckb node --verbose` to restore the old behavior of printing the full raw node/miner output to the terminal.
 
 **Agent-Friendly JSON Output**
 

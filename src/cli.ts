@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { Command, CommanderError, Option } from 'commander';
+import { Command, CommanderError, Option, Argument } from 'commander';
 import { startNode, stopNode } from './cmd/node';
 import { accounts } from './cmd/accounts';
 import { clean } from './cmd/clean';
@@ -15,6 +15,7 @@ import { devnetConfig } from './cmd/devnet-config';
 import { devnetFork } from './cmd/devnet-fork';
 import { devnetInfo } from './cmd/devnet-info';
 import { debugSingleScript, debugTransaction, parseSingleScriptOption } from './cmd/debug';
+import { logsCommand, LogsOptions } from './cmd/logs';
 import { printSystemScripts } from './cmd/system-scripts';
 import { transferAll } from './cmd/transfer-all';
 import { genSystemScriptsJsonFile } from './scripts/gen';
@@ -76,14 +77,41 @@ const nodeCommand = program
     'Specify the CKB binary path to use, only for devnet, when set, will ignore version and network',
   )
   .option('--daemon', 'Run the node in the background as a daemon (devnet only)')
-  .action(async (version: string, options: { network: Network; binaryPath?: string; daemon?: boolean }) => {
-    return startNode({ version, network: options.network, binaryPath: options.binaryPath, daemon: options.daemon });
-  });
+  .option('--verbose', 'Print the full raw node/miner output (default shows contract script output only)')
+  .action(
+    async (
+      version: string,
+      options: { network: Network; binaryPath?: string; daemon?: boolean; verbose?: boolean },
+    ) => {
+      return startNode({
+        version,
+        network: options.network,
+        binaryPath: options.binaryPath,
+        daemon: options.daemon,
+        verbose: options.verbose,
+      });
+    },
+  );
 
 nodeCommand
   .command('stop')
   .description('Stop the running CKB devnet daemon')
   .action(async () => stopNode());
+
+program
+  .command('logs')
+  .description('Show devnet logs: node (default), contract script debug output, miner, or RPC proxy events')
+  .addArgument(
+    new Argument('[target]', 'Which logs to show').choices(['node', 'script', 'miner', 'rpc']).default('node'),
+  )
+  .option('-f, --follow', 'Stream new log lines as they are written (like tail -f)')
+  .option('--grep <pattern>', 'Only show lines containing the given text')
+  .option('--tail <lines>', 'Show the last N lines before following', (value: string) => {
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed < 0) throw new Error('--tail must be a non-negative integer');
+    return parsed;
+  })
+  .action((target: string, options: LogsOptions) => logsCommand(target, options));
 
 program
   .command('create [project-name]')
