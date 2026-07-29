@@ -30,7 +30,7 @@ describe('ckb-tui checksum policy', () => {
   it('enforces the pinned digest for the default release without a network fallback', () => {
     expect(() =>
       (CKBTui as unknown as { verifyChecksum: (...args: string[]) => void }).verifyChecksum(
-        'v0.1.3',
+        'v0.1.4',
         'ckb-tui-with-node-macos-aarch64.tar.gz',
         archive,
       ),

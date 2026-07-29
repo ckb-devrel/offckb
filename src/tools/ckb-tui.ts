@@ -15,13 +15,38 @@ const EXTRACT_TIMEOUT_MS = 60_000;
 const STRICT_VERSION_REGEX = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 
 // Independently pinned digests for the default release. Keeping these in
-// offckb makes the default installation verifiable even though ckb-tui v0.1.3
+// offckb makes the default installation verifiable even though ckb-tui v0.1.4
 // did not upload a checksums-sha256.txt asset.
 const KNOWN_SHA256: Record<string, Record<string, string>> = {
+  'v0.1.4': {
+    'ckb-tui-with-node-linux-amd64.tar.gz': 'eaed2cfbd55c4ee78493200bf33b5b120ec2625df4e7041b048cd87d51801cbd',
+    'ckb-tui-with-node-macos-aarch64.tar.gz': '911aa3f1266fd333d2566e798df888ffb105b35da7d9328d7b715f3be7adc246',
+    'ckb-tui-with-node-windows-amd64.zip': 'aab24826e0951188f72ddc1c128148899c54237dc9cc4bd5929038504cdd0dfa',
+  },
   'v0.1.3': {
     'ckb-tui-with-node-linux-amd64.tar.gz': '33455cefe2c016149fa8fa3abde7960b348d4606afef9279d787ac8a8b59956f',
     'ckb-tui-with-node-macos-aarch64.tar.gz': 'de18107ec179ced03608da956013e38ae82e6c1fae588f12c17d138ee6ee072c',
     'ckb-tui-with-node-windows-amd64.zip': '749d8e09fd5d23fc8af12892b7d197add5aae004f7438678023e4a973f3fd58b',
+  },
+};
+
+// Digests of the extracted ckb-tui binaries, keyed the same way as
+// KNOWN_SHA256. ensureInstalled uses these to recognize a stale or foreign
+// binary at the install path: ckb-tui's own `--version` output lags its
+// release tag (the v0.1.4 binary still reports 0.1.2), so the on-disk digest
+// is the only reliable identity. Versions without a pinned binary digest fall
+// back to presence-only detection (install-time archive verification still
+// applies).
+const KNOWN_BINARY_SHA256: Record<string, Record<string, string>> = {
+  'v0.1.4': {
+    'ckb-tui-with-node-linux-amd64.tar.gz': 'e2c31db99e81ea6ae0455796464a671c10bf8fe74615c40b995c34ff57630b43',
+    'ckb-tui-with-node-macos-aarch64.tar.gz': 'a9748cf1581568cf7409193d5cb851ea956a82a84fd69c08513fee351a8ad7fc',
+    'ckb-tui-with-node-windows-amd64.zip': '2ed73cd9095b2f9b947377736e8013985f48a8c1e696a3dd78033af658aab612',
+  },
+  'v0.1.3': {
+    'ckb-tui-with-node-linux-amd64.tar.gz': '2daca14ea8eba2a7888d1223c387a8d8e0846dafc424cd66891d4d96f4720005',
+    'ckb-tui-with-node-macos-aarch64.tar.gz': 'e21971d59edce7d5d590ac05314d67343fb70187a73a8dd19af87a71e1fe34e0',
+    'ckb-tui-with-node-windows-amd64.zip': 'b2fce1c161158e8a2dd5b5c5a796091f3c668e57e57b8dd403053ceef1301716',
   },
 };
 
@@ -44,12 +69,17 @@ export class CKBTui {
 
   /**
    * Returns the binary path, downloading and installing if the binary
-   * does not already exist.
+   * does not already exist or does not match the configured version's
+   * pinned digest (e.g. a stale binary from an older default release).
    */
   static ensureInstalled(): string {
     const binaryPath = this.getBinaryPath();
     if (binaryPath && fs.existsSync(binaryPath)) {
-      return binaryPath;
+      if (this.installedBinaryMatches(binaryPath)) {
+        return binaryPath;
+      }
+      logger.info('The installed ckb-tui does not match the configured release; reinstalling...');
+      fs.rmSync(binaryPath, { force: true });
     }
 
     // Reset and re-install
@@ -75,6 +105,22 @@ export class CKBTui {
   // --- private helpers ---
 
   /**
+   * Verifies an existing on-disk binary against the configured version's
+   * pinned binary digest. Returns true when the binary may be kept: either it
+   * matches the digest, or the configured version has no pinned binary digest
+   * (presence-only fallback; install-time archive verification still applies).
+   */
+  private static installedBinaryMatches(binaryPath: string): boolean {
+    const settings = readSettings();
+    const expected = KNOWN_BINARY_SHA256[settings.tools.ckbTui.version]?.[this.getAssetName()];
+    if (!expected) {
+      return true;
+    }
+    const actual = crypto.createHash('sha256').update(fs.readFileSync(binaryPath)).digest('hex');
+    return actual === expected;
+  }
+
+  /**
    * Resolve and validate that the configured rootFolder is under the
    * OffCKB data directory. Rejects paths that resolve outside.
    */
@@ -96,7 +142,7 @@ export class CKBTui {
 
   private static validateVersion(version: string): void {
     if (!STRICT_VERSION_REGEX.test(version)) {
-      throw new Error(`Invalid version format: "${version}". Expected format: vX.Y.Z (e.g., v0.1.3)`);
+      throw new Error(`Invalid version format: "${version}". Expected format: vX.Y.Z (e.g., v0.1.4)`);
     }
   }
 

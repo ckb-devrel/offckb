@@ -97,7 +97,7 @@ export const defaultSettings: Settings = {
       minVersion: '0.200.0',
     },
     ckbTui: {
-      version: 'v0.1.3',
+      version: 'v0.1.4',
     },
   },
 };
