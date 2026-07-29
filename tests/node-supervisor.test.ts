@@ -12,7 +12,10 @@ jest.mock('child_process', () => ({
   spawn: (...args: unknown[]) => mockSpawn(...args),
 }));
 jest.mock('../src/node/install', () => ({ installCKBBinary: jest.fn().mockResolvedValue(undefined) }));
-jest.mock('../src/node/init-chain', () => ({ initChainIfNeeded: jest.fn().mockResolvedValue(undefined) }));
+jest.mock('../src/node/init-chain', () => ({
+  ...jest.requireActual('../src/node/init-chain'),
+  initChainIfNeeded: jest.fn().mockResolvedValue(undefined),
+}));
 jest.mock('../src/cfg/setting', () => ({
   readSettings: () => ({
     bins: { defaultCKBVersion: '0.207.0' },
@@ -123,7 +126,9 @@ describe('foreground devnet supervisor', () => {
     await nodeDevnet({});
 
     expect(mockMarkForkFirstRunComplete).toHaveBeenCalledWith('/tmp/offckb-devnet', '100');
-    expect(mockMarkForkFirstRunComplete.mock.invocationCallOrder[0]).toBeLessThan(mockSpawn.mock.invocationCallOrder[1]);
+    expect(mockMarkForkFirstRunComplete.mock.invocationCallOrder[0]).toBeLessThan(
+      mockSpawn.mock.invocationCallOrder[1],
+    );
     expect(mockProxyStart).toHaveBeenCalled();
   });
 });
