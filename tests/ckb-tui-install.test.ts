@@ -163,11 +163,16 @@ describe('ckb-tui installed-binary verification', () => {
 
   itPosix('does not block on a FIFO at the binary location', () => {
     // Pinned digest path: the digest read must not open a FIFO, whose
-    // blocking read would hang ensureInstalled indefinitely. (Regression
-    // guard: without the regular-file check this test times out.)
+    // blocking read would hang ensureInstalled indefinitely. readFileSync is
+    // mocked to throw so a regression fails fast instead of hanging the Jest
+    // worker synchronously (a timer-based timeout cannot fire mid-read).
     execFileSync('mkfifo', [binaryPath]);
+    const readFileSync = jest.spyOn(fs, 'readFileSync').mockImplementation(() => {
+      throw new Error('A FIFO must not be read');
+    });
 
     expect(internals.installedBinaryMatches(binaryPath)).toBe(false);
+    expect(readFileSync).not.toHaveBeenCalled();
   });
 
   itPosixNonRoot('treats an unreadable binary as a mismatch', () => {

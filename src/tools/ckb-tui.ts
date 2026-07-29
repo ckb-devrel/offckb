@@ -340,7 +340,9 @@ export class CKBTui {
       try {
         fs.copyFileSync(source, stagingPath);
         fs.renameSync(stagingPath, target);
-        fs.unlinkSync(source);
+        // No cleanup of `source` here: it lives in the temp directory, which
+        // the caller removes regardless of outcome — don't let a cleanup
+        // error turn the successful publish above into a reported failure.
       } finally {
         fs.rmSync(stagingPath, { force: true });
       }
