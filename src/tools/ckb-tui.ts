@@ -74,15 +74,17 @@ export class CKBTui {
    */
   static ensureInstalled(): string {
     const binaryPath = this.getBinaryPath();
+    if (binaryPath && this.installedBinaryMatches(binaryPath)) {
+      return binaryPath;
+    }
     if (binaryPath && fs.existsSync(binaryPath)) {
-      if (this.installedBinaryMatches(binaryPath)) {
-        return binaryPath;
-      }
       logger.info('The installed ckb-tui does not match the configured release; reinstalling...');
-      fs.rmSync(binaryPath, { force: true });
     }
 
-    // Reset and re-install
+    // Re-install. The existing binary is deliberately left in place: installSync
+    // downloads, verifies, and extracts into a temp directory and only then
+    // publishes with an atomic rename, so a failed reinstall keeps the previous
+    // binary instead of stranding the user with none.
     this.binaryPath = null;
     this.installSync();
     return this.binaryPath!;
@@ -109,15 +111,21 @@ export class CKBTui {
    * pinned binary digest. Returns true when the binary may be kept: either it
    * matches the digest, or the configured version has no pinned binary digest
    * (presence-only fallback; install-time archive verification still applies).
+   * Missing, unreadable, or non-regular paths (e.g. a directory) count as a
+   * mismatch so the reinstall flow runs instead of crashing with a raw fs error.
    */
   private static installedBinaryMatches(binaryPath: string): boolean {
     const settings = readSettings();
     const expected = KNOWN_BINARY_SHA256[settings.tools.ckbTui.version]?.[this.getAssetName()];
-    if (!expected) {
-      return true;
+    try {
+      if (!expected) {
+        return fs.statSync(binaryPath).isFile();
+      }
+      const actual = crypto.createHash('sha256').update(fs.readFileSync(binaryPath)).digest('hex');
+      return actual === expected;
+    } catch {
+      return false;
     }
-    const actual = crypto.createHash('sha256').update(fs.readFileSync(binaryPath)).digest('hex');
-    return actual === expected;
   }
 
   /**

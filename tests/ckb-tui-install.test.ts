@@ -46,7 +46,11 @@ describe('ckb-tui installed-binary verification', () => {
     mockVersion.current = 'v0.1.4';
     internals.binaryPath = null;
     realInstallSync = internals.installSync;
-    installSpy = jest.fn();
+    // Mimic a successful installSync: publish the binary path. Tests that need
+    // a failing install override this with mockImplementation.
+    installSpy = jest.fn().mockImplementation(() => {
+      internals.binaryPath = binaryPath;
+    });
     internals.installSync = installSpy;
   });
 
@@ -87,11 +91,31 @@ describe('ckb-tui installed-binary verification', () => {
   it('reinstalls when the on-disk binary does not match the pinned digest', () => {
     fs.writeFileSync(binaryPath, 'stale ckb-tui from an older release');
 
-    expect(() => CKBTui.ensureInstalled()).not.toThrow();
+    expect(CKBTui.ensureInstalled()).toBe(binaryPath);
     expect(installSpy).toHaveBeenCalledTimes(1);
-    // The stale binary must be removed before install so no platform-specific
-    // rename-over-existing behavior can keep it in place.
-    expect(fs.existsSync(binaryPath)).toBe(false);
+    // The stale binary is NOT deleted up front: it stays in place until
+    // installSync atomically publishes the verified replacement, so a failed
+    // reinstall never strands the user with no binary. (The spy skips the real
+    // replacement, so the original file is still there.)
+    expect(fs.readFileSync(binaryPath, 'utf8')).toBe('stale ckb-tui from an older release');
+  });
+
+  it('keeps the existing binary when the reinstall fails', () => {
+    fs.writeFileSync(binaryPath, 'stale ckb-tui from an older release');
+    installSpy.mockImplementation(() => {
+      internals.binaryPath = null;
+      throw new Error('network down');
+    });
+
+    expect(() => CKBTui.ensureInstalled()).toThrow('network down');
+    expect(fs.readFileSync(binaryPath, 'utf8')).toBe('stale ckb-tui from an older release');
+  });
+
+  it('treats a non-regular path at the binary location as a mismatch and reinstalls', () => {
+    fs.mkdirSync(binaryPath);
+
+    expect(CKBTui.ensureInstalled()).toBe(binaryPath);
+    expect(installSpy).toHaveBeenCalledTimes(1);
   });
 
   it('falls back to presence-only detection for a release without a pinned binary digest', () => {
@@ -103,7 +127,7 @@ describe('ckb-tui installed-binary verification', () => {
   });
 
   it('installs when no binary exists yet', () => {
-    CKBTui.ensureInstalled();
+    expect(CKBTui.ensureInstalled()).toBe(binaryPath);
     expect(installSpy).toHaveBeenCalledTimes(1);
   });
 });
