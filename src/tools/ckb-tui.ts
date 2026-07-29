@@ -111,15 +111,24 @@ export class CKBTui {
    * pinned binary digest. Returns true when the binary may be kept: either it
    * matches the digest, or the configured version has no pinned binary digest
    * (presence-only fallback; install-time archive verification still applies).
-   * Missing, unreadable, or non-regular paths (e.g. a directory) count as a
-   * mismatch so the reinstall flow runs instead of crashing with a raw fs error.
+   * Missing, unreadable, or non-regular paths (e.g. a directory or FIFO) count
+   * as a mismatch so the reinstall flow runs instead of crashing with a raw fs
+   * error, blocking forever on a special file, or failing later at spawn time.
    */
   private static installedBinaryMatches(binaryPath: string): boolean {
     const settings = readSettings();
     const expected = KNOWN_BINARY_SHA256[settings.tools.ckbTui.version]?.[this.getAssetName()];
     try {
+      // Require a regular file first: opening a FIFO or device for reading
+      // would block indefinitely, before any digest comparison could run.
+      if (!fs.statSync(binaryPath).isFile()) {
+        return false;
+      }
+      // Metadata alone does not prove readability; an unreadable binary must
+      // flow into the reinstall path (which republishes with correct modes).
+      fs.accessSync(binaryPath, fs.constants.R_OK);
       if (!expected) {
-        return fs.statSync(binaryPath).isFile();
+        return true;
       }
       const actual = crypto.createHash('sha256').update(fs.readFileSync(binaryPath)).digest('hex');
       return actual === expected;
@@ -238,27 +247,11 @@ export class CKBTui {
         throw new Error(`ckb-tui binary ("${binaryName}") was not found after extraction.`);
       }
 
-      // 5. Move to the final location. renameSync is atomic but throws EXDEV
-      // when the temp dir and the data path live on different filesystems
-      // (common in containers). In that case stage the copy inside binDir and
-      // publish it with a rename, so a concurrent ensureInstalled() never sees
-      // a partially copied binary at the final path.
-      try {
-        fs.renameSync(extractedBinary, this.binaryPath);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'EXDEV') {
-          const stagingPath = path.join(binDir, `.${binaryName}.staging-${process.pid}`);
-          try {
-            fs.copyFileSync(extractedBinary, stagingPath);
-            fs.renameSync(stagingPath, this.binaryPath);
-            fs.unlinkSync(extractedBinary);
-          } finally {
-            fs.rmSync(stagingPath, { force: true });
-          }
-        } else {
-          throw error;
-        }
-      }
+      // 5. Publish the verified binary. publishExtractedBinary owns the edge
+      // cases: a directory occupying the install path is set aside (and
+      // restored on failure), and cross-filesystem temp dirs fall back to a
+      // staged copy next to the target.
+      this.publishExtractedBinary(extractedBinary, this.binaryPath);
 
       // 6. Make executable on Unix
       if (process.platform !== 'win32') {
@@ -284,6 +277,72 @@ export class CKBTui {
         fs.rmSync(tempDir, { recursive: true, force: true });
       } catch {
         // Best-effort cleanup — temp dir will be cleaned by the OS eventually
+      }
+    }
+  }
+
+  /**
+   * Atomically publish the extracted binary to the install path.
+   *
+   * A directory occupying the install path (e.g. from a botched manual
+   * extraction) cannot be replaced by a file rename — without this handling
+   * the reinstall would fail on every attempt — so it is first set aside with
+   * a plain rename (its contents are never deleted) and restored if publishing
+   * fails. On success the aside directory is left in place and its location
+   * logged, so nothing the user put there is silently destroyed.
+   */
+  private static publishExtractedBinary(extractedBinary: string, binaryPath: string): void {
+    let dirBackupPath: string | null = null;
+    let existing: fs.Stats | null = null;
+    try {
+      existing = fs.lstatSync(binaryPath);
+    } catch {
+      existing = null; // Nothing at the install path.
+    }
+    if (existing?.isDirectory()) {
+      dirBackupPath = `${binaryPath}.backup-${process.pid}-${Date.now()}`;
+      fs.renameSync(binaryPath, dirBackupPath);
+    }
+
+    try {
+      this.renameIntoPlace(extractedBinary, binaryPath);
+    } catch (error) {
+      if (dirBackupPath) {
+        try {
+          fs.renameSync(dirBackupPath, binaryPath);
+        } catch {
+          // Best effort: the original directory remains at its backup path.
+        }
+      }
+      throw error;
+    }
+
+    if (dirBackupPath) {
+      logger.info(`A directory unexpectedly occupied ${binaryPath}; moved it aside to ${dirBackupPath}.`);
+    }
+  }
+
+  /**
+   * renameSync is atomic but throws EXDEV when source and target live on
+   * different filesystems (common in containers, where os.tmpdir() and the
+   * data path differ). In that case stage the copy next to the target and
+   * publish it with a rename, so a concurrent ensureInstalled() never sees a
+   * partially copied binary at the final path.
+   */
+  private static renameIntoPlace(source: string, target: string): void {
+    try {
+      fs.renameSync(source, target);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EXDEV') {
+        throw error;
+      }
+      const stagingPath = path.join(path.dirname(target), `.${path.basename(target)}.staging-${process.pid}`);
+      try {
+        fs.copyFileSync(source, stagingPath);
+        fs.renameSync(stagingPath, target);
+        fs.unlinkSync(source);
+      } finally {
+        fs.rmSync(stagingPath, { force: true });
       }
     }
   }
