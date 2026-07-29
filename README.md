@@ -188,6 +188,8 @@ offckb status --network mainnet
 
 `status` performs a JSON-RPC health check through the proxy before opening the TUI and requires an interactive terminal.
 
+The TUI's system-metric panels are powered by CKB's `Terminal` RPC module, which requires CKB >= 0.205.0. If you run the devnet with an older CKB (e.g. `offckb node 0.120.0` or `--binary-path` pointing at an old build), offckb starts the node without that module and those panels will be unavailable; upgrade CKB to get them.
+
 ### 2. Create a New Contract Project {#create-project}
 
 Generate a ready-to-use smart-contract project in JS/TS using templates:

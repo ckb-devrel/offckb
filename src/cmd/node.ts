@@ -1,8 +1,13 @@
 import { execFile, execFileSync, spawn, ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
-import { initChainIfNeeded } from '../node/init-chain';
-import { installCKBBinary } from '../node/install';
+import {
+  initChainIfNeeded,
+  devnetConfigHasTerminalRpc,
+  supportsTerminalRpcModule,
+  TERMINAL_RPC_MIN_CKB_VERSION,
+} from '../node/init-chain';
+import { getVersionFromBinary, installCKBBinary } from '../node/install';
 import { getCKBBinaryPath, readSettings } from '../cfg/setting';
 import { createRPCProxy } from '../tools/rpc-proxy';
 import { markForkFirstRunComplete, readForkState } from '../devnet/fork';
@@ -66,16 +71,41 @@ export async function nodeDevnet({ version, binaryPath, daemon }: NodeProp) {
   const settings = readSettings();
   const ckbVersion = version || settings.bins.defaultCKBVersion;
   let ckbBinPath = '';
+  // The version the chain config will be validated against. A managed binary
+  // knows its version by construction; a custom --binary-path is probed, and
+  // an unprobeable binary stays null (unknown → assume Terminal-capable).
+  let effectiveCkbVersion: string | null = null;
 
   if (binaryPath) {
     ckbBinPath = binaryPath;
     logger.info(`Using custom CKB binary path: ${ckbBinPath}`);
+    effectiveCkbVersion = getVersionFromBinary(ckbBinPath);
   } else {
     await installCKBBinary(ckbVersion);
     ckbBinPath = getCKBBinaryPath(ckbVersion);
+    effectiveCkbVersion = ckbVersion;
   }
-  await initChainIfNeeded();
+  await initChainIfNeeded({ ckbVersion: effectiveCkbVersion });
   const devnetConfigPath = settings.devnet.configPath;
+
+  // A config that enables the Terminal RPC module crashes CKB < 0.205.0 at
+  // startup with an opaque serde error ("unknown variant `Terminal`"). Catch
+  // that combination before spawning and say what is actually wrong. The
+  // version-aware init above never *adds* Terminal for such a binary, so
+  // hitting this means the config genuinely predates/downgraded past us.
+  if (!supportsTerminalRpcModule(effectiveCkbVersion) && devnetConfigHasTerminalRpc(devnetConfigPath)) {
+    throw new Error(
+      `The devnet config (${path.join(devnetConfigPath, 'ckb.toml')}) enables the "Terminal" RPC module, ` +
+        `which requires CKB >= ${TERMINAL_RPC_MIN_CKB_VERSION}; the selected binary is ${effectiveCkbVersion}. ` +
+        `Upgrade the CKB version or remove "Terminal" from rpc.modules in that file.`,
+    );
+  }
+  if (!supportsTerminalRpcModule(effectiveCkbVersion)) {
+    logger.info(
+      `CKB ${effectiveCkbVersion} predates the Terminal RPC module; ` +
+        `the system-metric panels of \`offckb status\` require CKB >= ${TERMINAL_RPC_MIN_CKB_VERSION}.`,
+    );
+  }
 
   // A forked devnet must boot once with --skip-spec-check --overwrite-spec so
   // the imported (and patched) spec replaces the source chain's stored spec.
@@ -90,7 +120,14 @@ export async function nodeDevnet({ version, binaryPath, daemon }: NodeProp) {
   if (firstRunFlags) runArgs.push('--skip-spec-check', '--overwrite-spec');
   const ckbProcess = spawn(ckbBinPath, runArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
   ckbProcess.stdout?.on('data', (data) => logger.info(['CKB:', cleanChildOutput(data)]));
-  ckbProcess.stderr?.on('data', (data) => logger.error(['CKB error:', cleanChildOutput(data)]));
+  // Keep a bounded stderr tail so a startup crash can be translated into an
+  // actionable error below (CKB's own config errors are notoriously opaque).
+  let ckbStderrTail = '';
+  ckbProcess.stderr?.on('data', (data) => {
+    const text = cleanChildOutput(data);
+    ckbStderrTail = (ckbStderrTail + text).slice(-4096);
+    logger.error(['CKB error:', text]);
+  });
 
   let ckbExited = false;
   ckbProcess.once('exit', () => {
@@ -104,7 +141,8 @@ export async function nodeDevnet({ version, binaryPath, daemon }: NodeProp) {
   const readiness = await waitForNodeReady(settings.devnet.rpcUrl, timeoutMs, () => !ckbExited);
   if (!readiness.ready) {
     if (!ckbExited) ckbProcess.kill('SIGTERM');
-    throw new Error(`CKB devnet failed to become ready: ${readiness.error ?? 'CKB process exited'}`);
+    const hint = terminalRpcUnknownVariantHint(ckbStderrTail, devnetConfigPath);
+    throw new Error(`CKB devnet failed to become ready: ${readiness.error ?? 'CKB process exited'}${hint ?? ''}`);
   }
   if (ckbExited) {
     throw new Error('CKB devnet exited immediately after its readiness check.');
@@ -165,6 +203,19 @@ export async function nodeDevnet({ version, binaryPath, daemon }: NodeProp) {
   };
   ckbProcess.once('exit', (code, signal) => stopService('CKB node', code, signal));
   minerProcess.once('exit', (code, signal) => stopService('CKB miner', code, signal));
+}
+
+// CKB < 0.205.0 rejects the Terminal RPC module during config deserialization
+// with a serde "unknown variant `Terminal`" error and exits. When startup
+// fails with that signature — the realistic case being a custom --binary-path
+// whose version could not be probed — point at the actual cause instead of
+// leaving the user with the raw serde message.
+export function terminalRpcUnknownVariantHint(stderrTail: string, devnetConfigPath: string): string | null {
+  if (!/unknown variant [`'"]?Terminal/.test(stderrTail)) return null;
+  return (
+    ` The "Terminal" RPC module requires CKB >= ${TERMINAL_RPC_MIN_CKB_VERSION}; ` +
+    `remove "Terminal" from rpc.modules in ${path.join(devnetConfigPath, 'ckb.toml')} or use a newer CKB binary.`
+  );
 }
 
 function waitForChildSpawn(child: ChildProcess, label: string): Promise<void> {
