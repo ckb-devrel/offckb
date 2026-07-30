@@ -202,7 +202,7 @@ describe('node devnet Terminal RPC version handling', () => {
     });
 
     await expect(startNode({ network: Network.devnet, binaryPath: '/custom/ckb' })).rejects.toThrow(
-      /^CKB devnet failed to become ready: CKB process exited$/,
+      /^CKB devnet failed to become ready: CKB process exited Check the node log with `offckb logs`/,
     );
   });
 });
