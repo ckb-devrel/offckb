@@ -1,8 +1,13 @@
 import { execFile, execFileSync, spawn, ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
-import { initChainIfNeeded } from '../node/init-chain';
-import { installCKBBinary } from '../node/install';
+import {
+  initChainIfNeeded,
+  devnetConfigHasTerminalRpc,
+  supportsTerminalRpcModule,
+  TERMINAL_RPC_MIN_CKB_VERSION,
+} from '../node/init-chain';
+import { getVersionFromBinary, installCKBBinary } from '../node/install';
 import { getCKBBinaryPath, readSettings } from '../cfg/setting';
 import { createRPCProxy } from '../tools/rpc-proxy';
 import { markForkFirstRunComplete, readForkState } from '../devnet/fork';
@@ -10,12 +15,15 @@ import { callJsonRpc } from '../util/json-rpc';
 import { Network } from '../type/base';
 import { logger } from '../util/logger';
 import { checkNodeReadiness, waitForNodeReady } from '../devnet/readiness';
+import { devnetTcpListenAddress, subscribeToNodeLogs, SubscriptionHandle } from '../devnet/log-subscription';
+import { SCRIPT_LOG_TARGET } from '../devnet/log-file';
 
 export interface NodeProp {
   version?: string;
   network?: Network;
   binaryPath?: string;
   daemon?: boolean;
+  verbose?: boolean;
 }
 
 interface PidMetadata {
@@ -33,12 +41,18 @@ const NODE_READY_TIMEOUT_MS = 90_000;
 const FORK_NODE_READY_TIMEOUT_MS = 10 * 60_000;
 
 function cleanChildOutput(data: unknown): string {
-  // CKB colors its output even when it is redirected. Strip ANSI control
-  // sequences so JSON logs stay machine-readable.
-  return String(data).replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '');
+  // CKB colors its output even when it is redirected, and log text relayed
+  // from the node (including contract debug! messages) is untrusted terminal
+  // input. Strip ANSI CSI/OSC sequences and C0/C1 control characters (keeping
+  // \n and \t) so JSON logs stay machine-readable and a crafted script log
+  // cannot inject terminal control sequences.
+  return String(data)
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
+    .replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g, '')
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, '');
 }
 
-export function startNode({ version, network = Network.devnet, binaryPath, daemon }: NodeProp) {
+export function startNode({ version, network = Network.devnet, binaryPath, daemon, verbose }: NodeProp) {
   if (binaryPath && network !== Network.devnet) {
     logger.warn('Custom binaryPath is only supported for devnet. The provided binaryPath will be ignored.');
   }
@@ -48,7 +62,7 @@ export function startNode({ version, network = Network.devnet, binaryPath, daemo
 
   switch (network) {
     case Network.devnet:
-      return nodeDevnet({ version, binaryPath, daemon });
+      return nodeDevnet({ version, binaryPath, daemon, verbose });
     case Network.testnet:
       return nodeTestnet();
     case Network.mainnet:
@@ -58,7 +72,7 @@ export function startNode({ version, network = Network.devnet, binaryPath, daemo
   }
 }
 
-export async function nodeDevnet({ version, binaryPath, daemon }: NodeProp) {
+export async function nodeDevnet({ version, binaryPath, daemon, verbose }: NodeProp) {
   if (daemon) {
     return startDaemon();
   }
@@ -66,16 +80,41 @@ export async function nodeDevnet({ version, binaryPath, daemon }: NodeProp) {
   const settings = readSettings();
   const ckbVersion = version || settings.bins.defaultCKBVersion;
   let ckbBinPath = '';
+  // The version the chain config will be validated against. A managed binary
+  // knows its version by construction; a custom --binary-path is probed, and
+  // an unprobeable binary stays null (unknown → assume Terminal-capable).
+  let effectiveCkbVersion: string | null = null;
 
   if (binaryPath) {
     ckbBinPath = binaryPath;
     logger.info(`Using custom CKB binary path: ${ckbBinPath}`);
+    effectiveCkbVersion = getVersionFromBinary(ckbBinPath);
   } else {
     await installCKBBinary(ckbVersion);
     ckbBinPath = getCKBBinaryPath(ckbVersion);
+    effectiveCkbVersion = ckbVersion;
   }
-  await initChainIfNeeded();
+  await initChainIfNeeded({ ckbVersion: effectiveCkbVersion });
   const devnetConfigPath = settings.devnet.configPath;
+
+  // A config that enables the Terminal RPC module crashes CKB < 0.205.0 at
+  // startup with an opaque serde error ("unknown variant `Terminal`"). Catch
+  // that combination before spawning and say what is actually wrong. The
+  // version-aware init above never *adds* Terminal for such a binary, so
+  // hitting this means the config genuinely predates/downgraded past us.
+  if (!supportsTerminalRpcModule(effectiveCkbVersion) && devnetConfigHasTerminalRpc(devnetConfigPath)) {
+    throw new Error(
+      `The devnet config (${path.join(devnetConfigPath, 'ckb.toml')}) enables the "Terminal" RPC module, ` +
+        `which requires CKB >= ${TERMINAL_RPC_MIN_CKB_VERSION}; the selected binary is ${effectiveCkbVersion}. ` +
+        `Upgrade the CKB version or remove "Terminal" from rpc.modules in that file.`,
+    );
+  }
+  if (!supportsTerminalRpcModule(effectiveCkbVersion)) {
+    logger.info(
+      `CKB ${effectiveCkbVersion} predates the Terminal RPC module; ` +
+        `the system-metric panels of \`offckb status\` require CKB >= ${TERMINAL_RPC_MIN_CKB_VERSION}.`,
+    );
+  }
 
   // A forked devnet must boot once with --skip-spec-check --overwrite-spec so
   // the imported (and patched) spec replaces the source chain's stored spec.
@@ -89,8 +128,24 @@ export async function nodeDevnet({ version, binaryPath, daemon }: NodeProp) {
   const runArgs = ['run', '-C', devnetConfigPath];
   if (firstRunFlags) runArgs.push('--skip-spec-check', '--overwrite-spec');
   const ckbProcess = spawn(ckbBinPath, runArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
-  ckbProcess.stdout?.on('data', (data) => logger.info(['CKB:', cleanChildOutput(data)]));
-  ckbProcess.stderr?.on('data', (data) => logger.error(['CKB error:', cleanChildOutput(data)]));
+  // Quiet by default: the node keeps its full log in data/logs/run.log
+  // (see `offckb logs`), and contract script debug output streams over the
+  // TCP log subscription below. --verbose restores the raw stdout/stderr relay.
+  // stdout must be drained either way or the child blocks on a full pipe
+  // buffer once the OS pipe fills.
+  if (verbose) {
+    ckbProcess.stdout?.on('data', (data) => logger.info(['CKB:', cleanChildOutput(data)]));
+  } else {
+    ckbProcess.stdout?.on('data', () => {});
+  }
+  // Keep a bounded stderr tail so a startup crash can be translated into an
+  // actionable error below (CKB's own config errors are notoriously opaque).
+  let ckbStderrTail = '';
+  ckbProcess.stderr?.on('data', (data) => {
+    const text = cleanChildOutput(data);
+    ckbStderrTail = (ckbStderrTail + text).slice(-4096);
+    if (verbose) logger.error(['CKB error:', text]);
+  });
 
   let ckbExited = false;
   ckbProcess.once('exit', () => {
@@ -104,7 +159,11 @@ export async function nodeDevnet({ version, binaryPath, daemon }: NodeProp) {
   const readiness = await waitForNodeReady(settings.devnet.rpcUrl, timeoutMs, () => !ckbExited);
   if (!readiness.ready) {
     if (!ckbExited) ckbProcess.kill('SIGTERM');
-    throw new Error(`CKB devnet failed to become ready: ${readiness.error ?? 'CKB process exited'}`);
+    const hint = terminalRpcUnknownVariantHint(ckbStderrTail, devnetConfigPath);
+    throw new Error(
+      `CKB devnet failed to become ready: ${readiness.error ?? 'CKB process exited'}${hint ?? ''} ` +
+        'Check the node log with `offckb logs` or rerun with --verbose for full output.',
+    );
   }
   if (ckbExited) {
     throw new Error('CKB devnet exited immediately after its readiness check.');
@@ -126,8 +185,13 @@ export async function nodeDevnet({ version, binaryPath, daemon }: NodeProp) {
     ckbProcess.kill('SIGTERM');
     throw new Error(`CKB miner failed to start: ${(error as Error).message}`);
   }
-  minerProcess.stdout?.on('data', (data) => logger.info(['CKB-Miner:', cleanChildOutput(data)]));
-  minerProcess.stderr?.on('data', (data) => logger.error(['CKB-Miner error:', cleanChildOutput(data)]));
+  if (verbose) {
+    minerProcess.stdout?.on('data', (data) => logger.info(['CKB-Miner:', cleanChildOutput(data)]));
+    minerProcess.stderr?.on('data', (data) => logger.error(['CKB-Miner error:', cleanChildOutput(data)]));
+  } else {
+    minerProcess.stdout?.on('data', () => {});
+    minerProcess.stderr?.on('data', () => {});
+  }
   try {
     await waitForChildSpawn(minerProcess, 'CKB miner');
   } catch (error) {
@@ -141,7 +205,27 @@ export async function nodeDevnet({ version, binaryPath, daemon }: NodeProp) {
 
   const proxy = createRPCProxy(Network.devnet, settings.devnet.rpcUrl, settings.devnet.rpcProxyPort);
   proxy.start();
+
+  // Contract script debug output (debug! in scripts) streams live over the
+  // node's TCP log subscription; everything else stays in the log files.
+  let logSubscription: SubscriptionHandle | null = null;
+  const tcpAddress = devnetTcpListenAddress();
+  if (tcpAddress) {
+    logSubscription = subscribeToNodeLogs(
+      tcpAddress,
+      (entry) => {
+        if (entry.target === SCRIPT_LOG_TARGET) logger.info(['CKB-Script:', cleanChildOutput(entry.message)]);
+      },
+      (error) => logger.warn(`${error.message} Full logs remain available via: offckb logs -f`),
+    );
+  } else if (!verbose) {
+    logger.debug('No tcp_listen_address in ckb.toml; script debug output will not stream live.');
+  }
+
   logger.success(`CKB devnet is ready at ${settings.devnet.rpcUrl}.`);
+  if (!verbose) {
+    logger.info('Follow the full node log with: offckb logs -f');
+  }
   logger.result({
     command: 'node',
     network: Network.devnet,
@@ -156,6 +240,7 @@ export async function nodeDevnet({ version, binaryPath, daemon }: NodeProp) {
   const stopService = (component: 'CKB node' | 'CKB miner', code: number | null, signal: NodeJS.Signals | null) => {
     if (serviceStopping) return;
     serviceStopping = true;
+    logSubscription?.close();
     if (component !== 'CKB node' && !ckbProcess.killed) ckbProcess.kill('SIGTERM');
     if (component !== 'CKB miner' && !minerProcess.killed) minerProcess.kill('SIGTERM');
     proxy.stop();
@@ -165,6 +250,19 @@ export async function nodeDevnet({ version, binaryPath, daemon }: NodeProp) {
   };
   ckbProcess.once('exit', (code, signal) => stopService('CKB node', code, signal));
   minerProcess.once('exit', (code, signal) => stopService('CKB miner', code, signal));
+}
+
+// CKB < 0.205.0 rejects the Terminal RPC module during config deserialization
+// with a serde "unknown variant `Terminal`" error and exits. When startup
+// fails with that signature — the realistic case being a custom --binary-path
+// whose version could not be probed — point at the actual cause instead of
+// leaving the user with the raw serde message.
+export function terminalRpcUnknownVariantHint(stderrTail: string, devnetConfigPath: string): string | null {
+  if (!/unknown variant [`'"]?Terminal/.test(stderrTail)) return null;
+  return (
+    ` The "Terminal" RPC module requires CKB >= ${TERMINAL_RPC_MIN_CKB_VERSION}; ` +
+    `remove "Terminal" from rpc.modules in ${path.join(devnetConfigPath, 'ckb.toml')} or use a newer CKB binary.`
+  );
 }
 
 function waitForChildSpawn(child: ChildProcess, label: string): Promise<void> {

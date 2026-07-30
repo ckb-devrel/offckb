@@ -1,15 +1,27 @@
 import httpProxy from 'http-proxy';
 import http from 'http';
 import { Network } from '../type/base';
-import fs from 'fs';
 import { readSettings } from '../cfg/setting';
-import path from 'path';
 import { logger } from '../util/logger';
+import { proxyLogPathForNetwork } from '../devnet/log-file';
+import { createProxyEventLog, handleProxyRequestBody, handleProxyResponseBody } from './proxy-events';
 
 // todo: if we use import this throws error in tsc building
 const { cccA } = require('@ckb-ccc/core/advanced');
 
 export function createRPCProxy(network: Network, targetRpcUrl: string, port: number) {
+  const settings = readSettings();
+  const events = createProxyEventLog(proxyLogPathForNetwork(network, settings));
+  const ctx = {
+    sink: logger,
+    events,
+    transactionsPath: settings[network].transactionsPath,
+    hashTransaction: (tx: unknown) => {
+      const cccTx = cccA.JsonRpcTransformers.transactionTo(tx);
+      return cccTx.hash() as string;
+    },
+  };
+
   const proxy = httpProxy.createProxyServer({
     target: targetRpcUrl, // Target RPC server
     changeOrigin: true, // for https target to work
@@ -20,33 +32,7 @@ export function createRPCProxy(network: Network, targetRpcUrl: string, port: num
     req.on('data', (chunk) => {
       reqData += chunk;
     });
-    req.on('end', () => {
-      if (reqData.length === 0) return;
-
-      try {
-        const jsonRpcContent = JSON.parse(reqData);
-        const method = jsonRpcContent.method;
-        const params = jsonRpcContent.params;
-        logger.info('RPC Req: ', method);
-        logger.debug('RPC Params: ', params);
-
-        if (method === 'send_transaction') {
-          const tx = params[0];
-
-          const cccTx = cccA.JsonRpcTransformers.transactionTo(tx);
-          const txHash = cccTx.hash();
-          const settings = readSettings();
-          if (!fs.existsSync(settings[network].transactionsPath)) {
-            fs.mkdirSync(settings[network].transactionsPath);
-          }
-          const txFile = path.resolve(settings[network].transactionsPath, `${txHash}.json`);
-          fs.writeFileSync(txFile, JSON.stringify(tx, null, 2));
-          logger.info(`RPC Req:  store tx ${txHash}`);
-        }
-      } catch (err) {
-        logger.error('Error parsing JSON-RPC req content:', (err as Error).message);
-      }
-    });
+    req.on('end', () => handleProxyRequestBody(reqData, ctx));
   });
 
   proxy.on('proxyRes', function (proxyRes, _req, _res) {
@@ -56,16 +42,7 @@ export function createRPCProxy(network: Network, targetRpcUrl: string, port: num
     });
     proxyRes.on('end', function () {
       const res = Buffer.concat(body).toString('utf-8');
-      if (res.length === 0) return;
-      if (proxyRes.headers['content-type'] !== 'application/json') return;
-      if (!res.trim().startsWith('{') && !res.trim().startsWith('[')) return;
-
-      try {
-        const jsonRpcResponse = JSON.parse(res);
-        logger.debug('RPC Response: ', jsonRpcResponse);
-      } catch (err) {
-        logger.error('Error parsing JSON-RPC res content:', (err as Error).message);
-      }
+      handleProxyResponseBody(res, proxyRes.headers['content-type'], ctx);
     });
   });
 
