@@ -29,9 +29,29 @@ export interface ProxyEventContext {
   hashTransaction(tx: unknown): string;
 }
 
-/** Append-only writer for proxy.log. Directory creation is lazy and cached. */
-export function createProxyEventLog(filePath: string): ProxyEventLog {
+/**
+ * One event is exactly one line in proxy.log: RPC method names and error
+ * messages come from the proxied payloads, so embedded newlines or control
+ * characters would otherwise forge log records or corrupt `offckb logs rpc`
+ * output. Sanitizing here covers every call site.
+ */
+function sanitizeEventText(text: string): string {
+  return text.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ');
+}
+
+/** Default size cap for proxy.log; past it the file rolls over once to .1. */
+export const PROXY_LOG_MAX_BYTES = 10 * 1024 * 1024;
+
+/**
+ * Append-only writer for proxy.log. Directory creation is lazy and cached.
+ * Growth is bounded: once the file passes maxBytes it is renamed to
+ * `<file>.1` (single rollover, replacing any previous one) and restarted.
+ */
+export function createProxyEventLog(filePath: string, maxBytes = PROXY_LOG_MAX_BYTES): ProxyEventLog {
   let dirReady = false;
+  // In-memory size estimate so the cap costs no extra stat per event;
+  // -1 means "not measured yet" and is re-read lazily.
+  let size = -1;
   return {
     filePath,
     event(text: string) {
@@ -40,10 +60,19 @@ export function createProxyEventLog(filePath: string): ProxyEventLog {
           fs.mkdirSync(path.dirname(filePath), { recursive: true });
           dirReady = true;
         }
-        fs.appendFileSync(filePath, `${new Date().toISOString()} ${text}\n`);
+        const line = `${new Date().toISOString()} ${sanitizeEventText(text)}\n`;
+        if (size < 0) size = fs.existsSync(filePath) ? fs.statSync(filePath).size : 0;
+        if (size > 0 && size + Buffer.byteLength(line) > maxBytes) {
+          fs.rmSync(`${filePath}.1`, { force: true });
+          fs.renameSync(filePath, `${filePath}.1`);
+          size = 0;
+        }
+        fs.appendFileSync(filePath, line);
+        size += Buffer.byteLength(line);
       } catch {
         // Logging must never break request forwarding.
         dirReady = false;
+        size = -1;
       }
     },
   };
@@ -91,7 +120,10 @@ interface JsonRpcErrorPayload {
 
 export function handleProxyResponseBody(res: string, contentType: string | undefined, ctx: ProxyEventContext): void {
   if (res.length === 0) return;
-  if (contentType !== 'application/json') return;
+  // Real servers answer with parameters attached (application/json;
+  // charset=utf-8), so compare the bare media type, not the raw header.
+  const mediaType = (contentType ?? '').split(';')[0].trim().toLowerCase();
+  if (mediaType !== 'application/json') return;
   if (!res.trim().startsWith('{') && !res.trim().startsWith('[')) return;
 
   try {

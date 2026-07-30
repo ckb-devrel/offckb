@@ -65,9 +65,16 @@ describe('handleProxyRequestBody', () => {
 });
 
 describe('handleProxyResponseBody', () => {
+  let dir: string;
+  let transactionsPath: string;
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'offckb-proxy-'));
+    transactionsPath = path.join(dir, 'transactions');
+  });
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
   it('warns on JSON-RPC errors and records them', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'offckb-proxy-'));
-    const ctx = makeCtx(path.join(dir, 'transactions'));
+    const ctx = makeCtx(transactionsPath);
     handleProxyResponseBody(
       JSON.stringify({ jsonrpc: '2.0', id: 1, error: { code: -302, message: 'TransactionFailedToVerify' } }),
       'application/json',
@@ -76,20 +83,28 @@ describe('handleProxyResponseBody', () => {
     expect(ctx.sink.warn).toHaveBeenCalledWith(expect.stringContaining('TransactionFailedToVerify'));
     const content = fs.readFileSync(ctx.events.filePath, 'utf8');
     expect(content).toMatch(/error .*TransactionFailedToVerify/);
-    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('accepts a JSON content type with charset parameters', () => {
+    const ctx = makeCtx(transactionsPath);
+    handleProxyResponseBody(
+      JSON.stringify({ jsonrpc: '2.0', id: 1, error: { code: -302, message: 'TransactionFailedToVerify' } }),
+      'application/json; charset=utf-8',
+      ctx,
+    );
+    expect(ctx.sink.warn).toHaveBeenCalledWith(expect.stringContaining('TransactionFailedToVerify'));
+    const content = fs.readFileSync(ctx.events.filePath, 'utf8');
+    expect(content).toMatch(/error .*TransactionFailedToVerify/);
   });
 
   it('stays quiet on successful responses', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'offckb-proxy-'));
-    const ctx = makeCtx(path.join(dir, 'transactions'));
+    const ctx = makeCtx(transactionsPath);
     handleProxyResponseBody(JSON.stringify({ jsonrpc: '2.0', id: 1, result: '0x0' }), 'application/json', ctx);
     expect(ctx.sink.warn).not.toHaveBeenCalled();
-    fs.rmSync(dir, { recursive: true, force: true });
   });
 
   it('warns for each error entry in a batch response', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'offckb-proxy-'));
-    const ctx = makeCtx(path.join(dir, 'transactions'));
+    const ctx = makeCtx(transactionsPath);
     handleProxyResponseBody(
       JSON.stringify([
         { jsonrpc: '2.0', id: 1, result: '0x0' },
@@ -100,13 +115,50 @@ describe('handleProxyResponseBody', () => {
     );
     expect(ctx.sink.warn).toHaveBeenCalledTimes(1);
     expect(ctx.sink.warn).toHaveBeenCalledWith(expect.stringContaining('boom'));
-    fs.rmSync(dir, { recursive: true, force: true });
   });
 
   it('ignores non-JSON responses', () => {
-    const ctx = makeCtx(path.join(os.tmpdir(), 'transactions'));
+    const ctx = makeCtx(transactionsPath);
     handleProxyResponseBody('<html>not json</html>', 'text/html', ctx);
     expect(ctx.sink.warn).not.toHaveBeenCalled();
     expect(ctx.sink.error).not.toHaveBeenCalled();
+  });
+});
+
+describe('createProxyEventLog', () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'offckb-proxy-log-'));
+  });
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  it('writes one line per event even when fields contain newlines or control characters', () => {
+    const file = path.join(dir, 'logs', 'proxy.log');
+    const log = createProxyEventLog(file);
+    const esc = String.fromCharCode(27);
+    log.event(['request get_tip', 'forged'].join('\n') + '\r' + esc + '[31m');
+    const lines = fs.readFileSync(file, 'utf8').trimEnd().split('\n');
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('request get_tip forged');
+    expect(lines[0]).not.toContain(esc);
+    expect(lines[0]).not.toContain('\r');
+  });
+
+  it('rolls over to a single .1 file once the size cap is exceeded', () => {
+    const file = path.join(dir, 'logs', 'proxy.log');
+    const log = createProxyEventLog(file, 60);
+    log.event('request get_tip_header');
+    log.event('request get_blockchain_info');
+    log.event('request get_tip_header');
+
+    expect(fs.existsSync(`${file}.1`)).toBe(true);
+    // Single rollover: the .1 holds only the previous generation, the live
+    // file only what came after the last rollover.
+    const rolled = fs.readFileSync(`${file}.1`, 'utf8');
+    expect(rolled).toMatch(/get_blockchain_info/);
+    expect(rolled).not.toMatch(/get_tip_header/);
+    const current = fs.readFileSync(file, 'utf8');
+    expect(current).toMatch(/get_tip_header/);
+    expect(current).not.toMatch(/get_blockchain_info/);
   });
 });

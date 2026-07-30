@@ -113,6 +113,11 @@ export function subscribeToNodeLogs(
   let closed = false;
   let attempts = 0;
   let failedReported = false;
+  // Retries exist only to bridge the startup window where the TCP listener
+  // lags HTTP readiness; once a subscription was live, a later drop is
+  // terminal here (the supervisor tears the whole service down anyway).
+  let everConnected = false;
+  let retryTimer: NodeJS.Timeout | null = null;
 
   const fail = (error: Error) => {
     if (failedReported || closed) return;
@@ -122,12 +127,14 @@ export function subscribeToNodeLogs(
 
   const connect = () => {
     if (closed || endpoint == null) return;
+    retryTimer = null;
     attempts += 1;
     const conn = net.connect(endpoint.port, endpoint.host);
     socket = conn;
     let buffer = '';
 
     conn.on('connect', () => {
+      everConnected = true;
       conn.write(JSON.stringify({ id: 1, jsonrpc: '2.0', method: 'subscribe', params: ['log'] }) + '\n');
     });
     conn.on('data', (data) => {
@@ -142,8 +149,11 @@ export function subscribeToNodeLogs(
     });
     conn.on('error', (error) => {
       if (closed) return;
+      if (everConnected) return;
       if (attempts < maxAttempts) {
-        setTimeout(connect, retryDelayMs);
+        retryTimer = setTimeout(connect, retryDelayMs);
+        // A pending retry must not keep the process alive on its own.
+        retryTimer.unref();
       } else {
         fail(new Error(`Log subscription to ${tcpAddress} failed after ${attempts} attempts: ${error.message}`));
       }
@@ -164,6 +174,8 @@ export function subscribeToNodeLogs(
   return {
     close() {
       closed = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      retryTimer = null;
       socket?.destroy();
       socket = null;
     },

@@ -41,9 +41,15 @@ const NODE_READY_TIMEOUT_MS = 90_000;
 const FORK_NODE_READY_TIMEOUT_MS = 10 * 60_000;
 
 function cleanChildOutput(data: unknown): string {
-  // CKB colors its output even when it is redirected. Strip ANSI control
-  // sequences so JSON logs stay machine-readable.
-  return String(data).replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '');
+  // CKB colors its output even when it is redirected, and log text relayed
+  // from the node (including contract debug! messages) is untrusted terminal
+  // input. Strip ANSI CSI/OSC sequences and C0/C1 control characters (keeping
+  // \n and \t) so JSON logs stay machine-readable and a crafted script log
+  // cannot inject terminal control sequences.
+  return String(data)
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
+    .replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g, '')
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, '');
 }
 
 export function startNode({ version, network = Network.devnet, binaryPath, daemon, verbose }: NodeProp) {
@@ -208,7 +214,7 @@ export async function nodeDevnet({ version, binaryPath, daemon, verbose }: NodeP
     logSubscription = subscribeToNodeLogs(
       tcpAddress,
       (entry) => {
-        if (entry.target === SCRIPT_LOG_TARGET) logger.info(['CKB-Script:', entry.message]);
+        if (entry.target === SCRIPT_LOG_TARGET) logger.info(['CKB-Script:', cleanChildOutput(entry.message)]);
       },
       (error) => logger.warn(`${error.message} Full logs remain available via: offckb logs -f`),
     );

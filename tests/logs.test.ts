@@ -139,19 +139,28 @@ describe('readLogTail (file reading)', () => {
 });
 
 describe('followLogFile', () => {
-  it('emits appended lines until stopped', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'offckb-logs-'));
-    const file = path.join(dir, 'run.log');
-    fs.writeFileSync(file, `${NODE_LINE}\n`);
-
-    // Stub the watcher plumbing: libuv's stat-polling cadence is Node's
-    // business (and proved flaky on CI runners), what we test is the offset
-    // tracking and line splitting once a change notification arrives.
-    type StatListener = (curr: fs.Stats, prev: fs.Stats) => void;
+  // Stub the watcher plumbing: libuv's stat-polling cadence is Node's
+  // business (and proved flaky on CI runners), what we test is the offset
+  // tracking and line splitting once a change notification arrives.
+  type StatListener = (curr: fs.Stats, prev: fs.Stats) => void;
+  function captureWatchListener(): StatListener[] {
     const listeners: StatListener[] = [];
     mockWatchFile.mockImplementation((_file: unknown, _options: unknown, onChange: StatListener) => {
       listeners.push(onChange);
     });
+    return listeners;
+  }
+
+  function tempLog(): { dir: string; file: string } {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'offckb-logs-'));
+    const file = path.join(dir, 'run.log');
+    fs.writeFileSync(file, `${NODE_LINE}\n`);
+    return { dir, file };
+  }
+
+  it('emits appended lines until stopped', () => {
+    const { dir, file } = tempLog();
+    const listeners = captureWatchListener();
 
     try {
       const seen: string[] = [];
@@ -165,6 +174,64 @@ describe('followLogFile', () => {
 
       expect(seen).toEqual([SCRIPT_LINE]);
       expect(mockUnwatchFile).toHaveBeenCalled();
+    } finally {
+      mockWatchFile.mockReset();
+      mockUnwatchFile.mockReset();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('re-reads from the beginning when the file is truncated or rotated', () => {
+    const { dir, file } = tempLog();
+    const listeners = captureWatchListener();
+
+    try {
+      const seen: string[] = [];
+      const stop = followLogFile(file, (line) => seen.push(line));
+
+      fs.appendFileSync(file, `${SCRIPT_LINE}\n`);
+      const grown = fs.statSync(file);
+      listeners[0](grown, grown);
+      expect(seen).toEqual([SCRIPT_LINE]);
+
+      // Rotation replaces the file with a shorter one; the next notification
+      // must reset the offset instead of seeking past the end.
+      fs.writeFileSync(file, `${ERROR_LINE}\n`);
+      listeners[0](fs.statSync(file), grown);
+      expect(seen).toEqual([SCRIPT_LINE, ERROR_LINE]);
+      stop();
+    } finally {
+      mockWatchFile.mockReset();
+      mockUnwatchFile.mockReset();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('reassembles multi-byte UTF-8 characters split across reads', () => {
+    const { dir, file } = tempLog();
+    const listeners = captureWatchListener();
+
+    try {
+      const seen: string[] = [];
+      const stop = followLogFile(file, (line) => seen.push(line));
+
+      const line = `${SCRIPT_LINE} 调用 🦀`;
+      const bytes = Buffer.from(`${line}\n`, 'utf8');
+      // 🦀 is 4 bytes (f0 9f a6 80); the first chunk ends right after its
+      // leading byte, so the character straddles two reads.
+      const cut = bytes.length - 4;
+      fs.appendFileSync(file, bytes.subarray(0, cut));
+      let stat = fs.statSync(file);
+      listeners[0](stat, stat);
+      // No newline has arrived yet: nothing is emitted.
+      expect(seen).toEqual([]);
+
+      fs.appendFileSync(file, bytes.subarray(cut));
+      stat = fs.statSync(file);
+      listeners[0](stat, stat);
+      // The character arrives intact, not as replacement characters.
+      expect(seen).toEqual([line]);
+      stop();
     } finally {
       mockWatchFile.mockReset();
       mockUnwatchFile.mockReset();

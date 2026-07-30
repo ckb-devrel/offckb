@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { TextDecoder } from 'util';
 import { Settings } from '../cfg/setting';
 import { Network } from '../type/base';
 
@@ -116,12 +117,16 @@ export function readLogTail(filePath: string, count: number): string[] {
 export function followLogFile(filePath: string, onLine: (line: string) => void, intervalMs = 250): () => void {
   let offset = fs.existsSync(filePath) ? fs.statSync(filePath).size : 0;
   let partial = '';
+  // Streaming decoder: a multi-byte UTF-8 character split across two reads
+  // must not decode into replacement characters.
+  let decoder = new TextDecoder('utf-8');
 
   const onChange = (curr: fs.Stats, prev: fs.Stats) => {
     if (curr.size < prev.size || curr.size < offset) {
       // Truncated or rotated: restart from the beginning.
       offset = 0;
       partial = '';
+      decoder = new TextDecoder('utf-8');
     }
     if (curr.size === offset) return;
 
@@ -134,9 +139,11 @@ export function followLogFile(filePath: string, onLine: (line: string) => void, 
     try {
       const length = curr.size - offset;
       const buffer = Buffer.alloc(length);
-      fs.readSync(fd, buffer, 0, length, offset);
-      offset = curr.size;
-      const text = partial + buffer.toString('utf8');
+      // readSync may return fewer bytes than requested; only decode what was
+      // actually read and leave the rest for the next tick.
+      const bytesRead = fs.readSync(fd, buffer, 0, length, offset);
+      offset += bytesRead;
+      const text = partial + decoder.decode(buffer.subarray(0, bytesRead), { stream: true });
       const lines = text.split('\n');
       partial = lines.pop() ?? '';
       for (const line of lines) {

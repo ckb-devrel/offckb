@@ -1,5 +1,28 @@
 import * as net from 'net';
+import { EventEmitter } from 'events';
 import { parseTcpListenAddress, parseSubscriptionMessage, subscribeToNodeLogs } from '../src/devnet/log-subscription';
+
+// connect is routed through a mock so retry behavior can be driven with a
+// fake socket; by default it delegates to the real implementation.
+const mockConnect = jest.fn();
+jest.mock('net', () => ({
+  ...jest.requireActual('net'),
+  connect: (...args: unknown[]) => mockConnect(...args),
+}));
+const realConnect = (jest.requireActual('net') as typeof net).connect;
+
+class FakeSocket extends EventEmitter {
+  written: string[] = [];
+  destroyed = false;
+  write(data: string): boolean {
+    this.written.push(data);
+    return true;
+  }
+  destroy(): this {
+    this.destroyed = true;
+    return this;
+  }
+}
 
 describe('parseTcpListenAddress', () => {
   it('splits host and port', () => {
@@ -51,6 +74,13 @@ describe('parseSubscriptionMessage', () => {
 });
 
 describe('subscribeToNodeLogs', () => {
+  beforeEach(() => {
+    mockConnect.mockReset();
+    mockConnect.mockImplementation((...args: unknown[]) =>
+      (realConnect as (...a: unknown[]) => net.Socket)(...args),
+    );
+  });
+
   it('subscribes over TCP and emits log entries until closed', async () => {
     const server = net.createServer((socket) => {
       socket.on('data', (data) => {
@@ -111,5 +141,47 @@ describe('subscribeToNodeLogs', () => {
     sub.close();
     expect(errors).toHaveLength(1);
     expect(errors[0].message).toMatch(/log subscription/i);
+  });
+
+  it('does not reconnect once an established subscription drops', async () => {
+    const socket = new FakeSocket();
+    mockConnect.mockReturnValue(socket as unknown as net.Socket);
+    const errors: Error[] = [];
+    const sub = subscribeToNodeLogs('127.0.0.1:18114', () => {}, (err) => errors.push(err), {
+      maxAttempts: 3,
+      retryDelayMs: 30,
+    });
+
+    socket.emit('connect');
+    expect(socket.written.join('')).toContain('"subscribe"');
+    // A mid-run drop is terminal for the subscription (the supervisor tears
+    // the service down): no reconnect, no failure report.
+    socket.emit('error', new Error('read ECONNRESET'));
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(mockConnect).toHaveBeenCalledTimes(1);
+    expect(errors).toEqual([]);
+    sub.close();
+  });
+
+  it('close() cancels a reconnect pending from the initial connect phase', async () => {
+    const socket = new FakeSocket();
+    mockConnect.mockReturnValue(socket as unknown as net.Socket);
+    const clearTimeoutSpy = jest.spyOn(global, 'clearTimeout');
+    const sub = subscribeToNodeLogs('127.0.0.1:18114', () => {}, () => {}, {
+      maxAttempts: 5,
+      retryDelayMs: 50,
+    });
+
+    try {
+      // The first attempt fails before ever connecting, so a retry is pending.
+      socket.emit('error', new Error('connect ECONNREFUSED'));
+      sub.close();
+      // The pending timer is cancelled, not left to no-op on the closed guard.
+      expect(clearTimeoutSpy).toHaveBeenCalled();
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(mockConnect).toHaveBeenCalledTimes(1);
+    } finally {
+      clearTimeoutSpy.mockRestore();
+    }
   });
 });

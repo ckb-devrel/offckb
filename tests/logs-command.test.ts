@@ -6,6 +6,16 @@ import { showLogs } from '../src/cmd/logs';
 import { defaultSettings, Settings } from '../src/cfg/setting';
 import { UnifiedLogger } from '../src/util/logger';
 
+// Same watcher stub as logs.test.ts: followLogFile's polling cadence belongs
+// to libuv, the tests drive change notifications directly.
+const mockWatchFile = jest.fn();
+const mockUnwatchFile = jest.fn();
+jest.mock('fs', () => ({
+  ...jest.requireActual('fs'),
+  watchFile: (...args: unknown[]) => mockWatchFile(...args),
+  unwatchFile: (...args: unknown[]) => mockUnwatchFile(...args),
+}));
+
 const NODE_LINE =
   '2026-07-29 11:31:27.149 +00:00 main INFO ckb_bin::subcommand::run  ckb version: 0.207.0 (8f6cacf 2026-06-10)';
 const SCRIPT_LINE =
@@ -25,8 +35,14 @@ class CapturingTransport extends winston.transports.Console {
   }
 }
 
+const tempRoots: string[] = [];
+afterEach(() => {
+  while (tempRoots.length) fs.rmSync(tempRoots.pop() as string, { recursive: true, force: true });
+});
+
 function fixture(): { settings: Settings; transport: CapturingTransport } {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'offckb-logs-cmd-'));
+  tempRoots.push(root);
   const settings = JSON.parse(JSON.stringify(defaultSettings)) as Settings;
   settings.devnet.dataPath = path.join(root, 'devnet/data');
   settings.devnet.transactionsPath = path.join(root, 'devnet/transactions');
@@ -80,5 +96,38 @@ describe('showLogs', () => {
     settings.devnet.dataPath = '/nonexistent';
     const log = UnifiedLogger.create({ transports: [new CapturingTransport()] });
     expect(() => showLogs('node', { tail: 100 }, settings, log)).toThrow(/log file not found/i);
+  });
+
+  it('in follow mode gates script entries and applies grep to streamed lines', () => {
+    const { settings, transport } = fixture();
+    type StatListener = (curr: fs.Stats, prev: fs.Stats) => void;
+    const listeners: StatListener[] = [];
+    mockWatchFile.mockImplementation((_file: unknown, _options: unknown, onChange: StatListener) => {
+      listeners.push(onChange);
+    });
+
+    try {
+      const log = UnifiedLogger.create({ transports: [transport], showLevel: false });
+      showLogs('script', { tail: 100, follow: true, grep: 'hello' }, settings, log);
+      expect(listeners).toHaveLength(1);
+      // The tail already printed the one script line (it contains 'hello').
+      expect(transport.logs).toEqual([SCRIPT_LINE]);
+      transport.logs.length = 0;
+
+      const runLog = path.join(settings.devnet.dataPath, 'logs', 'run.log');
+      const scriptNoGrep = SCRIPT_LINE.replace('hello world', 'goodbye');
+      const scriptWithGrep = SCRIPT_LINE.replace('hello world', 'hello again');
+      fs.appendFileSync(runLog, [ERROR_LINE, scriptNoGrep, scriptWithGrep, '  hello continuation'].join('\n') + '\n');
+      const stat = fs.statSync(runLog);
+      listeners[0](stat, stat);
+
+      // ERROR_LINE is not a script entry; scriptNoGrep is filtered by grep;
+      // the continuation line belongs to the script entry above it and
+      // matches grep, so both it and scriptWithGrep are shown.
+      expect(transport.logs).toEqual([scriptWithGrep, '  hello continuation']);
+    } finally {
+      mockWatchFile.mockReset();
+      mockUnwatchFile.mockReset();
+    }
   });
 });

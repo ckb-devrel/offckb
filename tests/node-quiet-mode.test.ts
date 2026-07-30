@@ -117,6 +117,26 @@ describe('foreground node output modes', () => {
     expect(printed).not.toContain('block 123');
   });
 
+  it('strips terminal control sequences from script log entries', async () => {
+    await nodeDevnet({});
+    const onEntry = mockSubscribe.mock.calls[0][1] as (entry: CkbLogEntry) => void;
+
+    const esc = String.fromCharCode(27);
+    const bel = String.fromCharCode(7);
+    onEntry({
+      message: `${esc}[31mred${esc}[0m ${bel}bell\r`,
+      level: 'DEBUG',
+      target: 'ckb-script',
+      date: '',
+    });
+
+    const printed = loggerInfo.mock.calls.map((args) => args.map(String).join(' ')).join('\n');
+    expect(printed).toContain('red bell');
+    expect(printed).not.toContain(esc);
+    expect(printed).not.toContain(bel);
+    expect(printed).not.toContain('\r');
+  });
+
   it('skips the subscription when the node has no TCP listen address', async () => {
     mockTcpListenAddress.mockReturnValue(undefined);
     await nodeDevnet({});
