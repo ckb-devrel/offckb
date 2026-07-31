@@ -85,6 +85,7 @@ Commands:
   balance [options] [toAddress]                 Check account balance, only devnet and testnet
   debugger                                      Port of the raw CKB Standalone Debugger
   status [options]                              Show ckb-tui status interface
+  logs [options] [target]                       Show devnet logs: node (default), contract script debug output, miner, or RPC proxy events
   config <action> [item] [value]                do a configuration action
   devnet config                                 Edit devnet configuration
   devnet info                                   Show fork metadata and node/indexer readiness
@@ -144,6 +145,21 @@ Stop the daemon later with:
 offckb node stop
 ```
 
+**View Logs**
+
+A foreground `offckb node` stays quiet by default: it prints lifecycle events, contract script debug output (`debug!` in your scripts), submitted transaction hashes, and RPC errors. The node, miner, and RPC proxy always write full logs to files under the devnet data folder, and `offckb logs` reads them in any run mode (foreground, daemon, or while `offckb status` is attached):
+
+```sh
+offckb logs                # node log (default)
+offckb logs script         # contract script debug output only
+offckb logs miner          # miner log
+offckb logs rpc            # RPC requests, transaction hashes, RPC errors
+offckb logs -f             # stream new lines, tail -f style
+offckb logs --tail 200 --grep ERROR
+```
+
+Use `offckb node --verbose` to restore the old behavior of printing the full raw node/miner output to the terminal.
+
 **Agent-Friendly JSON Output**
 
 For programmatic consumption or agent integration, add `--json` before or after the command:
@@ -187,6 +203,8 @@ offckb status --network mainnet
 ```
 
 `status` performs a JSON-RPC health check through the proxy before opening the TUI and requires an interactive terminal.
+
+The TUI's system-metric panels are powered by CKB's `Terminal` RPC module, which requires CKB >= 0.205.0. If you run the devnet with an older CKB (e.g. `offckb node 0.120.0` or `--binary-path` pointing at an old build), offckb starts the node without that module and those panels will be unavailable; upgrade CKB to get them.
 
 ### 2. Create a New Contract Project {#create-project}
 

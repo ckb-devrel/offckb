@@ -16,7 +16,7 @@ jest.mock('../src/util/logger', () => ({
   logger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }));
 
-import { initChainIfNeeded, migrateLegacyDevnetRpcConfig } from '../src/node/init-chain';
+import { initChainIfNeeded, migrateLegacyDevnetRpcConfig, supportsTerminalRpcModule } from '../src/node/init-chain';
 
 const LEGACY_CKB_TOML = `# legacy devnet config from before the ckb-tui fix
 # a custom comment that must survive migration
@@ -204,5 +204,127 @@ describe('migrateLegacyDevnetRpcConfig', () => {
 
   it('returns false when ckb.toml does not exist', () => {
     expect(migrateLegacyDevnetRpcConfig(mockConfigPath)).toBe(false);
+  });
+});
+
+describe('Terminal RPC module version gating', () => {
+  let root: string;
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'offckb-terminal-gate-'));
+    mockConfigPath = path.join(root, 'devnet');
+  });
+  afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  it('treats unknown or unparseable versions as Terminal-capable', () => {
+    expect(supportsTerminalRpcModule(null)).toBe(true);
+    expect(supportsTerminalRpcModule(undefined)).toBe(true);
+    expect(supportsTerminalRpcModule('not-a-version')).toBe(true);
+    expect(supportsTerminalRpcModule('0.205.0')).toBe(true);
+    expect(supportsTerminalRpcModule('0.207.0')).toBe(true);
+    expect(supportsTerminalRpcModule('0.120.0')).toBe(false);
+    expect(supportsTerminalRpcModule('0.204.9')).toBe(false);
+    expect(supportsTerminalRpcModule('0.205.0-rc1')).toBe(false);
+  });
+
+  it('strips Terminal from a freshly initialized template when the binary is too old', async () => {
+    await initChainIfNeeded({ ckbVersion: '0.120.0' });
+
+    const rpc = readCkbToml(mockConfigPath).rpc as JsonMap;
+    expect(rpc.modules).not.toContain('Terminal');
+    expect(rpc.modules).toContain('Indexer');
+    // tcp_listen_address predates 0.205.0 and stays enabled.
+    expect(rpc.tcp_listen_address).toBe('127.0.0.1:18114');
+    expect(fs.existsSync(path.join(mockConfigPath, 'ckb-miner.toml'))).toBe(true);
+  });
+
+  it('keeps Terminal on fresh init for new or unknown versions', async () => {
+    await initChainIfNeeded({ ckbVersion: '0.207.0' });
+    expect((readCkbToml(mockConfigPath).rpc as JsonMap).modules).toContain('Terminal');
+
+    const second = fs.mkdtempSync(path.join(os.tmpdir(), 'offckb-terminal-gate-'));
+    try {
+      mockConfigPath = path.join(second, 'devnet');
+      await initChainIfNeeded();
+      expect((readCkbToml(mockConfigPath).rpc as JsonMap).modules).toContain('Terminal');
+    } finally {
+      fs.rmSync(second, { recursive: true, force: true });
+    }
+  });
+
+  it('never strips a pre-existing ckb.toml, even when the binary is too old', async () => {
+    const withTerminal = LEGACY_CKB_TOML.replace(
+      'modules = ["Net", "Pool", "Miner", "Chain", "Stats", "Subscription", "Experiment", "Debug", "Indexer"]',
+      'modules = ["Net", "Chain", "Terminal"]',
+    );
+    fs.mkdirSync(path.join(mockConfigPath, 'specs'), { recursive: true });
+    fs.writeFileSync(path.join(mockConfigPath, 'ckb.toml'), withTerminal);
+    fs.writeFileSync(path.join(mockConfigPath, 'ckb-miner.toml'), 'custom-miner');
+    fs.writeFileSync(path.join(mockConfigPath, 'specs', 'dev.toml'), 'custom-spec');
+
+    await initChainIfNeeded({ ckbVersion: '0.120.0' });
+
+    expect((readCkbToml(mockConfigPath).rpc as JsonMap).modules).toContain('Terminal');
+  });
+
+  it('migration does not re-add Terminal for an old binary, but still enables tcp', () => {
+    fs.mkdirSync(mockConfigPath, { recursive: true });
+    fs.writeFileSync(path.join(mockConfigPath, 'ckb.toml'), LEGACY_CKB_TOML);
+
+    expect(migrateLegacyDevnetRpcConfig(mockConfigPath, '0.120.0')).toBe(true);
+
+    const rpc = readCkbToml(mockConfigPath).rpc as JsonMap;
+    expect(rpc.modules).not.toContain('Terminal');
+    expect(rpc.tcp_listen_address).toBe('127.0.0.1:18114');
+  });
+
+  it('migration is a no-op for an old binary once tcp is set, breaking the remove/re-add loop', () => {
+    fs.mkdirSync(mockConfigPath, { recursive: true });
+    const tcpOnly = LEGACY_CKB_TOML.replace(
+      '# tcp_listen_address = "127.0.0.1:18114"',
+      'tcp_listen_address = "127.0.0.1:18114"',
+    );
+    fs.writeFileSync(path.join(mockConfigPath, 'ckb.toml'), tcpOnly);
+    const before = fs.readFileSync(path.join(mockConfigPath, 'ckb.toml'), 'utf8');
+
+    expect(migrateLegacyDevnetRpcConfig(mockConfigPath, '0.120.0')).toBe(false);
+    expect(fs.readFileSync(path.join(mockConfigPath, 'ckb.toml'), 'utf8')).toBe(before);
+  });
+
+  it('migration still adds Terminal for new and unknown versions', () => {
+    fs.mkdirSync(mockConfigPath, { recursive: true });
+    fs.writeFileSync(path.join(mockConfigPath, 'ckb.toml'), LEGACY_CKB_TOML);
+    expect(migrateLegacyDevnetRpcConfig(mockConfigPath, '0.207.0')).toBe(true);
+    expect((readCkbToml(mockConfigPath).rpc as JsonMap).modules).toContain('Terminal');
+
+    fs.writeFileSync(path.join(mockConfigPath, 'ckb.toml'), LEGACY_CKB_TOML);
+    expect(migrateLegacyDevnetRpcConfig(mockConfigPath, null)).toBe(true);
+    expect((readCkbToml(mockConfigPath).rpc as JsonMap).modules).toContain('Terminal');
+  });
+
+  it('preserves a pre-existing hand-formatted multi-line config when the binary is too old', async () => {
+    // Fresh init strips Terminal from the single-line bundled template...
+    await initChainIfNeeded({ ckbVersion: '0.120.0' });
+    const stripped = readCkbToml(mockConfigPath).rpc as JsonMap;
+    expect(stripped.modules).not.toContain('Terminal');
+
+    // ...but once ckb.toml exists — even reformatted by hand — re-init must
+    // not edit it; reporting Terminal+old-binary is node startup's job.
+    const second = fs.mkdtempSync(path.join(os.tmpdir(), 'offckb-terminal-gate-'));
+    try {
+      mockConfigPath = path.join(second, 'devnet');
+      await initChainIfNeeded();
+      const ckbTomlPath = path.join(mockConfigPath, 'ckb.toml');
+      const singleLine = fs.readFileSync(ckbTomlPath, 'utf8');
+      const multiline = singleLine.replace(
+        /modules = \[[^\]]*\]/,
+        'modules = [\n  "Net",\n  "Chain",\n  "Terminal",\n]',
+      );
+      expect(multiline).not.toBe(singleLine);
+      fs.writeFileSync(ckbTomlPath, multiline);
+      await initChainIfNeeded({ ckbVersion: '0.120.0' });
+      expect((readCkbToml(mockConfigPath).rpc as JsonMap).modules).toContain('Terminal');
+    } finally {
+      fs.rmSync(second, { recursive: true, force: true });
+    }
   });
 });
