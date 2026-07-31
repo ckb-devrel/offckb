@@ -66,7 +66,7 @@ export const defaultSettings: Settings = {
   proxy: undefined,
   bins: {
     rootFolder: path.resolve(dataPath, 'bins'),
-    defaultCKBVersion: '0.207.0',
+    defaultCKBVersion: '0.208.0',
     downloadPath: path.resolve(cachePath, 'download'),
   },
   devnet: {
