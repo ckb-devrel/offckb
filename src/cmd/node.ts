@@ -21,6 +21,7 @@ import {
   cleanupPidFile,
   closeFileDescriptors,
   isProcessAlive,
+  nodeDaemonPaths,
   PidMetadata,
   readPidFile,
   reservePidFile,
@@ -51,9 +52,6 @@ export interface NodeProp {
   fnnBinaryPath?: string;
 }
 
-const DAEMON_LOG_DIR = 'logs';
-const DAEMON_LOG_FILE = 'daemon.log';
-const DAEMON_PID_FILE = 'daemon.pid';
 const DAEMON_CHILD_ENV = 'OFFCKB_DAEMON_CHILD';
 const NODE_READY_TIMEOUT_MS = 90_000;
 const FORK_NODE_READY_TIMEOUT_MS = 10 * 60_000;
@@ -433,11 +431,7 @@ function waitForChildSpawn(child: ChildProcess, label: string): Promise<void> {
 }
 
 function resolveDaemonPaths() {
-  const settings = readSettings();
-  const logDir = path.join(settings.devnet.dataPath, DAEMON_LOG_DIR);
-  const logFile = path.join(logDir, DAEMON_LOG_FILE);
-  const pidFile = path.join(logDir, DAEMON_PID_FILE);
-  return { logDir, logFile, pidFile };
+  return nodeDaemonPaths(readSettings());
 }
 
 // Best-effort check that the spawned process is the one listening on the RPC
@@ -710,7 +704,9 @@ async function startDaemon(waitForFiber = false) {
 }
 
 async function waitForFiberRuntimeRunning(managerPid: number, settings: Settings, logFile: string) {
-  const timeoutMs = 5 * 60_000; // the child may still be downloading FNN
+  // Matches FIBER_DAEMON_READY_TIMEOUT_MS in fiber/daemon.ts: the child's
+  // first run may still be downloading FNN.
+  const timeoutMs = 10 * 60_000;
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     if (!isProcessAlive(managerPid)) {

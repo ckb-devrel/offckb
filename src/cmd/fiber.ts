@@ -8,7 +8,7 @@ import { startFiberEnvironment, stopFiberNodes, FiberEnvironment } from '../fibe
 import { startFiberDaemon, stopFiber } from '../fiber/daemon';
 import { fiberStatus } from '../fiber/status';
 import { fiberClean, FiberCleanOptions } from '../fiber/clean';
-import { fiberNodePaths, FIBER_DAEMON_PID_FILE, fiberDaemonPaths } from '../fiber/paths';
+import { fiberAccountIndex, fiberNodePaths, FIBER_DAEMON_PID_FILE, fiberDaemonPaths } from '../fiber/paths';
 import { readNodesYml } from '../fiber/nodes-yml';
 import { readLogTail, followLogFile } from '../devnet/log-file';
 import { cleanupPidFile } from '../util/daemon';
@@ -38,7 +38,9 @@ export function printFiberSummary(env: FiberEnvironment) {
   for (const node of env.nodes) {
     const info = env.nodeInfos.get(node.id);
     const version = info ? `${info.version} (${(info.commit_hash || '').slice(0, 7) || 'unknown commit'})` : 'unknown';
-    logger.info(`  node ${node.id}: FNN ${version}, RPC ${node.rpcUrl}, account #${node.id + 2}, log: ${node.logFile}`);
+    logger.info(
+      `  node ${node.id}: FNN ${version}, RPC ${node.rpcUrl}, account #${fiberAccountIndex(node.id)}, log: ${node.logFile}`,
+    );
   }
 }
 

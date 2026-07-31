@@ -2,6 +2,21 @@ import { execFile, spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { logger } from './logger';
+import { readSettings, Settings } from '../cfg/setting';
+
+// Layout of the CKB devnet daemon's log/PID files under the devnet data dir.
+export const NODE_DAEMON_LOG_DIR = 'logs';
+export const NODE_DAEMON_LOG_FILE = 'daemon.log';
+export const NODE_DAEMON_PID_FILE = 'daemon.pid';
+
+export function nodeDaemonPaths(settings: Settings = readSettings()) {
+  const logDir = path.join(settings.devnet.dataPath, NODE_DAEMON_LOG_DIR);
+  return {
+    logDir,
+    logFile: path.join(logDir, NODE_DAEMON_LOG_FILE),
+    pidFile: path.join(logDir, NODE_DAEMON_PID_FILE),
+  };
+}
 
 export interface PidMetadata {
   pid: number;
@@ -157,24 +172,36 @@ export function waitForProcessExit(pid: number, timeoutMs: number): Promise<bool
 
 export function getProcessCommandLine(pid: number): Promise<string | null> {
   return new Promise((resolve) => {
-    // Argument arrays, never an interpolated shell string: even though pid is
-    // validated as a positive integer on every path here, execFile keeps that
-    // true after any future refactor.
-    const [cmd, args]: [string, string[]] =
-      process.platform === 'win32'
-        ? ['wmic', ['process', 'where', `ProcessId=${pid}`, 'get', 'CommandLine', '/format:list']]
-        : ['ps', ['-p', String(pid), '-o', 'args=']];
-    execFile(cmd, args, (error, stdout) => {
+    if (!Number.isInteger(pid) || pid <= 0) {
+      resolve(null);
+      return;
+    }
+    // Argument arrays, never an interpolated shell string: pid is validated as
+    // a positive integer above, and execFile keeps that true after any future
+    // refactor.
+    if (process.platform === 'win32') {
+      // wmic is deprecated and absent from recent Windows builds; the
+      // PowerShell CIM cmdlets ship with every supported Windows version.
+      execFile(
+        'powershell',
+        ['-NoProfile', '-Command', `(Get-CimInstance Win32_Process -Filter "ProcessId=${pid}").CommandLine`],
+        (error, stdout) => {
+          if (error) {
+            resolve(null);
+            return;
+          }
+          const cmdline = stdout.trim();
+          resolve(cmdline.length > 0 ? cmdline : null);
+        },
+      );
+      return;
+    }
+    execFile('ps', ['-p', String(pid), '-o', 'args='], (error, stdout) => {
       if (error) {
         resolve(null);
         return;
       }
-      if (process.platform === 'win32') {
-        const match = stdout.match(/CommandLine=(.+)/);
-        resolve(match ? match[1].trim() : null);
-      } else {
-        resolve(stdout.trim());
-      }
+      resolve(stdout.trim());
     });
   });
 }

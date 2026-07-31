@@ -1,12 +1,11 @@
 import fs from 'fs';
-import path from 'path';
 import { isFolderExists } from '../util/fs';
 import { readSettings } from '../cfg/setting';
 import { logger } from '../util/logger';
-import { isProcessAlive, readPidFile } from '../util/daemon';
+import { isProcessAlive, nodeDaemonPaths, readPidFile } from '../util/daemon';
 import { acquireEnvLock } from '../fiber/env-lock';
 import { assertFiberFullyStopped } from '../fiber/clean';
-import { fiberNodePaths, fiberRootPath } from '../fiber/paths';
+import { fiberNodeIds, fiberNodePaths } from '../fiber/paths';
 import { removeRuntimeFileIfStale } from '../fiber/runtime';
 
 export interface CleanOptions {
@@ -14,7 +13,7 @@ export interface CleanOptions {
 }
 
 function assertCkbDaemonStopped() {
-  const pidFile = path.join(readSettings().devnet.dataPath, 'logs', 'daemon.pid');
+  const pidFile = nodeDaemonPaths(readSettings()).pidFile;
   const metadata = readPidFile(pidFile);
   if (metadata && Number.isInteger(metadata.pid) && metadata.pid > 0 && isProcessAlive(metadata.pid)) {
     throw new Error(
@@ -24,12 +23,8 @@ function assertCkbDaemonStopped() {
 }
 
 function fiberStoreDirs(settings: ReturnType<typeof readSettings>): string[] {
-  const nodesDir = path.join(fiberRootPath(settings), 'nodes');
-  if (!isFolderExists(nodesDir)) return [];
-  return fs
-    .readdirSync(nodesDir)
-    .filter((entry) => /^\d+$/.test(entry))
-    .map((entry) => fiberNodePaths(Number(entry), settings).fiberStoreDir)
+  return fiberNodeIds(settings)
+    .map((id) => fiberNodePaths(id, settings).fiberStoreDir)
     .filter((storeDir) => isFolderExists(storeDir));
 }
 

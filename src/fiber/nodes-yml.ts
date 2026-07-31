@@ -21,6 +21,7 @@ export const MANAGED_CONFIG_PATHS = [
   'fiber.bootnode_addrs',
   'rpc.listening_addr',
   'ckb.rpc_url',
+  'ckb.udt_whitelist',
   'services',
 ];
 
@@ -138,7 +139,8 @@ export function ensureNodesYml(
   const removed = existing.filter((entry) => entry.id > count);
   for (const entry of removed) {
     logger.warn(
-      `Node ${entry.id} is removed from nodes.yml. Its directory ${fiberNodeDir(entry.id, settings)} is kept; ` +
+      `Node ${entry.id} is removed from nodes.yml; its per-node config overrides are discarded. ` +
+        `Its directory ${fiberNodeDir(entry.id, settings)} is kept; ` +
         'delete it manually or run `offckb fiber clean` to remove it.',
     );
   }

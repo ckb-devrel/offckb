@@ -1,10 +1,10 @@
 import { spawn } from 'child_process';
 import * as fs from 'fs';
-import * as path from 'path';
 import {
   cleanupPidFile,
   closeFileDescriptors,
   isProcessAlive,
+  nodeDaemonPaths,
   readPidFile,
   reservePidFile,
   resolveCliEntry,
@@ -187,11 +187,13 @@ async function stopManagerAndCleanup(options: {
   settings: Settings;
 }) {
   const { pid, pidFile, label, settings } = options;
+  // Capture the node lock files while runtime.json still exists; the manager
+  // removes it during its own shutdown.
+  const lockFiles = storeLockFilesForRuntime(settings);
   logger.info(`Stopping ${label} (PID ${pid}); its FNN nodes stop with it...`);
   await terminateProcess(pid, 'SIGTERM');
   const exited = await waitForProcessExit(pid, STOP_WAIT_TIMEOUT_MS);
 
-  const lockFiles = storeLockFilesForRuntime(settings);
   let locksReleased = await waitForStoreLocksReleased(lockFiles, STORE_LOCK_WAIT_TIMEOUT_MS);
   if (!exited || !locksReleased) {
     logger.warn(`${label} or its FNN nodes did not finish stopping in time; sending SIGKILL once...`);
@@ -271,8 +273,7 @@ export async function stopFiber(settings: Settings = readSettings()) {
     return;
   }
 
-  const nodeDaemonPaths = resolveNodeDaemonPaths(settings);
-  const nodeDaemon = readPidFile(nodeDaemonPaths.pidFile);
+  const nodeDaemon = readPidFile(nodeDaemonPaths(settings).pidFile);
   if (
     nodeDaemon &&
     Number.isInteger(nodeDaemon.pid) &&
@@ -289,7 +290,7 @@ export async function stopFiber(settings: Settings = readSettings()) {
     );
     await stopManagerAndCleanup({
       pid: nodeDaemon.pid,
-      pidFile: nodeDaemonPaths.pidFile,
+      pidFile: nodeDaemonPaths(settings).pidFile,
       label: 'node --fiber daemon',
       settings,
     });
@@ -303,9 +304,4 @@ export async function stopFiber(settings: Settings = readSettings()) {
       'Stop it with Ctrl+C in the terminal where it is running.',
   );
   logger.result({ command: 'fiber.stop', stopped: false, reason: 'foreground-manager', pid: runtime.managerPid });
-}
-
-function resolveNodeDaemonPaths(settings: Settings) {
-  const logDir = path.join(settings.devnet.dataPath, 'logs');
-  return { logDir, pidFile: path.join(logDir, 'daemon.pid') };
 }

@@ -16,6 +16,7 @@ import {
 import { generateNodeConfig } from './config-gen';
 import { FiberChainScripts } from './scripts';
 import { fnnNodeInfo, fnnConnectPeer, fnnListPeers, checkPortFree, FnnNodeInfo } from './rpc';
+import { lockMatches } from './status';
 import { writeRuntime, readLiveRuntime, removeRuntimeFile, removeRuntimeFileIfStale, FiberRuntime } from './runtime';
 import { closeFileDescriptors } from '../util/daemon';
 
@@ -210,12 +211,7 @@ async function assertNodeIdentitiesAndFunds(
     const account = fiberNodeAccount(node.id);
     const expectedLock = account.lockScript;
     const actualLock = info.default_funding_lock_script;
-    const lockMatches =
-      actualLock &&
-      actualLock.code_hash.toLowerCase() === expectedLock.codeHash.toLowerCase() &&
-      actualLock.hash_type.toLowerCase() === expectedLock.hashType.toLowerCase() &&
-      actualLock.args.toLowerCase() === expectedLock.args.toLowerCase();
-    if (!lockMatches) {
+    if (!lockMatches(actualLock, expectedLock)) {
       throw new FiberStartupError(
         `Fiber node ${node.id} funds account mismatch: expected built-in account #${fiberAccountIndex(node.id)} ` +
           `(lock args ${expectedLock.args}) but the node reports ${JSON.stringify(actualLock)}.`,
@@ -310,7 +306,18 @@ export async function startFiberEnvironment(options: StartFiberEnvironmentOption
   }
   await assertFiberPortsFree(nodes);
 
-  const handles = nodes.map((node) => spawnFnn(node, options.fnnPath, settings));
+  // Spawn incrementally: if a later spawn fails (e.g. mkdir/open EACCES or
+  // ENOSPC), the children started so far must not be left running without a
+  // runtime record — OffCKB would refuse to touch those orphans.
+  const handles: FnnProcessHandle[] = [];
+  try {
+    for (const node of nodes) {
+      handles.push(spawnFnn(node, options.fnnPath, settings));
+    }
+  } catch (error) {
+    await stopFiberNodes(handles, settings);
+    throw error;
+  }
   const runtime: FiberRuntime = {
     managerPid: process.pid,
     startedAt: new Date().toISOString(),
@@ -347,7 +354,7 @@ export async function startFiberEnvironment(options: StartFiberEnvironmentOption
  */
 export async function stopFiberNodes(nodes: FnnProcessHandle[], settings: Settings = readSettings()): Promise<void> {
   for (const node of nodes) {
-    if (node.process.exitCode == null && !node.process.killed) {
+    if (node.process.exitCode == null && node.process.signalCode == null && !node.process.killed) {
       try {
         node.process.kill('SIGTERM');
       } catch {
@@ -362,7 +369,7 @@ export async function stopFiberNodes(nodes: FnnProcessHandle[], settings: Settin
     await waitForChildExit(node.process, remaining);
   }
   for (const node of nodes) {
-    if (node.process.exitCode == null) {
+    if (node.process.exitCode == null && node.process.signalCode == null) {
       try {
         node.process.kill('SIGKILL');
       } catch {
@@ -374,7 +381,9 @@ export async function stopFiberNodes(nodes: FnnProcessHandle[], settings: Settin
 }
 
 function waitForChildExit(child: ChildProcess, timeoutMs: number): Promise<void> {
-  if (child.exitCode != null) return Promise.resolve();
+  // A signal-terminated child has exitCode === null with signalCode set; both
+  // mean "exited", and the exit event may already have fired.
+  if (child.exitCode != null || child.signalCode != null) return Promise.resolve();
   return new Promise((resolve) => {
     const timer = setTimeout(() => resolve(), timeoutMs);
     child.once('exit', () => {

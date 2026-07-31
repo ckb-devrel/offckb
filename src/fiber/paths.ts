@@ -1,5 +1,7 @@
+import * as fs from 'fs';
 import * as path from 'path';
 import { packageRootPath, readSettings, Settings } from '../cfg/setting';
+import { isFolderExists } from '../util/fs';
 
 // Directory layout of a Fiber devnet environment (see docs/fiber.md):
 //
@@ -79,6 +81,17 @@ export function envLockPath(settings: Settings = readSettings()): string {
 
 export function fiberNodeDir(id: number, settings: Settings = readSettings()): string {
   return path.join(fiberRootPath(settings), 'nodes', String(id));
+}
+
+// Ids of the node directories present under <fiber>/nodes, in numeric order.
+export function fiberNodeIds(settings: Settings = readSettings()): number[] {
+  const nodesDir = path.join(fiberRootPath(settings), 'nodes');
+  if (!isFolderExists(nodesDir)) return [];
+  return fs
+    .readdirSync(nodesDir)
+    .filter((entry) => /^\d+$/.test(entry))
+    .map((entry) => Number(entry))
+    .sort((a, b) => a - b);
 }
 
 export function fiberNodePaths(id: number, settings: Settings = readSettings()) {

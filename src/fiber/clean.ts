@@ -1,8 +1,7 @@
 import * as fs from 'fs';
-import * as path from 'path';
 import { confirm } from '@inquirer/prompts';
 import { acquireEnvLock } from './env-lock';
-import { fiberDaemonPaths, fiberNodePaths, fiberRootPath } from './paths';
+import { fiberDaemonPaths, fiberNodeIds, fiberNodePaths, fiberRootPath } from './paths';
 import { readLiveRuntime, removeRuntimeFileIfStale } from './runtime';
 import { readPidFile, isProcessAlive } from '../util/daemon';
 import { isStoreLockHeld } from './store-lock';
@@ -16,12 +15,8 @@ export interface FiberCleanOptions {
 }
 
 function existingStoreLockFiles(settings: Settings): string[] {
-  const nodesDir = path.join(fiberRootPath(settings), 'nodes');
-  if (!isFolderExists(nodesDir)) return [];
-  return fs
-    .readdirSync(nodesDir)
-    .filter((entry) => /^\d+$/.test(entry))
-    .map((entry) => fiberNodePaths(Number(entry), settings).storeLockFile)
+  return fiberNodeIds(settings)
+    .map((id) => fiberNodePaths(id, settings).storeLockFile)
     .filter((lockFile) => fs.existsSync(lockFile));
 }
 
@@ -75,14 +70,9 @@ export async function fiberClean(options: FiberCleanOptions, settings: Settings 
     assertFiberFullyStopped(settings);
 
     if (options.data) {
-      const nodesDir = path.join(root, 'nodes');
-      const stores = isFolderExists(nodesDir)
-        ? fs
-            .readdirSync(nodesDir)
-            .filter((entry) => /^\d+$/.test(entry))
-            .map((entry) => fiberNodePaths(Number(entry), settings).fiberStoreDir)
-            .filter((storeDir) => isFolderExists(storeDir))
-        : [];
+      const stores = fiberNodeIds(settings)
+        .map((id) => fiberNodePaths(id, settings).fiberStoreDir)
+        .filter((storeDir) => isFolderExists(storeDir));
       logger.warn(
         'This permanently deletes every FNN store (channels, payments and other node data). ' +
           'Deleted data cannot be recovered. Node accounts, identity keys, passwords and logs are kept.',
