@@ -56,6 +56,27 @@ jobs:
       - name: Build project
         run: pnpm build
 
+      # Upgrade-path regression: data created by an old offckb release (old
+      # CKB binary) must keep working with this build. Ubuntu only — the test
+      # is OS-independent (config/data compatibility) and downloads an extra
+      # legacy CKB binary, so one platform keeps the signal cheap.
+      # Runs BEFORE create-test.sh: that script's cleanup only kills the pnpm
+      # wrapper and leaves the CKB processes holding port 8114/28114, while
+      # this test tears its own node down completely.
+      - name: Cache npm cache (legacy CLI install)
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-cache-legacy-${{ hashFiles('scripts/legacy-data-test.sh') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-cache-legacy-
+
+      - name: Integration test - Legacy data upgrade path (Ubuntu only)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: bash scripts/legacy-data-test.sh
+
       # Note: create-test.sh includes node startup and RPC verification,
       # so we don't need a separate starting-node-test step
       - name: Integration test - Create project workflow
