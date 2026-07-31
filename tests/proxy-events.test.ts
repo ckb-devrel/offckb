@@ -50,6 +50,32 @@ describe('handleProxyRequestBody', () => {
     expect(content).toMatch(/send_transaction 0xhash/);
   });
 
+  it('records each entry of a batch request, including a batched send_transaction', () => {
+    const ctx = makeCtx(transactionsPath);
+    const tx = { cell_deps: [], inputs: [], outputs: [] };
+    handleProxyRequestBody(
+      JSON.stringify([
+        { jsonrpc: '2.0', id: 1, method: 'get_tip_header', params: [] },
+        { jsonrpc: '2.0', id: 2, method: 'send_transaction', params: [tx] },
+      ]),
+      ctx,
+    );
+    expect(ctx.sink.info).toHaveBeenCalledWith(expect.stringContaining('0xhash'));
+    expect(fs.existsSync(path.join(transactionsPath, '0xhash.json'))).toBe(true);
+    const content = fs.readFileSync(ctx.events.filePath, 'utf8');
+    expect(content).toMatch(/request get_tip_header/);
+    expect(content).toMatch(/send_transaction 0xhash/);
+  });
+
+  it('warns and skips the tx dump when send_transaction has no usable params', () => {
+    const ctx = makeCtx(transactionsPath);
+    handleProxyRequestBody(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'send_transaction' }), ctx);
+    expect(ctx.sink.warn).toHaveBeenCalledWith(expect.stringContaining('no params'));
+    // A missing-params request is not a parse failure.
+    expect(ctx.sink.error).not.toHaveBeenCalled();
+    expect(fs.existsSync(path.join(transactionsPath, '0xhash.json'))).toBe(false);
+  });
+
   it('reports malformed JSON-RPC bodies at error level', () => {
     const ctx = makeCtx(transactionsPath);
     handleProxyRequestBody('not json', ctx);
@@ -160,5 +186,30 @@ describe('createProxyEventLog', () => {
     const current = fs.readFileSync(file, 'utf8');
     expect(current).toMatch(/get_tip_header/);
     expect(current).not.toMatch(/get_blockchain_info/);
+  });
+
+  it('keeps appending when a rollover fails and retries on the next event', () => {
+    const file = path.join(dir, 'logs', 'proxy.log');
+    const log = createProxyEventLog(file, 60);
+    log.event('request get_tip_header');
+    log.event('request get_blockchain_info');
+
+    // Block the rollover: a non-empty directory at the .1 path cannot be
+    // removed by the rollover's rmSync, so the rename never happens.
+    fs.rmSync(`${file}.1`, { force: true });
+    fs.mkdirSync(path.join(`${file}.1`, 'occupied'), { recursive: true });
+    log.event('request get_tip_header');
+
+    // The event is appended to the live file instead of being dropped.
+    const current = fs.readFileSync(file, 'utf8');
+    expect(current).toMatch(/get_blockchain_info/);
+    expect(current).toMatch(/get_tip_header/);
+
+    // Once the blockage is gone the next event rolls over normally.
+    fs.rmSync(`${file}.1`, { recursive: true });
+    log.event('request get_tip_header');
+    const rolled = fs.readFileSync(`${file}.1`, 'utf8');
+    expect(rolled).toMatch(/get_blockchain_info/);
+    expect(rolled).toMatch(/get_tip_header/);
   });
 });

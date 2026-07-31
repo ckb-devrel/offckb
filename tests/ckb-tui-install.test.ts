@@ -97,7 +97,9 @@ describe('ckb-tui installed-binary verification', () => {
     )[assetName()];
 
   it('keeps an existing binary whose digest matches the configured release', () => {
-    fs.writeFileSync(binaryPath, 'installed ckb-tui');
+    // A real install publishes with mode 0o755; the execute bit is part of
+    // what the verification checks.
+    fs.writeFileSync(binaryPath, 'installed ckb-tui', { mode: 0o755 });
     jest.spyOn(crypto, 'createHash').mockReturnValue({
       update: () => ({ digest: () => pinnedDigest() }),
     } as unknown as crypto.Hash);
@@ -145,7 +147,8 @@ describe('ckb-tui installed-binary verification', () => {
 
   it('falls back to presence-only detection for a release without a pinned binary digest', () => {
     mockVersion.current = 'v9.9.9';
-    fs.writeFileSync(binaryPath, 'any content at all');
+    // Presence-only still means a usable binary: regular, readable, executable.
+    fs.writeFileSync(binaryPath, 'any content at all', { mode: 0o755 });
 
     expect(CKBTui.ensureInstalled()).toBe(binaryPath);
     expect(installSpy).not.toHaveBeenCalled();
@@ -178,6 +181,14 @@ describe('ckb-tui installed-binary verification', () => {
   itPosixNonRoot('treats an unreadable binary as a mismatch', () => {
     mockVersion.current = 'v9.9.9'; // Unpinned: presence alone must not suffice.
     fs.writeFileSync(binaryPath, 'unreadable ckb-tui', { mode: 0o000 });
+
+    expect(internals.installedBinaryMatches(binaryPath)).toBe(false);
+  });
+
+  itPosix('treats a binary without the execute bit as a mismatch', () => {
+    mockVersion.current = 'v9.9.9'; // Unpinned: presence alone must not suffice.
+    // No execute bit anywhere, so X_OK fails even for root.
+    fs.writeFileSync(binaryPath, 'execute-bit-lost ckb-tui', { mode: 0o644 });
 
     expect(internals.installedBinaryMatches(binaryPath)).toBe(false);
   });
