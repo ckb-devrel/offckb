@@ -53,13 +53,23 @@ secp256k1_multisig_v2:
 	cd ckb/ckb-system-scripts/  && make all-via-docker
 	cp ckb/ckb-system-scripts/specs/cells/secp256k1_blake160_multisig_all ckb/devnet/specs/secp256k1_blake160_multisig_all_v2
 
+# Fiber contracts are copied (not rebuilt) from the pinned ckb/fiber submodule
+# (FNN v0.9.0-rc7, fiber commit bc361aa) and committed under
+# ckb/devnet/specs/fiber/ so published packages work offline; re-run this
+# target after re-pinning the submodule. The upstream binaries embed the
+# builder's home directory in panic metadata, so the copies are sanitized
+# below with equal-length replacements (contract logic is untouched).
 fiber:
 	@echo "Copying Fiber contracts via submodule"
+	@test -d ckb/fiber/tests/deploy/contracts || \
+		(echo "ckb/fiber submodule is missing. Run: git submodule update --init ckb/fiber" && exit 1)
 	mkdir -p ckb/devnet/specs/fiber
 	cp ckb/fiber/tests/deploy/contracts/auth ckb/devnet/specs/fiber/auth
 	cp ckb/fiber/tests/deploy/contracts/funding-lock ckb/devnet/specs/fiber/funding_lock
 	cp ckb/fiber/tests/deploy/contracts/commitment-lock ckb/devnet/specs/fiber/commitment_lock
 	cp ckb/fiber/config/testnet/config.yml ckb/devnet/specs/fiber/testnet-config.yml
+	perl -pi -e 's{/home/quake/}{/home/fiber/}g' ckb/devnet/specs/fiber/funding_lock
+	perl -pi -e 's{/Users/quake/}{/Users/fiber/}g' ckb/devnet/specs/fiber/commitment_lock
 
 ckb-debugger:
 	@echo "Building ckb-debugger via submodule"

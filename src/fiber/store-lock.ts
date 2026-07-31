@@ -35,11 +35,19 @@ export function isStoreLockHeld(lockFile: string): boolean | null {
     // Exit 0: lsof printed every process holding the file on stdout.
     return stdout.trim().length > 0;
   } catch (error) {
-    const err = error as NodeJS.ErrnoException & { stdout?: Buffer | string };
+    const err = error as NodeJS.ErrnoException & {
+      stdout?: Buffer | string;
+      status?: number | null;
+      signal?: NodeJS.Signals | null;
+    };
     if (err.code === 'ENOENT' || err.code === 'ETIMEDOUT') return null;
-    // Exit 1: no holder — matches are printed on stdout; stderr may carry
-    // unrelated warnings (e.g. an un-stat-able fuse mount), so only stdout
-    // decides. An inspection error leaves stdout empty but non-string.
+    // Only exit 1 is a genuine "no holder" answer — matches are printed on
+    // stdout; stderr may carry unrelated warnings (e.g. an un-stat-able fuse
+    // mount), so only stdout decides. A timeout kill (signal set) or any
+    // other exit status is an inspection failure: report "unknown" (null)
+    // rather than "free" (false), so cleanup refuses instead of deleting a
+    // live store's metadata.
+    if (err.signal != null || err.status !== 1) return null;
     const stdout = typeof err.stdout === 'string' ? err.stdout.trim() : null;
     return stdout == null ? null : stdout.length > 0;
   }

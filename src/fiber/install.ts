@@ -91,27 +91,33 @@ export async function downloadFnnAndUnzip(version: string, settings: Settings = 
   const arrayBuffer = await response.arrayBuffer();
   fs.writeFileSync(tempFilePath, Buffer.from(arrayBuffer));
 
-  const extractDir = path.join(settings.bins.downloadPath, `fnn_v${version}`);
-  fs.rmSync(extractDir, { recursive: true, force: true });
-  await unZipFile(tempFilePath, extractDir, true);
+  try {
+    const extractDir = path.join(settings.bins.downloadPath, `fnn_v${version}`);
+    fs.rmSync(extractDir, { recursive: true, force: true });
+    await unZipFile(tempFilePath, extractDir, true);
 
-  // FNN packages ship the binary and config/ flat at the tarball root (unlike
-  // CKB packages, which nest everything in a package-name directory); accept
-  // either layout.
-  const nestedPath = path.join(extractDir, packageName);
-  const sourcePath = fs.existsSync(nestedPath) ? nestedPath : extractDir;
-  if (!fs.existsSync(path.join(sourcePath, process.platform === 'win32' ? 'fnn.exe' : 'fnn'))) {
-    throw new Error(`FNN release package layout is unexpected: no fnn binary found in ${extractDir}.`);
-  }
-  const targetPath = getFnnInstallPath(version, settings);
-  fs.rmSync(targetPath, { recursive: true, force: true });
-  fs.mkdirSync(targetPath, { recursive: true });
-  for (const entry of fs.readdirSync(sourcePath)) {
-    fs.cpSync(path.join(sourcePath, entry), path.join(targetPath, entry), { recursive: true, force: true });
-  }
-  fs.rmSync(extractDir, { recursive: true, force: true });
-  if (process.platform !== 'win32') {
-    fs.chmodSync(getFnnBinaryPath(version, settings), '755');
+    // FNN packages ship the binary and config/ flat at the tarball root (unlike
+    // CKB packages, which nest everything in a package-name directory); accept
+    // either layout.
+    const nestedPath = path.join(extractDir, packageName);
+    const sourcePath = fs.existsSync(nestedPath) ? nestedPath : extractDir;
+    if (!fs.existsSync(path.join(sourcePath, process.platform === 'win32' ? 'fnn.exe' : 'fnn'))) {
+      throw new Error(`FNN release package layout is unexpected: no fnn binary found in ${extractDir}.`);
+    }
+    const targetPath = getFnnInstallPath(version, settings);
+    fs.rmSync(targetPath, { recursive: true, force: true });
+    fs.mkdirSync(targetPath, { recursive: true });
+    for (const entry of fs.readdirSync(sourcePath)) {
+      fs.cpSync(path.join(sourcePath, entry), path.join(targetPath, entry), { recursive: true, force: true });
+    }
+    fs.rmSync(extractDir, { recursive: true, force: true });
+    if (process.platform !== 'win32') {
+      fs.chmodSync(getFnnBinaryPath(version, settings), '755');
+    }
+  } finally {
+    // The tarball is only an intermediate; never leave it in the temp dir,
+    // whether the install succeeded or failed.
+    fs.rmSync(tempFilePath, { force: true });
   }
   logger.info(`FNN ${version} installed successfully.`);
 }

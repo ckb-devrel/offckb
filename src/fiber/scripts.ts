@@ -1,5 +1,5 @@
 import { resolveDevnetSystemScripts } from '../scripts/private';
-import { SystemScript } from '../scripts/type';
+import { SystemScript, SystemScriptName, SystemScriptsRecord } from '../scripts/type';
 import { udtIssuerLockHash } from './accounts';
 
 export interface FnnCellDep {
@@ -57,10 +57,12 @@ function codeCellDep(script: SystemScript): FnnCellDep {
   };
 }
 
-function requireScript(scripts: Record<string, SystemScript | undefined>, name: string): SystemScript {
+function requireScript(scripts: SystemScriptsRecord, name: SystemScriptName): SystemScript {
   const script = scripts[name];
   if (script == null) {
-    throw new Error(`missing:${name}`);
+    throw new Error(
+      `The devnet chain spec does not include the system script "${name}". Run \`offckb clean\` to rebuild the devnet.`,
+    );
   }
   return script;
 }
@@ -88,18 +90,19 @@ export function resolveFiberChainScripts(): FiberChainScripts {
       'Failed to read the devnet chain spec hashes (ckb list-hashes). Is the CKB binary installed and the devnet initialized?',
     );
   }
-  const scripts = resolved.scripts as unknown as Record<string, SystemScript | undefined>;
+  const scripts = resolved.scripts;
 
-  const missing = ['auth', 'funding_lock', 'commitment_lock'].filter((name) => scripts[name] == null);
+  const required = [SystemScriptName.auth, SystemScriptName.funding_lock, SystemScriptName.commitment_lock];
+  const missing = required.filter((name) => scripts[name] == null);
   if (missing.length > 0) {
     throw new FiberContractsMissingError(missing);
   }
 
-  const auth = requireScript(scripts, 'auth');
-  const fundingLock = requireScript(scripts, 'funding_lock');
-  const commitmentLock = requireScript(scripts, 'commitment_lock');
-  const sudt = requireScript(scripts, 'sudt');
-  const xudt = requireScript(scripts, 'xudt');
+  const auth = requireScript(scripts, SystemScriptName.auth);
+  const fundingLock = requireScript(scripts, SystemScriptName.funding_lock);
+  const commitmentLock = requireScript(scripts, SystemScriptName.commitment_lock);
+  const sudt = requireScript(scripts, SystemScriptName.sudt);
+  const xudt = requireScript(scripts, SystemScriptName.xudt);
 
   const authDep = codeCellDep(auth);
   const fiberScripts: FnnFiberScript[] = [

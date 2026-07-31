@@ -1,5 +1,5 @@
 import { checkNodeReadiness } from '../devnet/readiness';
-import { getProcessCommandLine, isProcessAlive, readPidFile } from '../util/daemon';
+import { getProcessCommandLine, isProcessAlive, nodeDaemonPaths, readPidFile } from '../util/daemon';
 import { readSettings, Settings } from '../cfg/setting';
 import { fiberAccountIndex, fiberDaemonPaths, fiberP2pAddr, fiberRpcUrl } from './paths';
 import { readNodesYml } from './nodes-yml';
@@ -7,7 +7,6 @@ import { fiberNodeAccount, fiberPublicKeyFromSecret, readFiberNodeSecretKey } fr
 import { readRuntime, FiberRuntime } from './runtime';
 import { fnnNodeInfo, FnnNodeInfo } from './rpc';
 import { logger } from '../util/logger';
-import * as path from 'path';
 
 export type FiberNodeStatus = 'starting' | 'running' | 'stopped' | 'unknown' | 'conflict';
 export type OffckbManaged = 'yes' | 'no' | 'unknown';
@@ -57,13 +56,16 @@ async function resolveOffckbManaged(runtime: FiberRuntime | null, settings: Sett
   const fiberPid = readPidFile(fiberDaemonPaths(settings).pidFile);
   if (fiberPid != null && fiberPid.pid !== runtime.managerPid) return 'no';
   if (fiberPid == null) {
-    const nodePid = readPidFile(path.join(settings.devnet.dataPath, 'logs', 'daemon.pid'));
+    const nodePid = readPidFile(nodeDaemonPaths(settings).pidFile);
     if (nodePid != null && nodePid.pid === runtime.managerPid) return 'yes';
   }
   return 'yes';
 }
 
-function lockMatches(
+// Case-insensitive comparison of an FNN-reported funding lock against the
+// expected CKB account lock. Shared by the status report and the manager's
+// startup validation so the comparison rules cannot diverge.
+export function lockMatches(
   actual: { code_hash: string; hash_type: string; args: string } | undefined,
   expected: { codeHash: string; hashType: string; args: string },
 ): boolean {
