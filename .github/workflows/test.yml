@@ -62,6 +62,24 @@ jobs:
         shell: bash
         run: bash scripts/create-test.sh
 
+      # Upgrade-path regression: data created by an old offckb release (old
+      # CKB binary) must keep working with this build. Ubuntu only — the test
+      # is OS-independent (config/data compatibility) and downloads an extra
+      # legacy CKB binary, so one platform keeps the signal cheap.
+      - name: Cache npm cache (legacy CLI install)
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-cache-legacy-${{ hashFiles('scripts/legacy-data-test.sh') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-cache-legacy-
+
+      - name: Integration test - Legacy data upgrade path (Ubuntu only)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: bash scripts/legacy-data-test.sh
+
       - name: Upload coverage to Codecov (Ubuntu only)
         if: matrix.os == 'ubuntu-latest'
         uses: codecov/codecov-action@v4
