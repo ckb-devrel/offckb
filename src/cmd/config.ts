@@ -13,6 +13,7 @@ export enum ConfigAction {
 export enum ConfigItem {
   proxy = 'proxy',
   ckbVersion = 'ckb-version',
+  fnnVersion = 'fnn-version',
 }
 
 export async function Config(action: ConfigAction, item: ConfigItem, value?: string) {
@@ -35,6 +36,12 @@ export async function Config(action: ConfigAction, item: ConfigItem, value?: str
       case ConfigItem.ckbVersion: {
         const settings = readSettings();
         const version = settings.bins.defaultCKBVersion;
+        return logger.info(`${version}`);
+      }
+
+      case ConfigItem.fnnVersion: {
+        const settings = readSettings();
+        const version = settings.bins.defaultFnnVersion;
         return logger.info(`${version}`);
       }
 
@@ -70,6 +77,18 @@ export async function Config(action: ConfigAction, item: ConfigItem, value?: str
         const settings = readSettings();
         const version = extractVersion(value!);
         settings.bins.defaultCKBVersion = version;
+        return writeSettings(settings);
+      }
+
+      case ConfigItem.fnnVersion: {
+        if (!isValidVersion(value)) {
+          throw new Error(
+            `invalid version value, ${value}. Check available versions on https://github.com/nervosnetwork/fiber/tags`,
+          );
+        }
+        const settings = readSettings();
+        const version = extractVersion(value!);
+        settings.bins.defaultFnnVersion = version;
         return writeSettings(settings);
       }
 

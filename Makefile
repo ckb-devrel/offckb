@@ -1,6 +1,6 @@
-.PHONY: all omnilock anyone-can-pay xudt spore ckb-js-vm nostr-lock ckb-debugger apply-debugger-patches clean-debugger-patches
+.PHONY: all omnilock anyone-can-pay xudt spore ckb-js-vm nostr-lock fiber ckb-debugger apply-debugger-patches clean-debugger-patches
 
-all: omnilock anyone-can-pay xudt spore ckb-js-vm nostr-lock pw-lock secp256k1_multisig_v2 ckb-debugger
+all: omnilock anyone-can-pay xudt spore ckb-js-vm nostr-lock pw-lock secp256k1_multisig_v2 fiber ckb-debugger
 
 omnilock:
 	@echo "Building omnilock via submodule"
@@ -52,6 +52,14 @@ secp256k1_multisig_v2:
 	@echo "Building secp256k1_multisig_v2 via submodule"
 	cd ckb/ckb-system-scripts/  && make all-via-docker
 	cp ckb/ckb-system-scripts/specs/cells/secp256k1_blake160_multisig_all ckb/devnet/specs/secp256k1_blake160_multisig_all_v2
+
+fiber:
+	@echo "Copying Fiber contracts via submodule"
+	mkdir -p ckb/devnet/specs/fiber
+	cp ckb/fiber/tests/deploy/contracts/auth ckb/devnet/specs/fiber/auth
+	cp ckb/fiber/tests/deploy/contracts/funding-lock ckb/devnet/specs/fiber/funding_lock
+	cp ckb/fiber/tests/deploy/contracts/commitment-lock ckb/devnet/specs/fiber/commitment_lock
+	cp ckb/fiber/config/testnet/config.yml ckb/devnet/specs/fiber/testnet-config.yml
 
 ckb-debugger:
 	@echo "Building ckb-debugger via submodule"

@@ -402,6 +402,18 @@ describe('node command stop', () => {
   const scriptPath = '/path/to/offckb';
   const originalPlatform = process.platform;
 
+  // Serve the given content only for the CKB daemon PID file; other files
+  // (fiber daemon PID, fiber runtime.json) read as absent, matching a
+  // machine with no fiber environment.
+  function mockPidFileContent(content: string) {
+    mockReadFileSync.mockImplementation((file: string) => {
+      if (file === pidFile) return content;
+      const err = new Error('ENOENT') as NodeJS.ErrnoException;
+      err.code = 'ENOENT';
+      throw err;
+    });
+  }
+
   function setPlatform(value: string) {
     Object.defineProperty(process, 'platform', { value });
   }
@@ -412,7 +424,7 @@ describe('node command stop', () => {
     processAlive = true;
     mockExecFile.mockReset();
     mockStatSync.mockReturnValue({ isFile: () => true });
-    mockReadFileSync.mockReturnValue(JSON.stringify({ pid: 12345, scriptPath, startedAt: new Date().toISOString() }));
+    mockPidFileContent(JSON.stringify({ pid: 12345, scriptPath, startedAt: new Date().toISOString() }));
     mockDaemonCommandLine(scriptPath);
 
     // Normalize to POSIX for deterministic signal-based assertions.  The
@@ -456,7 +468,7 @@ describe('node command stop', () => {
   });
 
   it('errors when the PID file contains an invalid PID', async () => {
-    mockReadFileSync.mockReturnValue('not-a-number');
+    mockPidFileContent('not-a-number');
     await expect(stopNode()).rejects.toThrow('Invalid PID');
     expect(mockUnlinkSync).toHaveBeenCalledWith(pidFile);
   });
@@ -469,7 +481,7 @@ describe('node command stop', () => {
   });
 
   it('does not signal the CLI process while daemon startup is in progress', async () => {
-    mockReadFileSync.mockReturnValue(
+    mockPidFileContent(
       JSON.stringify({ pid: 12345, scriptPath, startedAt: new Date().toISOString(), status: 'starting' }),
     );
 

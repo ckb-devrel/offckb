@@ -1,4 +1,4 @@
-import { execFile, execFileSync, spawn, ChildProcess } from 'child_process';
+import { execFileSync, spawn, ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
@@ -8,7 +8,7 @@ import {
   TERMINAL_RPC_MIN_CKB_VERSION,
 } from '../node/init-chain';
 import { getVersionFromBinary, installCKBBinary } from '../node/install';
-import { getCKBBinaryPath, readSettings } from '../cfg/setting';
+import { getCKBBinaryPath, readSettings, Settings } from '../cfg/setting';
 import { createRPCProxy } from '../tools/rpc-proxy';
 import { markForkFirstRunComplete, readForkState } from '../devnet/fork';
 import { callJsonRpc } from '../util/json-rpc';
@@ -17,6 +17,27 @@ import { logger } from '../util/logger';
 import { checkNodeReadiness, waitForNodeReady } from '../devnet/readiness';
 import { devnetTcpListenAddress, subscribeToNodeLogs, SubscriptionHandle } from '../devnet/log-subscription';
 import { SCRIPT_LOG_TARGET } from '../devnet/log-file';
+import {
+  cleanupPidFile,
+  closeFileDescriptors,
+  isProcessAlive,
+  PidMetadata,
+  readPidFile,
+  reservePidFile,
+  resolveCliEntry,
+  terminateProcess,
+  verifyDaemonIdentity,
+  waitForProcessExit,
+  writePidFile,
+} from '../util/daemon';
+import { assertPlainDevnet } from '../fiber/ckb-env';
+import { acquireEnvLock, EnvLockHandle } from '../fiber/env-lock';
+import { resolveFnnBinary, ResolvedFnn } from '../fiber/install';
+import { resolveFiberChainScripts } from '../fiber/scripts';
+import { FiberEnvironment, startFiberEnvironment, stopFiberNodes } from '../fiber/manager';
+import { printFiberSummary } from './fiber';
+import { readLiveRuntime, readRuntime } from '../fiber/runtime';
+import { fiberDaemonPaths } from '../fiber/paths';
 
 export interface NodeProp {
   version?: string;
@@ -24,13 +45,10 @@ export interface NodeProp {
   binaryPath?: string;
   daemon?: boolean;
   verbose?: boolean;
-}
-
-interface PidMetadata {
-  pid: number;
-  scriptPath: string;
-  startedAt: string;
-  status?: 'starting' | 'running';
+  fiber?: boolean;
+  fnnVersion?: string;
+  fiberNodes?: number;
+  fnnBinaryPath?: string;
 }
 
 const DAEMON_LOG_DIR = 'logs';
@@ -52,7 +70,17 @@ function cleanChildOutput(data: unknown): string {
     .replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, '');
 }
 
-export function startNode({ version, network = Network.devnet, binaryPath, daemon, verbose }: NodeProp) {
+export function startNode({
+  version,
+  network = Network.devnet,
+  binaryPath,
+  daemon,
+  verbose,
+  fiber,
+  fnnVersion,
+  fiberNodes,
+  fnnBinaryPath,
+}: NodeProp) {
   if (binaryPath && network !== Network.devnet) {
     logger.warn('Custom binaryPath is only supported for devnet. The provided binaryPath will be ignored.');
   }
@@ -60,9 +88,18 @@ export function startNode({ version, network = Network.devnet, binaryPath, daemo
     logger.warn('Daemon mode is only supported for devnet. The daemon flag will be ignored.');
   }
 
+  if (fiber) {
+    if (network !== Network.devnet) {
+      throw new Error(`--fiber is only supported on the plain local devnet; --network ${network} cannot be used.`);
+    }
+    // A forked devnet is rejected before any daemon respawn, so an
+    // unsupported environment always fails in the foreground.
+    assertPlainDevnet(readSettings());
+  }
+
   switch (network) {
     case Network.devnet:
-      return nodeDevnet({ version, binaryPath, daemon, verbose });
+      return nodeDevnet({ version, binaryPath, daemon, verbose, fiber, fnnVersion, fiberNodes, fnnBinaryPath });
     case Network.testnet:
       return nodeTestnet();
     case Network.mainnet:
@@ -72,13 +109,42 @@ export function startNode({ version, network = Network.devnet, binaryPath, daemo
   }
 }
 
-export async function nodeDevnet({ version, binaryPath, daemon, verbose }: NodeProp) {
+export async function nodeDevnet(props: NodeProp) {
+  const { daemon, fiber } = props;
   if (daemon) {
-    return startDaemon();
+    return startDaemon(!!fiber);
   }
 
   const settings = readSettings();
+  // --fiber shares the devnet environment with the fiber commands, so it
+  // takes the same environment lock before mutating anything, and refuses to
+  // adopt an already-running CKB (use `offckb fiber start` for that).
+  let envLock: EnvLockHandle | null = null;
+  if (fiber) {
+    const occupied = await checkNodeReadiness(settings.devnet.rpcUrl, 1000);
+    if (occupied.ready) {
+      throw new Error(
+        `A CKB node is already answering at ${settings.devnet.rpcUrl}. OffCKB does not take over a node it did not start; ` +
+          'add FNN nodes to it with: offckb fiber start',
+      );
+    }
+    envLock = acquireEnvLock('offckb node --fiber');
+  }
+  try {
+    return await runNodeDevnet(props, envLock, settings);
+  } catch (error) {
+    envLock?.release();
+    throw error;
+  }
+}
+
+async function runNodeDevnet(
+  { version, binaryPath, verbose, fiber, fnnVersion, fiberNodes, fnnBinaryPath }: NodeProp,
+  envLock: EnvLockHandle | null,
+  settings: Settings,
+) {
   const ckbVersion = version || settings.bins.defaultCKBVersion;
+
   let ckbBinPath = '';
   // The version the chain config will be validated against. A managed binary
   // knows its version by construction; a custom --binary-path is probed, and
@@ -155,6 +221,16 @@ export async function nodeDevnet({ version, binaryPath, daemon, verbose }: NodeP
     ckbExited = true;
   });
 
+  // With --fiber, FNN selection/download starts as soon as CKB begins to
+  // start, so it overlaps with the devnet readiness wait below.
+  let fnnPrep: Promise<ResolvedFnn> | null = null;
+  if (fiber) {
+    fnnPrep = resolveFnnBinary({ version: fnnVersion, binaryPath: fnnBinaryPath }, settings);
+    fnnPrep.catch(() => {
+      // surfaced when awaited after the CKB environment is ready
+    });
+  }
+
   const timeoutMs = forkState ? FORK_NODE_READY_TIMEOUT_MS : NODE_READY_TIMEOUT_MS;
   const readiness = await waitForNodeReady(settings.devnet.rpcUrl, timeoutMs, () => !ckbExited);
   if (!readiness.ready) {
@@ -226,30 +302,106 @@ export async function nodeDevnet({ version, binaryPath, daemon, verbose }: NodeP
   if (!verbose) {
     logger.info('Follow the full node log with: offckb logs -f');
   }
+
+  // The CKB environment is up. With --fiber, wait for the FNN binary
+  // preparation (started above, concurrent with CKB startup) and run the
+  // shared Fiber startup flow. Any failure stops everything started here.
+  let fiberEnv: FiberEnvironment | null = null;
+  if (fiber && fnnPrep) {
+    const stopStartedProcesses = () => {
+      logSubscription?.close();
+      if (!ckbProcess.killed) ckbProcess.kill('SIGTERM');
+      if (!minerProcess.killed) minerProcess.kill('SIGTERM');
+      proxy.stop();
+      envLock?.release();
+    };
+    try {
+      const fnn = await fnnPrep;
+      fiberEnv = await startFiberEnvironment({
+        fnnPath: fnn.fnnPath,
+        testnetConfigPath: fnn.testnetConfigPath,
+        chainScripts: resolveFiberChainScripts(),
+        nodeCount: fiberNodes,
+        settings,
+      });
+    } catch (error) {
+      stopStartedProcesses();
+      throw error;
+    }
+    printFiberSummary(fiberEnv);
+    // The environment is built; further mutations by other OffCKB processes
+    // (stop/clean) check the manager records instead of the lock.
+    envLock?.release();
+    envLock = null;
+  }
+
   logger.result({
     command: 'node',
     network: Network.devnet,
     daemon: false,
     rpcUrl: settings.devnet.rpcUrl,
     proxyUrl: `http://127.0.0.1:${settings.devnet.rpcProxyPort}`,
+    ...(fiberEnv
+      ? { fiber: fiberEnv.nodes.map((node) => ({ id: node.id, pid: node.process.pid, rpcUrl: node.rpcUrl })) }
+      : {}),
   });
 
-  // Treat CKB, miner and proxy as one service. A dead CKB must not leave a
-  // healthy-looking proxy and a miner that retries forever.
+  // Treat CKB, miner, proxy and the FNNs as one service. A dead component
+  // must not leave the rest looking healthy.
   let serviceStopping = false;
-  const stopService = (component: 'CKB node' | 'CKB miner', code: number | null, signal: NodeJS.Signals | null) => {
+  const stopService = (component: string, code: number | null, signal: NodeJS.Signals | null) => {
     if (serviceStopping) return;
     serviceStopping = true;
-    logSubscription?.close();
-    if (component !== 'CKB node' && !ckbProcess.killed) ckbProcess.kill('SIGTERM');
-    if (component !== 'CKB miner' && !minerProcess.killed) minerProcess.kill('SIGTERM');
-    proxy.stop();
-    if (process.env[DAEMON_CHILD_ENV] === '1') cleanupPidFile(resolveDaemonPaths().pidFile);
-    logger.error(`${component} exited unexpectedly (code=${code ?? 'null'}, signal=${signal ?? 'none'}).`);
-    process.exitCode = typeof code === 'number' && code > 0 ? code : 1;
+    void (async () => {
+      logSubscription?.close();
+      if (component !== 'CKB node' && !ckbProcess.killed) ckbProcess.kill('SIGTERM');
+      if (component !== 'CKB miner' && !minerProcess.killed) minerProcess.kill('SIGTERM');
+      proxy.stop();
+      if (fiberEnv) {
+        await stopFiberNodes(fiberEnv.nodes, settings);
+      }
+      if (process.env[DAEMON_CHILD_ENV] === '1') cleanupPidFile(resolveDaemonPaths().pidFile);
+      envLock?.release();
+      logger.error(`${component} exited unexpectedly (code=${code ?? 'null'}, signal=${signal ?? 'none'}).`);
+      process.exitCode = typeof code === 'number' && code > 0 ? code : 1;
+    })();
   };
   ckbProcess.once('exit', (code, signal) => stopService('CKB node', code, signal));
   minerProcess.once('exit', (code, signal) => stopService('CKB miner', code, signal));
+  if (fiberEnv) {
+    for (const node of fiberEnv.nodes) {
+      node.process.once('exit', (code, signal) => stopService(`FNN node ${node.id}`, code, signal));
+    }
+    installFiberSignalHandlers(ckbProcess, minerProcess, proxy, fiberEnv, settings);
+  }
+}
+
+// With --fiber the process group contains FNNs whose runtime.json should not
+// outlive a clean shutdown. Stop the whole group on Ctrl+C/SIGTERM instead of
+// letting each process fend for itself.
+function installFiberSignalHandlers(
+  ckbProcess: ChildProcess,
+  minerProcess: ChildProcess,
+  proxy: { stop: () => void },
+  fiberEnv: FiberEnvironment,
+  settings: Settings,
+) {
+  let handling = false;
+  const handler = (signal: 'SIGINT' | 'SIGTERM') => {
+    if (handling) return;
+    handling = true;
+    void (async () => {
+      logger.info(`Received ${signal}, stopping the devnet and fiber nodes...`);
+      if (!ckbProcess.killed) ckbProcess.kill('SIGTERM');
+      if (!minerProcess.killed) minerProcess.kill('SIGTERM');
+      proxy.stop();
+      await stopFiberNodes(fiberEnv.nodes, settings);
+      if (process.env[DAEMON_CHILD_ENV] === '1') cleanupPidFile(resolveDaemonPaths().pidFile);
+      process.exit(signal === 'SIGINT' ? 130 : 143);
+    })();
+  };
+  process.once('SIGINT', () => handler('SIGINT'));
+  process.once('SIGTERM', () => handler('SIGTERM'));
 }
 
 // CKB < 0.205.0 rejects the Terminal RPC module during config deserialization
@@ -384,220 +536,6 @@ async function clearForkFirstRunWhenNodeUp(
   }
 }
 
-function readPidFile(pidFile: string): PidMetadata | null {
-  let raw: string;
-  try {
-    raw = fs.readFileSync(pidFile, 'utf8').trim();
-  } catch (error) {
-    // Treat a missing or unreadable PID file as "no daemon".
-    return null;
-  }
-
-  if (!raw) {
-    return null;
-  }
-
-  // Backward compatibility: plain integer PID written by older versions.
-  const plainPid = Number(raw);
-  if (Number.isInteger(plainPid) && plainPid > 0) {
-    return { pid: plainPid, scriptPath: resolveCliEntry() ?? '', startedAt: new Date(0).toISOString() };
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as Partial<PidMetadata>;
-    const pid = Number(parsed.pid);
-    if (Number.isInteger(pid) && pid > 0 && typeof parsed.scriptPath === 'string') {
-      return {
-        pid,
-        scriptPath: parsed.scriptPath,
-        startedAt: parsed.startedAt ?? new Date(0).toISOString(),
-        status: parsed.status,
-      };
-    }
-  } catch {
-    // fall through to sentinel below
-  }
-
-  // Content exists but is neither a valid plain PID nor valid metadata.
-  // Return a sentinel so stopNode can report an invalid PID and clean up.
-  return { pid: NaN, scriptPath: '', startedAt: new Date(0).toISOString() };
-}
-
-function writePidFile(pidFile: string, metadata: PidMetadata) {
-  fs.writeFileSync(pidFile, JSON.stringify(metadata, null, 2));
-}
-
-function reservePidFile(pidFile: string, scriptPath: string): void {
-  let fd: number;
-  try {
-    fd = fs.openSync(pidFile, 'wx');
-  } catch (error) {
-    const err = error as NodeJS.ErrnoException;
-    if (err.code === 'EEXIST') {
-      throw new Error('A CKB devnet daemon startup is already in progress. Try again after it completes.');
-    }
-    throw new Error(`Failed to reserve daemon PID file ${pidFile}: ${err.message}`);
-  }
-
-  let writeError: Error | undefined;
-  try {
-    const reservation: PidMetadata = {
-      pid: process.pid,
-      scriptPath,
-      startedAt: new Date().toISOString(),
-      status: 'starting',
-    };
-    fs.writeFileSync(fd, JSON.stringify(reservation, null, 2));
-  } catch (error) {
-    writeError = error as Error;
-  } finally {
-    fs.closeSync(fd);
-  }
-  if (writeError) {
-    cleanupPidFile(pidFile);
-    throw new Error(`Failed to initialize daemon PID reservation ${pidFile}: ${writeError.message}`);
-  }
-}
-
-function resolveCliEntry(): string | null {
-  // In priority order. process.argv[1] is the most reliable for a Node CLI.
-  // OFFCKB_CLI_PATH is an escape hatch for packaged/npx/weird environments.
-  // require.main?.filename is a final fallback when argv is unavailable.
-  const candidates = [process.env.OFFCKB_CLI_PATH, process.argv[1], require.main?.filename].filter(
-    (c): c is string => typeof c === 'string' && c.length > 0,
-  );
-
-  for (const candidate of candidates) {
-    try {
-      const resolved = path.resolve(candidate);
-      const stats = fs.statSync(resolved);
-      if (stats.isFile()) {
-        return resolved;
-      }
-    } catch {
-      // Candidate is missing or not a file; try the next one.
-    }
-  }
-
-  return null;
-}
-
-function isProcessAlive(pid: number): boolean {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    const err = error as NodeJS.ErrnoException;
-    if (err.code === 'ESRCH') return false;
-    if (err.code === 'EPERM') throw new Error(`Permission denied when checking daemon process ${pid}.`);
-    throw error;
-  }
-}
-
-function cleanupPidFile(pidFile: string) {
-  try {
-    fs.unlinkSync(pidFile);
-  } catch (error) {
-    logger.warn(`Failed to remove PID file ${pidFile}:`, error);
-  }
-}
-
-function waitForProcessExit(pid: number, timeoutMs: number): Promise<boolean> {
-  const start = Date.now();
-  return new Promise((resolve, reject) => {
-    const check = () => {
-      try {
-        if (!isProcessAlive(pid)) {
-          resolve(true);
-          return;
-        }
-      } catch (error) {
-        reject(error);
-        return;
-      }
-      if (Date.now() - start >= timeoutMs) {
-        resolve(false);
-        return;
-      }
-      setTimeout(check, 100);
-    };
-    check();
-  });
-}
-
-function getProcessCommandLine(pid: number): Promise<string | null> {
-  return new Promise((resolve) => {
-    // Argument arrays, never an interpolated shell string: even though pid is
-    // validated as a positive integer on every path here, execFile keeps that
-    // true after any future refactor.
-    const [cmd, args]: [string, string[]] =
-      process.platform === 'win32'
-        ? ['wmic', ['process', 'where', `ProcessId=${pid}`, 'get', 'CommandLine', '/format:list']]
-        : ['ps', ['-p', String(pid), '-o', 'args=']];
-    execFile(cmd, args, (error, stdout) => {
-      if (error) {
-        resolve(null);
-        return;
-      }
-      if (process.platform === 'win32') {
-        const match = stdout.match(/CommandLine=(.+)/);
-        resolve(match ? match[1].trim() : null);
-      } else {
-        resolve(stdout.trim());
-      }
-    });
-  });
-}
-
-async function verifyDaemonIdentity(pid: number, metadata: PidMetadata): Promise<boolean> {
-  const cmdline = await getProcessCommandLine(pid);
-  if (!cmdline) {
-    return false;
-  }
-
-  // The daemon child re-runs the same CLI entry point, so its command line
-  // should reference the same script and should be a Node process.
-  const scriptName = path.basename(metadata.scriptPath);
-  const scriptDir = path.dirname(metadata.scriptPath);
-  const looksLikeNode = cmdline.includes('node') || cmdline.includes('nodejs');
-  const looksLikeOurScript =
-    cmdline.includes(metadata.scriptPath) || (scriptName !== '' && cmdline.includes(scriptName));
-  const looksLikeOffckb = cmdline.includes('offckb') || scriptDir.includes('offckb');
-
-  return looksLikeNode && (looksLikeOurScript || looksLikeOffckb);
-}
-
-function terminateProcess(pid: number, signal: 'SIGTERM' | 'SIGKILL'): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (process.platform === 'win32') {
-      // Windows has no POSIX signals and process.kill(pid) only terminates the
-      // single process. Use taskkill to terminate the whole tree.
-      // /T kills the process and all child processes.
-      // /F forces termination when SIGKILL is requested.
-      const args = signal === 'SIGKILL' ? ['/T', '/F', '/PID', String(pid)] : ['/T', '/PID', String(pid)];
-      const taskkill = spawn('taskkill', args, { stdio: 'ignore' });
-      taskkill.on('error', reject);
-      taskkill.on('exit', () => {
-        // taskkill may return non-zero if the process is already gone, which
-        // is acceptable for our purposes.
-        resolve();
-      });
-      return;
-    }
-
-    // On POSIX, detached: true makes the child a session/process group leader.
-    // A negative pid sends the signal to the entire process group, ensuring
-    // the CKB node, miner and RPC proxy all receive it.
-    try {
-      process.kill(-pid, signal);
-      resolve();
-    } catch (error) {
-      reject(error);
-    }
-  });
-}
-
 async function failDaemonStartup(error: Error, pid: number, pidFile: string): Promise<never> {
   let exited = false;
   try {
@@ -628,7 +566,7 @@ async function failDaemonStartup(error: Error, pid: number, pidFile: string): Pr
   throw error;
 }
 
-async function startDaemon() {
+async function startDaemon(waitForFiber = false) {
   const { logDir, logFile, pidFile } = resolveDaemonPaths();
 
   try {
@@ -745,6 +683,11 @@ async function startDaemon() {
         `CKB devnet daemon failed to become ready. See ${logFile}. ${readiness.error ?? 'Daemon process exited.'}`,
       );
     }
+    if (waitForFiber) {
+      // node --fiber --daemon: the child records a running fiber environment
+      // in runtime.json only after every Fiber startup check has passed.
+      await waitForFiberRuntimeRunning(child.pid!, settings, logFile);
+    }
     writePidFile(pidFile, { ...metadata, status: 'running' });
   } catch (error) {
     return failDaemonStartup(error as Error, child.pid, pidFile);
@@ -766,15 +709,20 @@ async function startDaemon() {
   });
 }
 
-function closeFileDescriptors(...fds: (number | undefined)[]) {
-  for (const fd of fds) {
-    if (fd === undefined) continue;
-    try {
-      fs.closeSync(fd);
-    } catch {
-      // ignore
+async function waitForFiberRuntimeRunning(managerPid: number, settings: Settings, logFile: string) {
+  const timeoutMs = 5 * 60_000; // the child may still be downloading FNN
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (!isProcessAlive(managerPid)) {
+      throw new Error(`The daemon exited before the fiber environment became ready. See ${logFile}.`);
     }
+    const runtime = readRuntime(settings);
+    if (runtime && runtime.managerPid === managerPid && runtime.status === 'running') {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
   }
+  throw new Error(`Timed out waiting for the fiber environment to become ready. See ${logFile}.`);
 }
 
 export async function stopNode() {
@@ -785,6 +733,24 @@ export async function stopNode() {
     logger.warn(`No daemon PID file found at ${pidFile}. Is the devnet daemon running?`);
     logger.result({ command: 'node.stop', stopped: false, reason: 'not-running' });
     return;
+  }
+
+  // FNNs managed by a separate fiber daemon must be stopped by that daemon's
+  // owner command; node stop never reaches across another manager.
+  const settings = readSettings();
+  const fiberDaemon = readPidFile(fiberDaemonPaths(settings).pidFile);
+  if (fiberDaemon && Number.isInteger(fiberDaemon.pid) && fiberDaemon.pid > 0 && isProcessAlive(fiberDaemon.pid)) {
+    throw new Error(
+      `Fiber nodes are managed by a separate fiber daemon (PID ${fiberDaemon.pid}). ` +
+        'Stop them first with: offckb fiber stop',
+    );
+  }
+  const fiberRuntime = readLiveRuntime(settings);
+  if (fiberRuntime && fiberRuntime.managerPid !== metadata.pid) {
+    logger.warn(
+      `FNN nodes appear to be managed by a foreground OffCKB process (PID ${fiberRuntime.managerPid}); ` +
+        'stop them in that terminal. Continuing to stop the CKB daemon...',
+    );
   }
 
   const pid = metadata.pid;
