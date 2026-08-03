@@ -19,6 +19,10 @@ export interface LogsOptions {
 }
 
 const DEFAULT_TAIL = 100;
+// Script entries are sparse in run.log (a devnet node writes many non-script
+// lines per second), so a script-filtered tail scans a much wider window and
+// trims back to `tail` after filtering.
+const SCRIPT_SCAN_FACTOR = 100;
 
 /**
  * Print (and optionally follow) a devnet log file. The core is synchronous so
@@ -28,10 +32,16 @@ const DEFAULT_TAIL = 100;
 export function showLogs(target: LogTarget, options: LogsOptions, settings: Settings, logger: UnifiedLogger): void {
   const filePath = resolveLogPath(target, settings);
   const tail = options.tail ?? DEFAULT_TAIL;
-
-  let lines = readLogTail(filePath, tail);
+  // A zero tail is rejected, not "print nothing": slice(-0) is slice(0), so
+  // script mode would otherwise dump every filtered line it scanned.
+  if (!Number.isInteger(tail) || tail <= 0) {
+    throw new Error(`--tail must be a positive integer (got ${options.tail})`);
+  }
   const scriptOnly = target === 'script';
-  if (scriptOnly) lines = filterLinesByTarget(lines, SCRIPT_LOG_TARGET);
+
+  const scanWindow = scriptOnly ? tail * SCRIPT_SCAN_FACTOR : tail;
+  let lines = readLogTail(filePath, scanWindow);
+  if (scriptOnly) lines = filterLinesByTarget(lines, SCRIPT_LOG_TARGET).slice(-tail);
   if (options.grep) lines = grepLines(lines, options.grep);
   for (const line of lines) logger.info(line);
 
@@ -52,6 +62,9 @@ export function showLogs(target: LogTarget, options: LogsOptions, settings: Sett
 }
 
 export function logsCommand(target: string | undefined, options: LogsOptions): void {
-  const resolved: LogTarget = LOG_TARGETS.includes(target as LogTarget) ? (target as LogTarget) : 'node';
+  if (target != null && !LOG_TARGETS.includes(target as LogTarget)) {
+    throw new Error(`Unknown log target '${target}'. Use one of: ${LOG_TARGETS.join(', ')}.`);
+  }
+  const resolved: LogTarget = (target as LogTarget) ?? 'node';
   showLogs(resolved, options, readSettings(), defaultLogger);
 }

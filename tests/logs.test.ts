@@ -194,11 +194,25 @@ describe('followLogFile', () => {
       listeners[0](grown, grown);
       expect(seen).toEqual([SCRIPT_LINE]);
 
-      // Rotation replaces the file with a shorter one; the next notification
-      // must reset the offset instead of seeking past the end.
+      // Truncation shrinks the file in place; the next notification must
+      // reset the offset instead of seeking past the end.
       fs.writeFileSync(file, `${ERROR_LINE}\n`);
       listeners[0](fs.statSync(file), grown);
       expect(seen).toEqual([SCRIPT_LINE, ERROR_LINE]);
+
+      fs.appendFileSync(file, `${NODE_LINE}\n`);
+      const regrown = fs.statSync(file);
+      listeners[0](regrown, regrown);
+      expect(seen).toEqual([SCRIPT_LINE, ERROR_LINE, NODE_LINE]);
+
+      // Rotation replaces the file: the old path is renamed away and a new
+      // file appears at the same path, possibly already larger than the old
+      // one. The size checks alone would keep the stale offset, so the inode
+      // change must restart the read from offset 0.
+      fs.renameSync(file, `${file}.1`);
+      fs.writeFileSync(file, [SCRIPT_LINE, ERROR_LINE, NODE_LINE, SCRIPT_LINE].join('\n') + '\n');
+      listeners[0](fs.statSync(file), regrown);
+      expect(seen).toEqual([SCRIPT_LINE, ERROR_LINE, NODE_LINE, SCRIPT_LINE, ERROR_LINE, NODE_LINE, SCRIPT_LINE]);
       stop();
     } finally {
       mockWatchFile.mockReset();

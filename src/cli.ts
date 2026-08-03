@@ -111,8 +111,8 @@ program
   .option('--grep <pattern>', 'Only show lines containing the given text')
   .option('--tail <lines>', 'Show the last N lines before following', (value: string) => {
     const parsed = Number(value);
-    if (!Number.isInteger(parsed) || parsed < 0) {
-      throw new InvalidArgumentError('--tail must be a non-negative integer');
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      throw new InvalidArgumentError('--tail must be a positive integer');
     }
     return parsed;
   })
