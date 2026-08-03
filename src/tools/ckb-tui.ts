@@ -202,7 +202,7 @@ export class CKBTui {
     const binaryName = process.platform === 'win32' ? 'ckb-tui.exe' : 'ckb-tui';
     this.binaryPath = path.join(binDir, binaryName);
 
-    const downloadUrl = `https://github.com/Officeyutong/ckb-tui/releases/download/${version}/${assetName}`;
+    const downloadUrl = `https://github.com/nervosnetwork/ckb-tui/releases/download/${version}/${assetName}`;
 
     // Ensure the target directory exists
     fs.mkdirSync(binDir, { recursive: true });
