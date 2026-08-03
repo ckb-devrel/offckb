@@ -72,10 +72,12 @@ export const TERMINAL_RPC_MIN_CKB_VERSION = '0.205.0';
 // of assuming support — a custom binary whose version cannot be probed must
 // not lose functionality it may actually have. The `-0` range suffix opts
 // 0.205.0 prereleases (rc builds already carry the Terminal module) into the
-// match; plain semver.gte would exclude them.
+// match; plain semver.gte would exclude them. includePrerelease extends that
+// to prereleases of NEWER versions (0.205.1-rc1, 0.206.0-rc1, ...), which the
+// tuple rule would otherwise reject even though they are past the minimum.
 export function supportsTerminalRpcModule(ckbVersion: string | null | undefined): boolean {
   if (ckbVersion == null || !semver.valid(ckbVersion)) return true;
-  return semver.satisfies(ckbVersion, `>=${TERMINAL_RPC_MIN_CKB_VERSION}-0`);
+  return semver.satisfies(ckbVersion, `>=${TERMINAL_RPC_MIN_CKB_VERSION}-0`, { includePrerelease: true });
 }
 
 // Whether the chain's ckb.toml currently enables the Terminal RPC module.

@@ -226,6 +226,9 @@ describe('Terminal RPC module version gating', () => {
     // 0.205.0 prereleases already ship the Terminal module.
     expect(supportsTerminalRpcModule('0.205.0-rc1')).toBe(true);
     expect(supportsTerminalRpcModule('0.204.9-rc1')).toBe(false);
+    // Prereleases of newer versions are past the minimum too.
+    expect(supportsTerminalRpcModule('0.205.1-rc1')).toBe(true);
+    expect(supportsTerminalRpcModule('0.206.0-rc1')).toBe(true);
   });
 
   it('strips Terminal from a freshly initialized template when the binary is too old', async () => {

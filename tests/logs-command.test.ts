@@ -102,6 +102,17 @@ describe('showLogs', () => {
     expect(transport.logs).toEqual([ERROR_LINE]);
   });
 
+  it('rejects a zero or negative tail instead of dumping the whole filtered log', () => {
+    const { settings, transport } = fixture();
+    const log = UnifiedLogger.create({ transports: [transport], showLevel: false });
+    // slice(-0) is slice(0): without validation, script mode would print every
+    // filtered line it scanned instead of nothing.
+    expect(() => showLogs('script', { tail: 0 }, settings, log)).toThrow(/positive integer/);
+    expect(() => showLogs('script', { tail: -0 }, settings, log)).toThrow(/positive integer/);
+    expect(() => showLogs('node', { tail: -5 }, settings, log)).toThrow(/positive integer/);
+    expect(transport.logs).toEqual([]);
+  });
+
   it('throws a helpful error when the log file does not exist', () => {
     const settings = JSON.parse(JSON.stringify(defaultSettings)) as Settings;
     settings.devnet.dataPath = '/nonexistent';

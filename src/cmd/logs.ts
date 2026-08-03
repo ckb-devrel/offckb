@@ -32,6 +32,11 @@ const SCRIPT_SCAN_FACTOR = 100;
 export function showLogs(target: LogTarget, options: LogsOptions, settings: Settings, logger: UnifiedLogger): void {
   const filePath = resolveLogPath(target, settings);
   const tail = options.tail ?? DEFAULT_TAIL;
+  // A zero tail is rejected, not "print nothing": slice(-0) is slice(0), so
+  // script mode would otherwise dump every filtered line it scanned.
+  if (!Number.isInteger(tail) || tail <= 0) {
+    throw new Error(`--tail must be a positive integer (got ${options.tail})`);
+  }
   const scriptOnly = target === 'script';
 
   const scanWindow = scriptOnly ? tail * SCRIPT_SCAN_FACTOR : tail;

@@ -3,6 +3,20 @@ import * as os from 'os';
 import * as path from 'path';
 import { createProxyEventLog, handleProxyRequestBody, handleProxyResponseBody } from '../src/tools/proxy-events';
 
+// renameSync goes through a mock so rollover failures can be simulated
+// deterministically (same pattern as the fs.watchFile stub in
+// logs-command.test.ts); the default delegates to the real implementation.
+const mockRenameSync = jest.fn();
+jest.mock('fs', () => ({
+  ...jest.requireActual('fs'),
+  renameSync: (...args: unknown[]) => mockRenameSync(...args),
+}));
+
+const realFs = jest.requireActual('fs') as typeof fs;
+beforeEach(() => {
+  mockRenameSync.mockImplementation(realFs.renameSync);
+});
+
 function makeSink() {
   const sink = { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() };
   return sink;
@@ -64,6 +78,23 @@ describe('handleProxyRequestBody', () => {
     expect(fs.existsSync(path.join(transactionsPath, '0xhash.json'))).toBe(true);
     const content = fs.readFileSync(ctx.events.filePath, 'utf8');
     expect(content).toMatch(/request get_tip_header/);
+    expect(content).toMatch(/send_transaction 0xhash/);
+  });
+
+  it('skips malformed batch members and still records the requests after them', () => {
+    const ctx = makeCtx(transactionsPath);
+    const tx = { cell_deps: [], inputs: [], outputs: [] };
+    handleProxyRequestBody(
+      JSON.stringify([null, { jsonrpc: '2.0', id: 2, method: 'send_transaction', params: [tx] }]),
+      ctx,
+    );
+    // The null member is skipped with a warning rather than aborting the batch.
+    expect(ctx.sink.warn).toHaveBeenCalledWith(expect.stringContaining('malformed'));
+    expect(ctx.sink.error).not.toHaveBeenCalled();
+    // The valid send_transaction after it is still recorded.
+    expect(ctx.sink.info).toHaveBeenCalledWith(expect.stringContaining('0xhash'));
+    expect(fs.existsSync(path.join(transactionsPath, '0xhash.json'))).toBe(true);
+    const content = fs.readFileSync(ctx.events.filePath, 'utf8');
     expect(content).toMatch(/send_transaction 0xhash/);
   });
 
@@ -194,11 +225,12 @@ describe('createProxyEventLog', () => {
     log.event('request get_tip_header');
     log.event('request get_blockchain_info');
 
-    // Block the rollover: a non-empty directory at the .1 path cannot be
-    // removed by the rollover's rmSync, so the rename never happens.
-    fs.rmSync(`${file}.1`, { force: true });
-    fs.mkdirSync(path.join(`${file}.1`, 'occupied'), { recursive: true });
+    // Block the rollover: every rename fails, so the active log stays put.
+    mockRenameSync.mockImplementation(() => {
+      throw new Error('rename blocked by test');
+    });
     log.event('request get_tip_header');
+    mockRenameSync.mockImplementation(realFs.renameSync);
 
     // The event is appended to the live file instead of being dropped.
     const current = fs.readFileSync(file, 'utf8');
@@ -206,10 +238,37 @@ describe('createProxyEventLog', () => {
     expect(current).toMatch(/get_tip_header/);
 
     // Once the blockage is gone the next event rolls over normally.
-    fs.rmSync(`${file}.1`, { recursive: true });
     log.event('request get_tip_header');
     const rolled = fs.readFileSync(`${file}.1`, 'utf8');
     expect(rolled).toMatch(/get_blockchain_info/);
     expect(rolled).toMatch(/get_tip_header/);
+  });
+
+  it('preserves the previous archive when the active-log rename fails', () => {
+    const file = path.join(dir, 'logs', 'proxy.log');
+    const log = createProxyEventLog(file, 60);
+    log.event('request get_blockchain_info');
+    // Second event rolls the log: .1 now holds the first generation.
+    log.event('request get_tip_header');
+    const archiveBefore = fs.readFileSync(`${file}.1`, 'utf8');
+    expect(archiveBefore).toMatch(/get_blockchain_info/);
+
+    // Fail only the active-log rename; the archive is moved aside first and
+    // must be put back when the swap cannot complete.
+    mockRenameSync.mockImplementation((oldPath: fs.PathLike, newPath: fs.PathLike) => {
+      if (String(oldPath) === file && String(newPath) === `${file}.1`) {
+        throw new Error('active-log rename blocked by test');
+      }
+      return realFs.renameSync(oldPath, newPath);
+    });
+    log.event('request get_tip_block_hash');
+
+    // The prior archive survived intact and no staging file was left behind.
+    expect(fs.readFileSync(`${file}.1`, 'utf8')).toBe(archiveBefore);
+    expect(fs.existsSync(`${file}.1.bak`)).toBe(false);
+    // The event that triggered the failed rollover was appended, not dropped.
+    const current = fs.readFileSync(file, 'utf8');
+    expect(current).toMatch(/get_tip_header/);
+    expect(current).toMatch(/get_tip_block_hash/);
   });
 });
