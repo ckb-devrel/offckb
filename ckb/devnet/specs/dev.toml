@@ -79,6 +79,15 @@ create_type_id = false
 [[genesis.system_cells]]
 file = { file = "secp256k1_blake160_multisig_all_v2" }
 create_type_id = false
+[[genesis.system_cells]]
+file = { file = "fiber/auth" }
+create_type_id = false
+[[genesis.system_cells]]
+file = { file = "fiber/funding_lock" }
+create_type_id = false
+[[genesis.system_cells]]
+file = { file = "fiber/commitment_lock" }
+create_type_id = false
 
 [genesis.system_cells_lock]
 code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"

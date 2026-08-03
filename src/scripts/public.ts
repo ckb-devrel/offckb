@@ -196,6 +196,9 @@ export const TESTNET_SYSTEM_SCRIPTS: SystemScriptsRecord = {
       ],
     },
   },
+  auth: undefined,
+  funding_lock: undefined,
+  commitment_lock: undefined,
 };
 
 export const MAINNET_SYSTEM_SCRIPTS: SystemScriptsRecord = {
@@ -321,6 +324,9 @@ export const MAINNET_SYSTEM_SCRIPTS: SystemScriptsRecord = {
       ],
     },
   },
+  auth: undefined,
+  funding_lock: undefined,
+  commitment_lock: undefined,
 };
 
 export default {

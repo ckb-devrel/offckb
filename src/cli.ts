@@ -18,6 +18,16 @@ import { debugSingleScript, debugTransaction, parseSingleScriptOption } from './
 import { logsCommand, LogsOptions } from './cmd/logs';
 import { printSystemScripts } from './cmd/system-scripts';
 import { transferAll } from './cmd/transfer-all';
+import {
+  fiberCleanCommand,
+  fiberLogs,
+  fiberStart,
+  fiberStatusCommand,
+  fiberStopCommand,
+  FiberLogsOptions,
+  FiberStartOptions,
+} from './cmd/fiber';
+import { FiberCleanOptions } from './fiber/clean';
 import { genSystemScriptsJsonFile } from './scripts/gen';
 import { CKBDebugger } from './tools/ckb-debugger';
 import { resolveMainnetForkOverride } from './util/fork-safety';
@@ -81,10 +91,29 @@ const nodeCommand = program
     '--verbose',
     'Print the full raw node/miner output (default shows lifecycle events, script output, tx hashes, and RPC errors)',
   )
+  .option('--fiber', 'Also start Fiber (FNN) nodes on the devnet (plain local chain only)')
+  .option('--fnn-version <fnnVersion>', 'Specify the FNN version to use with --fiber')
+  .option('--fnn-binary-path <fnnBinaryPath>', 'Specify a locally built FNN binary to use with --fiber')
+  .option('--fiber-nodes <count>', 'Number of FNN nodes to start with --fiber (1-16, default 2)', (value: string) => {
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 16) {
+      throw new InvalidArgumentError('--fiber-nodes must be an integer between 1 and 16');
+    }
+    return parsed;
+  })
   .action(
     async (
       version: string,
-      options: { network: Network; binaryPath?: string; daemon?: boolean; verbose?: boolean },
+      options: {
+        network: Network;
+        binaryPath?: string;
+        daemon?: boolean;
+        verbose?: boolean;
+        fiber?: boolean;
+        fnnVersion?: string;
+        fiberNodes?: number;
+        fnnBinaryPath?: string;
+      },
     ) => {
       return startNode({
         version,
@@ -92,6 +121,10 @@ const nodeCommand = program
         binaryPath: options.binaryPath,
         daemon: options.daemon,
         verbose: options.verbose,
+        fiber: options.fiber,
+        fnnVersion: options.fnnVersion,
+        fiberNodes: options.fiberNodes,
+        fnnBinaryPath: options.fnnBinaryPath,
       });
     },
   );
@@ -100,6 +133,61 @@ nodeCommand
   .command('stop')
   .description('Stop the running CKB devnet daemon')
   .action(async () => stopNode());
+
+const fiberCommand = program.command('fiber').description('Manage Fiber (FNN) nodes on the local devnet');
+
+fiberCommand
+  .command('start [FNN-Version]')
+  .description('Start Fiber (FNN) nodes on the running devnet CKB')
+  .option('--nodes <count>', 'Total number of FNN nodes (1-16, default 2)', (value: string) => {
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 16) {
+      throw new InvalidArgumentError('--nodes must be an integer between 1 and 16');
+    }
+    return parsed;
+  })
+  .option('-b, --binary-path <binaryPath>', 'Specify a locally built FNN binary path to use')
+  .option('--daemon', 'Run the fiber nodes in the background as a daemon')
+  .action(async (version: string | undefined, options: FiberStartOptions) => {
+    return fiberStart(version, options);
+  });
+
+fiberCommand
+  .command('stop')
+  .description('Stop the daemon-managed fiber nodes')
+  .action(async () => fiberStopCommand());
+
+fiberCommand
+  .command('status')
+  .description('Show the status of the local CKB and all fiber nodes')
+  .action(async () => fiberStatusCommand());
+
+fiberCommand
+  .command('logs')
+  .description('Show the log of a fiber node')
+  .requiredOption('--node <id>', 'Which fiber node to read logs from', (value: string) => {
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      throw new InvalidArgumentError('--node must be a positive integer');
+    }
+    return parsed;
+  })
+  .option('-f, --follow', 'Stream new log lines as they are written (like tail -f)')
+  .option('--tail <lines>', 'Show the last N lines before following', (value: string) => {
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed < 0) {
+      throw new InvalidArgumentError('--tail must be a non-negative integer');
+    }
+    return parsed;
+  })
+  .action((options: FiberLogsOptions) => fiberLogs(options));
+
+fiberCommand
+  .command('clean')
+  .description('Clean the fiber environment (does not touch the devnet CKB config or chain data)')
+  .option('-d, --data', 'Only remove the FNN stores, keep node accounts, identity keys and configs')
+  .option('-y, --yes', 'Skip the confirmation prompt')
+  .action(async (options: FiberCleanOptions) => fiberCleanCommand(options));
 
 program
   .command('logs')
