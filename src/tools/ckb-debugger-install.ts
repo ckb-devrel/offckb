@@ -11,9 +11,11 @@
  * simply download the one that matches the current platform.
  *
  * The installer follows the same shape as CKBTui's install flow:
- *   1. Discover the latest release + matching asset via the GitHub API.
- *   2. Download the archive into a temp directory.
- *   3. Verify its SHA-256 digest when GitHub provides one (fail closed).
+ *   1. Resolve the latest release tag via the `releases/latest` redirect
+ *      (no GitHub API involved, so there is no per-IP rate limit to hit).
+ *   2. Download the matching archive from a deterministic URL (the upstream
+ *      release workflow names assets `ckb-debugger_<tag>_<target>.tar.gz`).
+ *   3. Verify its SHA-256 digest against the published `-sha256.txt` (fail closed).
  *   4. Extract and publish the binary atomically under tools.rootFolder.
  *   5. Put a `ckb-debugger` shim next to the offckb binary so generated
  *      projects can find it on PATH.
@@ -24,28 +26,16 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as crypto from 'crypto';
-import AdmZip from 'adm-zip';
 import { Request } from '../util/request';
 import { readSettings, dataPath } from '../cfg/setting';
 import { logger } from '../util/logger';
 import { findFileInFolder } from '../util/fs';
 
 const DEBUGGER_REPO = 'nervosnetwork/ckb-standalone-debugger';
-const LATEST_RELEASE_API = `https://api.github.com/repos/${DEBUGGER_REPO}/releases/latest`;
+const RELEASES_URL = `https://github.com/${DEBUGGER_REPO}/releases`;
+const LATEST_URL = `${RELEASES_URL}/latest`;
 
 const EXTRACT_TIMEOUT_MS = 60_000;
-
-export interface CkbDebuggerReleaseAsset {
-  name: string;
-  browserDownloadUrl: string;
-  /** "sha256:<hex>" digest reported by the GitHub API for the asset. */
-  digest?: string;
-}
-
-export interface CkbDebuggerRelease {
-  tagName: string;
-  assets: CkbDebuggerReleaseAsset[];
-}
 
 export interface CkbDebuggerInstallResult {
   binaryPath: string;
@@ -78,51 +68,17 @@ export function isVersionAtLeast(version: string, minVersion: string): boolean {
 }
 
 /**
- * Pick the release asset matching the current platform/architecture.
- * Names are matched tolerantly so that small upstream naming changes do not
- * break the installer; archive assets (zip/tar.gz) are preferred over bare
- * executables.
+ * The `<target>` segment of the upstream release asset name for the current
+ * platform (assets are named `ckb-debugger_<tag>_<target>.tar.gz`, per the
+ * upstream release workflow). Returns null when no prebuilt asset exists.
  */
-export function selectAsset(
-  assets: CkbDebuggerReleaseAsset[],
-  platform: NodeJS.Platform,
-  arch: string,
-): CkbDebuggerReleaseAsset | null {
-  const matches = assets.filter((asset) => assetMatchesPlatform(asset.name, platform, arch));
-  if (matches.length === 0) {
-    return null;
-  }
-  const archive = matches.find((asset) => /\.(tar\.gz|tgz|zip)$/i.test(asset.name));
-  return archive || matches[0];
-}
-
-function assetMatchesPlatform(name: string, platform: NodeJS.Platform, arch: string): boolean {
-  const lower = name.toLowerCase();
-  switch (platform) {
-    case 'win32':
-      // Distinguish Windows from "darwin": a naive /win/ test matches the
-      // "win" inside "darwin" and would pick the macOS asset on Windows.
-      return arch === 'x64' && (lower.includes('windows') || /(^|[-_.])win(32|64)?[-_.]/.test(lower));
-    case 'linux':
-      return (
-        arch === 'x64' &&
-        /linux/i.test(lower) &&
-        (lower.includes('x86_64') || lower.includes('amd64') || lower.includes('x64'))
-      );
-    case 'darwin':
-      if (arch === 'arm64') {
-        return /(macos|darwin)/i.test(lower) && (lower.includes('aarch64') || lower.includes('arm64'));
-      }
-      if (arch === 'x64') {
-        return (
-          /(macos|darwin)/i.test(lower) &&
-          (lower.includes('x86_64') || lower.includes('amd64') || lower.includes('x64'))
-        );
-      }
-      return false;
-    default:
-      return false;
-  }
+export function getAssetTarget(platform: NodeJS.Platform, arch: string): string | null {
+  if (platform === 'linux' && arch === 'x64') return 'x86_64-unknown-linux-gnu';
+  if (platform === 'linux' && arch === 'arm64') return 'aarch64-unknown-linux-gnu';
+  if (platform === 'darwin' && arch === 'x64') return 'x86_64-apple-darwin';
+  if (platform === 'darwin' && arch === 'arm64') return 'aarch64-apple-darwin';
+  if (platform === 'win32' && arch === 'x64') return 'x86_64-pc-windows-msvc';
+  return null;
 }
 
 export class CKBDebuggerInstaller {
@@ -153,27 +109,28 @@ export class CKBDebuggerInstaller {
       }
     }
 
+    const target = getAssetTarget(process.platform, process.arch);
+    if (!target) {
+      throw new Error(`ckb-debugger has no prebuilt binary for ${process.platform}/${process.arch}.`);
+    }
+
     fs.mkdirSync(this.getInstallDir(), { recursive: true });
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'offckb-ckb-debugger-'));
     try {
-      // 1. Discover the latest release and the matching asset.
+      // 1. Resolve the latest release tag (no GitHub API, no rate limit).
       logger.info(`Looking up the latest ckb-debugger release from ${DEBUGGER_REPO}...`);
-      const release = await this.fetchLatestRelease();
-      const asset = selectAsset(release.assets, process.platform, process.arch);
-      if (!asset) {
-        const names = release.assets.map((a) => a.name).join(', ') || 'none';
-        throw new Error(
-          `No ckb-debugger release asset matches ${process.platform}/${process.arch}. ` + `Available assets: ${names}`,
-        );
-      }
-      logger.info(`Found ${release.tagName} · ${asset.name}`);
+      const tag = await this.resolveLatestTag();
+      const pkg = `ckb-debugger_${tag}_${target}`;
+      const archiveUrl = `${RELEASES_URL}/download/${tag}/${pkg}.tar.gz`;
+      const checksumUrl = `${RELEASES_URL}/download/${tag}/${pkg}-sha256.txt`;
+      logger.info(`Found ${tag} · ${pkg}.tar.gz`);
 
       // 2. Download the archive.
-      const archivePath = path.join(tempDir, asset.name);
-      await this.download(asset.browserDownloadUrl, archivePath);
+      const archivePath = path.join(tempDir, `${pkg}.tar.gz`);
+      await this.download(archiveUrl, archivePath);
 
-      // 3. Verify the digest when GitHub provides one.
-      this.verifyChecksum(asset, archivePath);
+      // 3. Verify the SHA-256 digest from the published checksum file.
+      await this.verifyChecksum(checksumUrl, archivePath);
 
       // 4. Extract to a temp directory.
       const extractDir = path.join(tempDir, 'extracted');
@@ -251,42 +208,15 @@ export class CKBDebuggerInstaller {
     }
   }
 
-  private static async fetchLatestRelease(): Promise<CkbDebuggerRelease> {
-    // The unauthenticated GitHub API is rate-limited per IP (403); on shared
-    // runner IPs a single attempt can fail spuriously, so retry with backoff.
-    const maxAttempts = 3;
-    let lastError: Error | undefined;
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        const response = await Request.send(LATEST_RELEASE_API, {
-          headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'offckb' },
-        });
-        const json = (await response.json()) as {
-          tag_name?: string;
-          assets?: Array<{ name?: string; browser_download_url?: string; digest?: string }>;
-        };
-        const tagName = json.tag_name || '';
-        const assets = (json.assets || [])
-          .filter((asset) => asset.name && asset.browser_download_url)
-          .map((asset) => ({
-            name: asset.name as string,
-            browserDownloadUrl: asset.browser_download_url as string,
-            digest: asset.digest,
-          }));
-        if (!tagName || assets.length === 0) {
-          throw new Error(`The GitHub API did not return a usable latest release for ${DEBUGGER_REPO}.`);
-        }
-        return { tagName, assets };
-      } catch (error) {
-        lastError = error as Error;
-        if (attempt < maxAttempts) {
-          const delayMs = 2 ** attempt * 1000;
-          logger.warn(`Release lookup failed (attempt ${attempt}/${maxAttempts}); retrying in ${delayMs / 1000}s...`);
-          await new Promise((resolve) => setTimeout(resolve, delayMs));
-        }
-      }
+  private static async resolveLatestTag(): Promise<string> {
+    // Follow the /releases/latest redirect (no GitHub API, so no per-IP rate
+    // limit) and read the tag from the final URL.
+    const response = await Request.send(LATEST_URL);
+    const match = /\/releases\/tag\/([^/?#]+)/.exec(response.url);
+    if (!match) {
+      throw new Error(`Could not resolve the latest ckb-debugger release from ${LATEST_URL}.`);
     }
-    throw lastError;
+    return match[1];
   }
 
   private static async download(url: string, targetPath: string): Promise<void> {
@@ -296,23 +226,19 @@ export class CKBDebuggerInstaller {
     fs.writeFileSync(targetPath, Buffer.from(arrayBuffer));
   }
 
-  /** Verify against the SHA-256 digest reported by the GitHub API, if any. */
-  private static verifyChecksum(asset: CkbDebuggerReleaseAsset, archivePath: string): void {
-    if (!asset.digest) {
-      logger.warn(`GitHub did not report a SHA-256 digest for ${asset.name}; skipping checksum verification.`);
-      return;
-    }
-    const match = /^sha256:([0-9a-f]{64})$/i.exec(asset.digest.trim());
+  /** Verify the archive against the SHA-256 digest published in the release. */
+  private static async verifyChecksum(checksumUrl: string, archivePath: string): Promise<void> {
+    const response = await Request.send(checksumUrl);
+    const text = await response.text();
+    const match = /([0-9a-f]{64})/i.exec(text);
     if (!match) {
-      logger.warn(`GitHub reported an unexpected digest format for ${asset.name}; skipping checksum verification.`);
-      return;
+      throw new Error(`Could not read a SHA-256 digest from ${checksumUrl}.`);
     }
     const expected = match[1].toLowerCase();
     const actual = crypto.createHash('sha256').update(fs.readFileSync(archivePath)).digest('hex');
     if (actual !== expected) {
       throw new Error(
-        `SHA-256 checksum mismatch for ${asset.name}.\n` +
-          `Expected: ${expected}\nActual:   ${actual}\n` +
+        `SHA-256 checksum mismatch.\nExpected: ${expected}\nActual:   ${actual}\n` +
           'The downloaded file may be corrupted or tampered with.',
       );
     }
@@ -332,14 +258,6 @@ export class CKBDebuggerInstaller {
       }
       if (result.status !== 0) {
         throw new Error(`tar exited with code ${result.status}`);
-      }
-    } else if (archivePath.endsWith('.zip')) {
-      try {
-        const zip = new AdmZip(archivePath);
-        zip.extractAllTo(extractDir, true);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`ZIP extraction failed: ${message}`);
       }
     } else {
       throw new Error(`Unsupported archive format: ${path.extname(archivePath)}`);
