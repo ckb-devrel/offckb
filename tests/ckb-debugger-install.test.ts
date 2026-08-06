@@ -2,6 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import crypto from 'crypto';
+import * as tar from 'tar';
 import { Request } from '../src/util/request';
 
 const mockSpawnSync = jest.fn();
@@ -107,23 +108,21 @@ describe('CKBDebuggerInstaller', () => {
     jest.restoreAllMocks();
   });
 
-  function buildTarGz(version: string): Buffer {
-    const realSpawnSync = jest.requireActual('child_process').spawnSync;
-    const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'offckb-debugger-stage-'));
-    try {
-      fs.writeFileSync(path.join(stage, platformBinaryName()), fakeBinaryPayload(version));
-      const archivePath = path.join(stage, 'archive.tar.gz');
-      const result = realSpawnSync('tar', ['-czf', archivePath, platformBinaryName()], {
-        cwd: stage,
-        stdio: 'ignore',
-      });
-      if (result.status !== 0) {
-        throw new Error('failed to create test tar.gz');
+  function buildTarGz(version: string): Promise<Buffer> {
+    // Use the cross-platform `tar` npm package (not the system tar binary):
+    // on Windows, GNU tar misreads the "C:\" drive prefix in temp paths as a
+    // remote host and fails, which breaks test-fixture creation there.
+    return (async () => {
+      const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'offckb-debugger-stage-'));
+      try {
+        fs.writeFileSync(path.join(stage, platformBinaryName()), fakeBinaryPayload(version));
+        const archivePath = path.join(stage, 'archive.tar.gz');
+        await tar.c({ gzip: true, file: archivePath, cwd: stage }, [platformBinaryName()]);
+        return fs.readFileSync(archivePath);
+      } finally {
+        fs.rmSync(stage, { recursive: true, force: true });
       }
-      return fs.readFileSync(archivePath);
-    } finally {
-      fs.rmSync(stage, { recursive: true, force: true });
-    }
+    })();
   }
 
   function mockRelease(version: string, buffer: Buffer) {
@@ -144,7 +143,7 @@ describe('CKBDebuggerInstaller', () => {
   }
 
   it('downloads, verifies and publishes the latest release binary', async () => {
-    const buffer = buildTarGz('0.208.0');
+    const buffer = await buildTarGz('0.208.0');
     mockRelease('0.208.0', buffer);
 
     const result = await CKBDebuggerInstaller.install();
@@ -186,7 +185,7 @@ describe('CKBDebuggerInstaller', () => {
       return jest.requireActual('child_process').spawnSync(cmd, args, { stdio: 'ignore' });
     });
 
-    const buffer = buildTarGz('0.208.0');
+    const buffer = await buildTarGz('0.208.0');
     mockRelease('0.208.0', buffer);
 
     const result = await CKBDebuggerInstaller.install();
@@ -196,7 +195,7 @@ describe('CKBDebuggerInstaller', () => {
   });
 
   it('fails closed when the downloaded checksum does not match', async () => {
-    const buffer = buildTarGz('0.208.0');
+    const buffer = await buildTarGz('0.208.0');
     requestSend.mockImplementation(async (url: string) => {
       if (url.includes('/releases/latest')) {
         return {
