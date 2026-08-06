@@ -126,8 +126,8 @@ function assetMatchesPlatform(name: string, platform: NodeJS.Platform, arch: str
 export class CKBDebuggerInstaller {
   /**
    * Install (or refresh) the native ckb-debugger binary for this platform.
-   * Throws on any failure; callers that want a degraded experience (e.g. the
-   * create flow falling back to the WASM shim) should catch the error.
+   * Throws on any failure; callers that can degrade (e.g. the create flow)
+   * should catch the error.
    */
   static async install(): Promise<CkbDebuggerInstallResult> {
     const binaryPath = this.getInstalledBinaryPath();
@@ -202,8 +202,7 @@ export class CKBDebuggerInstaller {
       logger.error(
         'Failed to install ckb-debugger:',
         message,
-        '\nPlease check your network connectivity and try again. ' +
-          'offckb will keep using the built-in WASM debugger as a fallback.',
+        '\nPlease check your network connectivity and try again with: offckb install ckb-debugger',
       );
       throw error;
     } finally {

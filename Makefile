@@ -1,6 +1,6 @@
-.PHONY: all omnilock anyone-can-pay xudt spore ckb-js-vm nostr-lock ckb-debugger apply-debugger-patches clean-debugger-patches
+.PHONY: all omnilock anyone-can-pay xudt spore ckb-js-vm nostr-lock
 
-all: omnilock anyone-can-pay xudt spore ckb-js-vm nostr-lock pw-lock secp256k1_multisig_v2 ckb-debugger
+all: omnilock anyone-can-pay xudt spore ckb-js-vm nostr-lock pw-lock secp256k1_multisig_v2
 
 omnilock:
 	@echo "Building omnilock via submodule"
@@ -52,25 +52,3 @@ secp256k1_multisig_v2:
 	@echo "Building secp256k1_multisig_v2 via submodule"
 	cd ckb/ckb-system-scripts/  && make all-via-docker
 	cp ckb/ckb-system-scripts/specs/cells/secp256k1_blake160_multisig_all ckb/devnet/specs/secp256k1_blake160_multisig_all_v2
-
-ckb-debugger:
-	@echo "Building ckb-debugger via submodule"
-	@echo "Applying patches to ckb-standalone-debugger..."
-	$(MAKE) apply-debugger-patches
-	cd ckb/ckb-standalone-debugger/ckb-debugger && cargo build --target wasm32-wasip1 --release
-	cp -r ckb/ckb-standalone-debugger/target/wasm32-wasip1/release/ckb-debugger.wasm src/tools/ckb-debugger.wasm
-
-apply-debugger-patches:
-	@echo "Checking if patches need to be applied..."
-	@cd ckb/ckb-standalone-debugger && \
-	if ! git diff --quiet HEAD -- ckb-debugger/src/syscall_file_operation.rs 2>/dev/null; then \
-		echo "Patches already applied."; \
-	else \
-		echo "Applying WASM FileOperation patches..."; \
-		git apply ../../patches/0001-Add-WASM-FileOperation-syscalls-implementation.patch; \
-	fi
-
-clean-debugger-patches:
-	@echo "Reverting ckb-debugger patches..."
-	@cd ckb/ckb-standalone-debugger && git reset --hard origin/develop && git clean -fd
-	

@@ -237,7 +237,7 @@ Then disable the WASM debugger in your mock test file:
 
 After completing these steps, `npm run test` should pass without mock test failures.
 
-`offckb create` tries to install `ckb-debugger` for you automatically when it is missing (and falls back to the built-in WASM debugger when the download is unavailable).
+`offckb create` installs `ckb-debugger` for you automatically when it is missing.
 
 ### 3. Deploy Your Contract {#deploy-contract}
 
@@ -317,13 +317,13 @@ All debug utilities are powered by [ckb-debugger](https://github.com/nervosnetwo
 
 **Install the Native ckb-debugger**
 
-offckb bundles a WASM build of `ckb-debugger` and uses it automatically when no native binary is available, so `offckb debug` works out of the box. For better performance (and for generated projects that call `ckb-debugger` directly), install the native binary:
+`offckb debug` requires the native `ckb-debugger` binary. Install it once with:
 
 ```sh
 offckb install ckb-debugger
 ```
 
-This downloads the prebuilt binary for your platform from the official [ckb-standalone-debugger releases](https://github.com/nervosnetwork/ckb-standalone-debugger/releases) (no Rust toolchain or compilation needed), verifies its checksum, and exposes it on PATH. Once installed, offckb will prefer the native binary over the WASM fallback.
+This downloads the prebuilt binary for your platform from the official [ckb-standalone-debugger releases](https://github.com/nervosnetwork/ckb-standalone-debugger/releases) (no Rust toolchain or compilation needed), verifies its checksum, and exposes it on PATH.
 
 To uninstall, remove the binary under the offckb data directory (see `offckb config list`) and the `ckb-debugger` shim next to the offckb binary.
 

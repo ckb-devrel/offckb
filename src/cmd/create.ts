@@ -165,20 +165,18 @@ export async function createScriptProject(name?: string, options: CreateScriptPr
     logger.info(['', '💡 To add a new contract:', `   ${projectInfo.packageManager} run add-contract <contract-name>`]);
 
     // Check if ckb-debugger is installed. When it isn't, install the native
-    // binary from the prebuilt release; if that fails (e.g. offline), fall
-    // back to a WASM-powered fallback binary so the generated project can
-    // still build and run mock tests.
+    // binary from the prebuilt release so the generated project can build and
+    // run mock tests. If the download fails (e.g. offline), the user can retry
+    // later with `offckb install ckb-debugger`.
     if (!CKBDebugger.isBinaryInstalled() || !CKBDebugger.isBinaryVersionValid()) {
       logger.info([`-----------`, `Oho! You don't have ckb-debugger installed, let me install it for you...`]);
       try {
         await CKBDebugger.installCKBDebuggerBinary();
       } catch (error) {
         logger.warn(
-          'Failed to install the native ckb-debugger, creating a WASM fallback binary instead. ' +
-            'You can retry later with: offckb install ckb-debugger',
+          'Failed to install ckb-debugger. You can retry later with: offckb install ckb-debugger',
           error as Error,
         );
-        CKBDebugger.createCkbDebuggerFallback();
       }
     }
   } catch (error: unknown) {
