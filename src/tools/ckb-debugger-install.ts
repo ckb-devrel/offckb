@@ -100,7 +100,9 @@ function assetMatchesPlatform(name: string, platform: NodeJS.Platform, arch: str
   const lower = name.toLowerCase();
   switch (platform) {
     case 'win32':
-      return arch === 'x64' && /win/i.test(lower);
+      // Distinguish Windows from "darwin": a naive /win/ test matches the
+      // "win" inside "darwin" and would pick the macOS asset on Windows.
+      return arch === 'x64' && (lower.includes('windows') || /(^|[-_.])win(32|64)?[-_.]/.test(lower));
     case 'linux':
       return (
         arch === 'x64' &&
@@ -250,25 +252,41 @@ export class CKBDebuggerInstaller {
   }
 
   private static async fetchLatestRelease(): Promise<CkbDebuggerRelease> {
-    const response = await Request.send(LATEST_RELEASE_API, {
-      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'offckb' },
-    });
-    const json = (await response.json()) as {
-      tag_name?: string;
-      assets?: Array<{ name?: string; browser_download_url?: string; digest?: string }>;
-    };
-    const tagName = json.tag_name || '';
-    const assets = (json.assets || [])
-      .filter((asset) => asset.name && asset.browser_download_url)
-      .map((asset) => ({
-        name: asset.name as string,
-        browserDownloadUrl: asset.browser_download_url as string,
-        digest: asset.digest,
-      }));
-    if (!tagName || assets.length === 0) {
-      throw new Error(`The GitHub API did not return a usable latest release for ${DEBUGGER_REPO}.`);
+    // The unauthenticated GitHub API is rate-limited per IP (403); on shared
+    // runner IPs a single attempt can fail spuriously, so retry with backoff.
+    const maxAttempts = 3;
+    let lastError: Error | undefined;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const response = await Request.send(LATEST_RELEASE_API, {
+          headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'offckb' },
+        });
+        const json = (await response.json()) as {
+          tag_name?: string;
+          assets?: Array<{ name?: string; browser_download_url?: string; digest?: string }>;
+        };
+        const tagName = json.tag_name || '';
+        const assets = (json.assets || [])
+          .filter((asset) => asset.name && asset.browser_download_url)
+          .map((asset) => ({
+            name: asset.name as string,
+            browserDownloadUrl: asset.browser_download_url as string,
+            digest: asset.digest,
+          }));
+        if (!tagName || assets.length === 0) {
+          throw new Error(`The GitHub API did not return a usable latest release for ${DEBUGGER_REPO}.`);
+        }
+        return { tagName, assets };
+      } catch (error) {
+        lastError = error as Error;
+        if (attempt < maxAttempts) {
+          const delayMs = 2 ** attempt * 1000;
+          logger.warn(`Release lookup failed (attempt ${attempt}/${maxAttempts}); retrying in ${delayMs / 1000}s...`);
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
+      }
     }
-    return { tagName, assets };
+    throw lastError;
   }
 
   private static async download(url: string, targetPath: string): Promise<void> {
