@@ -303,7 +303,9 @@ export class CKBDebuggerInstaller {
 
   private static extractArchive(archivePath: string, extractDir: string): void {
     if (archivePath.endsWith('.tar.gz') || archivePath.endsWith('.tgz')) {
-      const result = spawnSync('tar', ['-xzf', archivePath, '-C', extractDir], {
+      // --force-local: on Windows, GNU tar would otherwise interpret the
+      // drive prefix in "C:\...\file.tar.gz" as a remote host and fail.
+      const result = spawnSync('tar', ['-xzf', archivePath, '-C', extractDir, '--force-local'], {
         stdio: 'inherit',
         timeout: EXTRACT_TIMEOUT_MS,
       });
