@@ -274,6 +274,18 @@ mainnetForkOverrideOption(
 });
 
 program
+  .command('install')
+  .description('Install a tool binary used by offckb (e.g. the native ckb-debugger)')
+  .addArgument(new Argument('<tool>', 'The tool to install').choices(['ckb-debugger']))
+  .action(async (tool: string) => {
+    if (tool === 'ckb-debugger') {
+      await CKBDebugger.installCKBDebuggerBinary();
+      return;
+    }
+    throw new Error(`Unknown tool: ${tool}`);
+  });
+
+program
   .command('debugger')
   .description('Port of the raw CKB Standalone Debugger')
   .passThroughOptions()

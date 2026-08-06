@@ -2,6 +2,7 @@ import { spawnSync, execSync } from 'child_process';
 import * as path from 'path';
 import { readSettings } from '../cfg/setting';
 import { CkbDebuggerWasi } from './ckb-debugger-wasm';
+import { CKBDebuggerInstaller, isVersionAtLeast } from './ckb-debugger-install';
 import { logger } from '../util/logger';
 
 export interface DebugOption {
@@ -108,7 +109,7 @@ export class CKBDebugger {
     try {
       const version = result.stdout.toString().split(' ')[1];
       const settings = readSettings();
-      if (version < settings.tools.ckbDebugger.minVersion) {
+      if (!isVersionAtLeast(version, settings.tools.ckbDebugger.minVersion)) {
         return false;
       }
       return true;
@@ -117,16 +118,14 @@ export class CKBDebugger {
     }
   }
 
-  static installCKBDebuggerBinary() {
-    const command = `cargo install --git https://github.com/nervosnetwork/ckb-standalone-debugger ckb-debugger`;
-    try {
-      logger.info('Installing ckb-debugger...');
-      execSync(command, { stdio: 'inherit' });
-      logger.info('ckb-debugger installed successfully. You can uninstall it by running: cargo uninstall ckb-debugger');
-    } catch (error) {
-      logger.error('Failed to install ckb-debugger:', error as Error);
-      process.exit(1);
-    }
+  /**
+   * Install the native ckb-debugger binary by downloading the prebuilt
+   * release asset for the current platform (see CKBDebuggerInstaller).
+   * Throws on failure; callers that can degrade (e.g. to the WASM fallback)
+   * should catch the error.
+   */
+  static async installCKBDebuggerBinary() {
+    await CKBDebuggerInstaller.install();
   }
 
   /**
