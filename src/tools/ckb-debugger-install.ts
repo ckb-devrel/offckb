@@ -26,6 +26,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as crypto from 'crypto';
+import * as tar from 'tar';
 import { Request } from '../util/request';
 import { readSettings, dataPath } from '../cfg/setting';
 import { logger } from '../util/logger';
@@ -34,8 +35,6 @@ import { findFileInFolder } from '../util/fs';
 const DEBUGGER_REPO = 'nervosnetwork/ckb-standalone-debugger';
 const RELEASES_URL = `https://github.com/${DEBUGGER_REPO}/releases`;
 const LATEST_URL = `${RELEASES_URL}/latest`;
-
-const EXTRACT_TIMEOUT_MS = 60_000;
 
 export interface CkbDebuggerInstallResult {
   binaryPath: string;
@@ -135,7 +134,7 @@ export class CKBDebuggerInstaller {
       // 4. Extract to a temp directory.
       const extractDir = path.join(tempDir, 'extracted');
       fs.mkdirSync(extractDir, { recursive: true });
-      this.extractArchive(archivePath, extractDir);
+      await this.extractArchive(archivePath, extractDir);
 
       // 5. Locate the extracted binary.
       const extractedBinary = findFileInFolder(extractDir, getBinaryName());
@@ -245,28 +244,11 @@ export class CKBDebuggerInstaller {
     logger.info('SHA-256 checksum verified successfully.');
   }
 
-  private static extractArchive(archivePath: string, extractDir: string): void {
-    if (archivePath.endsWith('.tar.gz') || archivePath.endsWith('.tgz')) {
-      // On Windows, GNU tar (from Git) would interpret the drive prefix in
-      // "C:\...\file.tar.gz" as a remote host and fail; --force-local fixes
-      // that. macOS/Linux tar (BSD/GNU) must not receive the flag.
-      const args =
-        process.platform === 'win32'
-          ? ['-xzf', archivePath, '-C', extractDir, '--force-local']
-          : ['-xzf', archivePath, '-C', extractDir];
-      const result = spawnSync('tar', args, {
-        stdio: 'inherit',
-        timeout: EXTRACT_TIMEOUT_MS,
-      });
-      if (result.error) {
-        throw new Error(`tar extraction failed: ${result.error.message}`);
-      }
-      if (result.status !== 0) {
-        throw new Error(`tar exited with code ${result.status}`);
-      }
-    } else {
-      throw new Error(`Unsupported archive format: ${path.extname(archivePath)}`);
-    }
+  private static async extractArchive(archivePath: string, extractDir: string): Promise<void> {
+    // Use the cross-platform `tar` npm package rather than shelling out to the
+    // system tar binary, whose behavior differs across platforms (GNU tar on
+    // Linux/Windows, BSD tar on macOS). This matches node/install.ts.
+    await tar.x({ file: archivePath, cwd: extractDir });
   }
 
   /**

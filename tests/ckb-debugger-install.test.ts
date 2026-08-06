@@ -93,13 +93,11 @@ describe('CKBDebuggerInstaller', () => {
     binaryPath = path.join(mockDirs.toolsRoot, 'ckb-debugger', platformBinaryName());
     mockMinVersion.current = '0.200.0';
     // The offckb binary is not on PATH in the test environment: the PATH-shim
-    // step is skipped with a warning instead of touching the host. All other
-    // spawnSync calls (e.g. tar extraction) run for real.
-    const realSpawnSync = jest.requireActual('child_process').spawnSync;
-    mockSpawnSync.mockImplementation((cmd: string, args: string[]) =>
+    // step is skipped with a warning instead of touching the host.
+    mockSpawnSync.mockImplementation((cmd: string) =>
       cmd === 'which' || cmd === 'where'
         ? { status: 1, stdout: '', stderr: '' }
-        : realSpawnSync(cmd, args, { stdio: 'ignore' }),
+        : { status: 0, stdout: '', stderr: '' },
     );
   });
 
