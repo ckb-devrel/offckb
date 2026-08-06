@@ -12,9 +12,7 @@ export interface DebugOption {
 export class CKBDebugger {
   private static execute(args: string[]): void {
     if (!this.isBinaryInstalled()) {
-      throw new Error(
-        'ckb-debugger is not installed. Install it once with: offckb install ckb-debugger',
-      );
+      throw new Error('ckb-debugger is not installed. Install it once with: offckb install ckb-debugger');
     }
     const command = `ckb-debugger ${args.join(' ')}`;
     execSync(command, { stdio: 'inherit' });
