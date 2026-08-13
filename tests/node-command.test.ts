@@ -81,10 +81,36 @@ const dataPath = '/tmp/offckb-devnet-data';
 const logDir = path.join(dataPath, 'logs');
 const pidFile = path.join(logDir, 'daemon.pid');
 
+// Format a Date the way `ps -o lstart=` prints it ("Wed Aug 13 12:36:26 2026"),
+// which verifyDaemonIdentity parses for the start-time consistency check.
+function formatPsLstart(date: Date): string {
+  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return (
+    `${days[date.getDay()]} ${months[date.getMonth()]} ${pad(date.getDate())} ` +
+    `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())} ${date.getFullYear()}`
+  );
+}
+
+// execFile callbacks in the code under test are attached either directly or
+// after an options object; normalize both arities.
+function execFileCallback(optionsOrCallback: unknown, maybeCallback: unknown) {
+  return (typeof optionsOrCallback === 'function' ? optionsOrCallback : maybeCallback) as (
+    err: Error | null,
+    stdout?: string,
+  ) => void;
+}
+
 function mockDaemonCommandLine(scriptPath: string) {
   mockExecFile.mockImplementation(
-    (file: string, _args: string[], callback: (err: Error | null, stdout?: string) => void) => {
+    (file: string, args: string[], optionsOrCallback: unknown, maybeCallback?: unknown) => {
+      const callback = execFileCallback(optionsOrCallback, maybeCallback);
       if (file === 'ps') {
+        if (args.includes('lstart=')) {
+          callback(null, formatPsLstart(new Date()));
+          return undefined as unknown as ReturnType<typeof mockExecFile>;
+        }
         callback(null, `/usr/bin/node ${scriptPath} node`);
         return undefined as unknown as ReturnType<typeof mockExecFile>;
       }
@@ -197,8 +223,8 @@ describe('node command daemon mode', () => {
       JSON.stringify({ pid: 9999, scriptPath: '/path/to/offckb', startedAt: new Date().toISOString() }),
     );
     mockExecFile.mockImplementation(
-      (_file: string, _args: string[], callback: (err: Error | null, stdout?: string) => void) => {
-        callback(null, '/usr/bin/some-unrelated-process');
+      (_file: string, _args: string[], optionsOrCallback: unknown, maybeCallback?: unknown) => {
+        execFileCallback(optionsOrCallback, maybeCallback)(null, '/usr/bin/some-unrelated-process');
         return undefined as unknown as ReturnType<typeof mockExecFile>;
       },
     );
@@ -401,6 +427,7 @@ describe('node command stop', () => {
   let processAlive = true;
   const scriptPath = '/path/to/offckb';
   const originalPlatform = process.platform;
+  const originalArgv = process.argv;
 
   // Serve the given content only for the CKB daemon PID file; other files
   // (fiber daemon PID, fiber runtime.json) read as absent, matching a
@@ -426,6 +453,9 @@ describe('node command stop', () => {
     mockStatSync.mockReturnValue({ isFile: () => true });
     mockPidFileContent(JSON.stringify({ pid: 12345, scriptPath, startedAt: new Date().toISOString() }));
     mockDaemonCommandLine(scriptPath);
+    // The stop command runs from the same CLI installation as the daemon;
+    // identity verification resolves our entry from argv.
+    process.argv = ['node', scriptPath, 'node', 'stop'];
 
     // Normalize to POSIX for deterministic signal-based assertions.  The
     // implementation has a separate Windows path (taskkill) that is exercised
@@ -452,6 +482,7 @@ describe('node command stop', () => {
   afterEach(() => {
     killSpy.mockRestore();
     setPlatform(originalPlatform);
+    process.argv = originalArgv;
     jest.useRealTimers();
   });
 
@@ -520,8 +551,8 @@ describe('node command stop', () => {
 
   it('refuses to kill a process that does not look like the daemon', async () => {
     mockExecFile.mockImplementation(
-      (_file: string, _args: string[], callback: (err: Error | null, stdout?: string) => void) => {
-        callback(null, '/usr/bin/some-other-process');
+      (_file: string, _args: string[], optionsOrCallback: unknown, maybeCallback?: unknown) => {
+        execFileCallback(optionsOrCallback, maybeCallback)(null, '/usr/bin/some-other-process');
         return undefined as unknown as ReturnType<typeof mockExecFile>;
       },
     );

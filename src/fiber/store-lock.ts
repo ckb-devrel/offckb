@@ -9,8 +9,10 @@ import * as fs from 'fs';
  * RocksDB keeps the LOCK file open (and fcntl-locked) for the store's whole
  * lifetime, so "held open by a process" is the signal. Windows has no lsof;
  * there a self-rename fails while a process holds the file.
+ *
+ * lsofCommand only exists so tests can point at a fake or missing lsof.
  */
-export function isStoreLockHeld(lockFile: string): boolean | null {
+export function isStoreLockHeld(lockFile: string, lsofCommand: string = 'lsof'): boolean | null {
   if (!fs.existsSync(lockFile)) {
     // No lock file means no store was ever opened (or it was removed);
     // nothing is holding it.
@@ -27,7 +29,7 @@ export function isStoreLockHeld(lockFile: string): boolean | null {
     }
   }
   try {
-    const stdout = execFileSync('lsof', ['--', lockFile], {
+    const stdout = execFileSync(lsofCommand, ['--', lockFile], {
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 5000,
       encoding: 'utf8',

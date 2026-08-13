@@ -13,12 +13,16 @@ export interface FiberNodeEntry {
 }
 
 // These fields are owned by offckb; setting them per node would break the
-// environment in ways the startup checks cannot recover from.
+// environment in ways the startup checks cannot recover from. fiber.store_path
+// is managed so the store always lives where fiberNodePaths points — a
+// relocated store would make clean's RocksDB LOCK check inspect the wrong
+// path and silently lose its fail-closed property.
 export const MANAGED_CONFIG_PATHS = [
   'fiber.chain',
   'fiber.scripts',
   'fiber.listening_addr',
   'fiber.bootnode_addrs',
+  'fiber.store_path',
   'rpc.listening_addr',
   'ckb.rpc_url',
   'ckb.udt_whitelist',

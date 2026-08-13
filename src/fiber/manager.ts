@@ -286,6 +286,13 @@ export interface StartFiberEnvironmentOptions {
  * spec, spawn all FNNs with their own logs, wait for their RPCs, verify the
  * chain/identity/account checks and interconnect the nodes. On any failure
  * the FNNs started here are stopped again.
+ *
+ * Signal handlers are installed BEFORE the first FNN spawn and stay until
+ * the environment is ready: a Ctrl+C during the startup window (RPC waits
+ * can stretch to ~90s) stops the partially started nodes and drops the
+ * `starting` runtime record instead of orphaning the FNNs and wedging every
+ * later start/stop/clean. On success the handlers are removed before the
+ * caller installs its own supervision.
  */
 export async function startFiberEnvironment(options: StartFiberEnvironmentOptions): Promise<FiberEnvironment> {
   const settings = options.settings ?? readSettings();
@@ -310,40 +317,65 @@ export async function startFiberEnvironment(options: StartFiberEnvironmentOption
   // ENOSPC), the children started so far must not be left running without a
   // runtime record — OffCKB would refuse to touch those orphans.
   const handles: FnnProcessHandle[] = [];
-  try {
-    for (const node of nodes) {
-      handles.push(spawnFnn(node, options.fnnPath, settings));
-    }
-  } catch (error) {
-    await stopFiberNodes(handles, settings);
-    throw error;
-  }
-  const runtime: FiberRuntime = {
-    managerPid: process.pid,
-    startedAt: new Date().toISOString(),
-    status: 'starting',
-    nodes: handles.map((handle) => ({
-      id: handle.id,
-      pid: handle.process.pid ?? 0,
-      dir: handle.dir,
-      rpcUrl: handle.rpcUrl,
-    })),
+  let signalCleanupStarted = false;
+  const onStartupSignal = (signal: 'SIGINT' | 'SIGTERM') => {
+    void (async () => {
+      if (signalCleanupStarted) return;
+      signalCleanupStarted = true;
+      logger.info(`Received ${signal} during fiber startup; stopping the partially started FNN nodes...`);
+      // Same cleanup as the post-ready stop path: SIGTERM the children,
+      // escalate to SIGKILL after the grace period, drop the runtime record.
+      await stopFiberNodes(handles, settings);
+      process.exit(signal === 'SIGINT' ? 130 : 143);
+    })();
   };
-  writeRuntime(runtime, settings);
+  const onSigint = () => onStartupSignal('SIGINT');
+  const onSigterm = () => onStartupSignal('SIGTERM');
+  process.once('SIGINT', onSigint);
+  process.once('SIGTERM', onSigterm);
+  const removeStartupSignalHandlers = () => {
+    process.removeListener('SIGINT', onSigint);
+    process.removeListener('SIGTERM', onSigterm);
+  };
 
   try {
-    const nodeInfos = await waitForAllNodeInfo(handles, FNN_RPC_TIMEOUT_MS);
-    await assertChainConsistency(handles, nodeInfos, options.chainScripts.genesisHash, settings);
-    await assertNodeIdentitiesAndFunds(handles, nodeInfos, settings);
-    await connectFiberPeers(handles, nodeInfos);
-    writeRuntime({ ...runtime, status: 'running' }, settings);
-    return { nodes: handles, nodeInfos, genesisHash: options.chainScripts.genesisHash };
-  } catch (error) {
-    await stopFiberNodes(handles, settings);
-    if (error instanceof FiberStartupError) {
-      throw new FiberStartupError(error.message, []);
+    try {
+      for (const node of nodes) {
+        handles.push(spawnFnn(node, options.fnnPath, settings));
+      }
+    } catch (error) {
+      await stopFiberNodes(handles, settings);
+      throw error;
     }
-    throw error;
+    const runtime: FiberRuntime = {
+      managerPid: process.pid,
+      startedAt: new Date().toISOString(),
+      status: 'starting',
+      nodes: handles.map((handle) => ({
+        id: handle.id,
+        pid: handle.process.pid ?? 0,
+        dir: handle.dir,
+        rpcUrl: handle.rpcUrl,
+      })),
+    };
+    writeRuntime(runtime, settings);
+
+    try {
+      const nodeInfos = await waitForAllNodeInfo(handles, FNN_RPC_TIMEOUT_MS);
+      await assertChainConsistency(handles, nodeInfos, options.chainScripts.genesisHash, settings);
+      await assertNodeIdentitiesAndFunds(handles, nodeInfos, settings);
+      await connectFiberPeers(handles, nodeInfos);
+      writeRuntime({ ...runtime, status: 'running' }, settings);
+      return { nodes: handles, nodeInfos, genesisHash: options.chainScripts.genesisHash };
+    } catch (error) {
+      await stopFiberNodes(handles, settings);
+      if (error instanceof FiberStartupError) {
+        throw new FiberStartupError(error.message, []);
+      }
+      throw error;
+    }
+  } finally {
+    removeStartupSignalHandlers();
   }
 }
 
@@ -352,7 +384,11 @@ export async function startFiberEnvironment(options: StartFiberEnvironmentOption
  * SIGKILL if the grace period expires. Removes runtime.json when this process
  * is the recorded manager. Never touches processes it was not handed.
  */
-export async function stopFiberNodes(nodes: FnnProcessHandle[], settings: Settings = readSettings()): Promise<void> {
+export async function stopFiberNodes(
+  nodes: FnnProcessHandle[],
+  settings: Settings = readSettings(),
+  graceMs: number = STOP_GRACE_TIMEOUT_MS,
+): Promise<void> {
   for (const node of nodes) {
     if (node.process.exitCode == null && node.process.signalCode == null && !node.process.killed) {
       try {
@@ -362,7 +398,7 @@ export async function stopFiberNodes(nodes: FnnProcessHandle[], settings: Settin
       }
     }
   }
-  const deadline = Date.now() + STOP_GRACE_TIMEOUT_MS;
+  const deadline = Date.now() + graceMs;
   for (const node of nodes) {
     const remaining = deadline - Date.now();
     if (remaining <= 0) break;

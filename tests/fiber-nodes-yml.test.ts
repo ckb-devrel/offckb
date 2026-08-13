@@ -94,6 +94,18 @@ describe('readNodesYml', () => {
     expect(() => readNodesYml(settings)).toThrow('fiber.chain');
   });
 
+  it('rejects a per-node fiber.store_path override', () => {
+    // A relocated store would make clean's RocksDB LOCK check watch the wrong
+    // path, silently dropping its fail-closed property.
+    const settings = fixture();
+    fs.mkdirSync(path.dirname(nodesYmlPath(settings)), { recursive: true });
+    fs.writeFileSync(
+      nodesYmlPath(settings),
+      yaml.dump({ nodes: [{ id: 1, config: { fiber: { store_path: '/tmp/elsewhere' } } }] }),
+    );
+    expect(() => readNodesYml(settings)).toThrow('fiber.store_path');
+  });
+
   it('rejects managed rpc and ckb fields', () => {
     const settings = fixture();
     fs.mkdirSync(path.dirname(nodesYmlPath(settings)), { recursive: true });
