@@ -99,3 +99,41 @@ describe('CKBDebugger', () => {
     );
   });
 });
+
+describe('CKBDebugger.runRaw', () => {
+  it('strips quotes from a quoted tx-file path instead of passing them to argv', () => {
+    mockSpawnSync.mockReturnValue({ status: 0 });
+
+    CKBDebugger.runRaw('--tx-file "/tmp/offckb/devnet/full-transactions/0xabc.json" --cell-index 0');
+
+    expect(mockExecFileSync).toHaveBeenCalledWith(
+      'ckb-debugger',
+      ['--tx-file', '/tmp/offckb/devnet/full-transactions/0xabc.json', '--cell-index', '0'],
+      expect.anything(),
+    );
+  });
+
+  it('keeps a quoted path containing spaces as a single argv element', () => {
+    mockSpawnSync.mockReturnValue({ status: 0 });
+
+    CKBDebugger.runRaw('--tx-file "/path/with space/tx.json" --bin "/my bin/ckb"');
+
+    expect(mockExecFileSync).toHaveBeenCalledWith(
+      'ckb-debugger',
+      ['--tx-file', '/path/with space/tx.json', '--bin', '/my bin/ckb'],
+      expect.anything(),
+    );
+  });
+
+  it('passes unquoted arguments through unchanged', () => {
+    mockSpawnSync.mockReturnValue({ status: 0 });
+
+    CKBDebugger.runRaw('--tx-file /unquoted/path.json --cell-type input');
+
+    expect(mockExecFileSync).toHaveBeenCalledWith(
+      'ckb-debugger',
+      ['--tx-file', '/unquoted/path.json', '--cell-type', 'input'],
+      expect.anything(),
+    );
+  });
+});
