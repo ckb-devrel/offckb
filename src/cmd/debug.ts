@@ -185,7 +185,7 @@ export async function buildContract(jsFile: string, outputFile: string, jsVmPath
     // Use the CKBDebugger to compile JavaScript to bytecode
     const args = ['--read-file', jsFile, '--bin', ckbJsVmPath, '--', '-c', outputFile];
 
-    await CKBDebugger.runWithArgs(args);
+    CKBDebugger.runWithArgs(args);
     logger.success(`✅ Contract built successfully: ${outputFile}`);
   } catch (error) {
     throw new Error(`Build failed: ${error instanceof Error ? error.message : String(error)}`);
