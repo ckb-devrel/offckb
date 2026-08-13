@@ -3,27 +3,38 @@ overrides:
   "form-data@>=4.0.0 <4.0.6": "4.0.6"
   # GHSA-88fw-hqm2-52qc: CORS middleware reflects any origin with credentials. Remove when hono >=4.12.25.
   # GHSA-xgm2-5f3f-mvvc / GHSA-hvrm-45r6-mjfj / GHSA-w62v-xxxg-mg59: repeated-header drop, JSX context leakage, JSX escaping bypass. Remove when hono >=4.12.27.
-  "hono@<4.12.27": "4.12.27"
+  # GHSA-54fx-42gc-7vw4 / GHSA-79qm-7rj5-m7r9 / GHSA-f23p-vx2j-j53r: language-middleware DoS, proxy-helper header handling, memo() cross-request SSR leakage. Remove when hono >=4.12.34.
+  "hono@<4.12.34": "4.12.34"
   # GHSA-q8mj-m7cp-5q26: qs.stringify DoS. Remove when direct dependency upgrades qs >=6.15.2.
   "qs@>=6.11.1 <=6.15.1": "6.15.2"
   # GHSA-v2v4-37r5-5v8g: XSS in Address6 HTML-emitting methods. Remove when direct dependency upgrades ip-address >=10.1.1.
-  "ip-address@<=10.1.0": "10.1.1"
+  # GHSA-22jq-vg5j-6vgg / GHSA-4xrf-jv44-h6hh / GHSA-mwp4-54f8-5fhr: IPv4-mapped/NAT64 misclassification, CIDR-suffix special-use bypass, leading-zero octal SSRF. Remove when direct dependency upgrades ip-address >=10.3.1.
+  "ip-address@<=10.3.0": "10.3.1"
   # GHSA-h67p-54hq-rp68: quadratic-complexity DoS in merge key handling. Remove when js-yaml 3.x >=3.15.0.
-  "js-yaml@<3.15.0": "3.15.0"
+  # GHSA-5p4m-2wfm-xmqj: quadratic CPU consumption in !!omap resolution. Remove when js-yaml 3.x >=3.15.1.
+  "js-yaml@<3.15.1": "3.15.1"
   # GHSA-h67p-54hq-rp68 / GHSA-52cp-r559-cp3m: quadratic-complexity DoS in merge key handling. Remove when js-yaml 4.x >=4.3.0.
-  "js-yaml@>=4.0.0 <4.3.0": "4.3.0"
+  # GHSA-5p4m-2wfm-xmqj: quadratic CPU consumption in !!omap resolution. Remove when js-yaml 4.x >=4.3.1.
+  "js-yaml@>=4.0.0 <4.3.1": "4.3.1"
   # GHSA-4x5r-pxfx-6jf8: arbitrary file read via sourceMappingURL. Remove when @babel/core >=7.29.6.
   "@babel/core@<=7.29.0": "7.29.7"
   # GHSA-xffm-g5w8-qvg7: ReDoS in ConfigCommentParser. Remove when @eslint/plugin-kit >=0.3.4.
   "@eslint/plugin-kit@<0.3.4": "0.3.4"
   # GHSA-3jxr-9vmj-r5cp: exponential-time expansion of consecutive non-expanding {} groups. Remove when brace-expansion 1.x >=1.1.16.
-  "brace-expansion@<1.1.16": "1.1.16"
+  # GHSA-mh99-v99m-4gvg / GHSA-rgw5-rvv9-x895: DoS via unbounded expansion length / unbounded intermediate arrays. Remove when brace-expansion 1.x >=1.1.18.
+  "brace-expansion@<1.1.18": "1.1.18"
   # GHSA-jxxr-4gwj-5jf2 / GHSA-3jxr-9vmj-r5cp: brace range / exponential-time expansion DoS. Remove when brace-expansion >=5.0.7.
-  "brace-expansion@>=5.0.0 <5.0.7": "5.0.7"
+  # GHSA-mh99-v99m-4gvg / GHSA-rgw5-rvv9-x895: DoS via unbounded expansion length / unbounded intermediate arrays. Remove when brace-expansion 5.x >=5.0.9.
+  "brace-expansion@>=4.0.0 <5.0.9": "5.0.9"
   # GHSA-v2hh-gcrm-f6hx / GHSA-4c8g-83qw-93j6: host confusion via backslash authority / failed IDN canonicalization. Remove when fast-uri >=3.1.4.
-  "fast-uri@<3.1.4": "3.1.4"
+  # GHSA-7p8r-x3mc-p8w7: host confusion via backslash authority introducer. Remove when fast-uri >=3.1.5.
+  "fast-uri@<3.1.5": "3.1.5"
   # GHSA-v422-hmwv-36x6: invalid limit value silently disables size enforcement. Remove when body-parser 2.x >=2.3.0.
   "body-parser@>=2.0.0 <2.3.0": "2.3.0"
+  # GHSA-frvp-7c67-39w9: path traversal in serve-static on Windows via encoded backslash. Remove when @hono/node-server >=2.0.5
+  # GHSA-9mqv-5hh9-4cgg: unauthenticated memory-leak DoS via aborted WebSocket handshake. Remove when @hono/node-server >=2.0.10
+  # (requires @modelcontextprotocol/sdk >=1.30.0, which declares "^1.19.9 || ^2.0.5").
+  "@hono/node-server@<2.0.10": "2.0.10"
 
 onlyBuiltDependencies:
   - secp256k1
@@ -31,14 +42,15 @@ onlyBuiltDependencies:
 minimumReleaseAgeExclude:
   # Matches the overrides above; these versions are very recent but required for the security fixes.
   - "@eslint/plugin-kit@0.3.4"
-  - "ip-address@10.1.1"
+  - "ip-address@10.3.1"
   - "qs@6.15.2"
-  - "brace-expansion@1.1.16"
-  - "brace-expansion@5.0.7"
+  - "brace-expansion@1.1.18"
+  - "brace-expansion@5.0.9"
   - "@babel/core@7.29.7"
-  - "js-yaml@3.15.0"
-  - "js-yaml@4.3.0"
+  - "js-yaml@3.15.1"
+  - "js-yaml@4.3.1"
   - "tar@7.5.21"
-  - "hono@4.12.27"
-  - "fast-uri@3.1.4"
+  - "hono@4.12.34"
+  - "fast-uri@3.1.5"
   - "body-parser@2.3.0"
+  - "@hono/node-server@2.0.10"

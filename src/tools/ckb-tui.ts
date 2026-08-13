@@ -127,6 +127,11 @@ export class CKBTui {
       // Metadata alone does not prove readability; an unreadable binary must
       // flow into the reinstall path (which republishes with correct modes).
       fs.accessSync(binaryPath, fs.constants.R_OK);
+      // The binary is spawned directly, so a lost execute bit must also count
+      // as a mismatch. Windows reports X_OK for any readable file.
+      if (process.platform !== 'win32') {
+        fs.accessSync(binaryPath, fs.constants.X_OK);
+      }
       if (!expected) {
         return true;
       }
@@ -202,7 +207,7 @@ export class CKBTui {
     const binaryName = process.platform === 'win32' ? 'ckb-tui.exe' : 'ckb-tui';
     this.binaryPath = path.join(binDir, binaryName);
 
-    const downloadUrl = `https://github.com/Officeyutong/ckb-tui/releases/download/${version}/${assetName}`;
+    const downloadUrl = `https://github.com/nervosnetwork/ckb-tui/releases/download/${version}/${assetName}`;
 
     // Ensure the target directory exists
     fs.mkdirSync(binDir, { recursive: true });

@@ -164,13 +164,18 @@ export async function createScriptProject(name?: string, options: CreateScriptPr
 
     logger.info(['', '💡 To add a new contract:', `   ${projectInfo.packageManager} run add-contract <contract-name>`]);
 
-    // check if ckb-debugger is installed
-    if (!CKBDebugger.isBinaryInstalled() || !CKBDebugger.isBinaryVersionValid()) {
-      logger.info([
-        `-----------`,
-        `Oho! You don't have ckb-debugger installed, let me create a fallback binary for you...`,
-      ]);
-      CKBDebugger.createCkbDebuggerFallback();
+    // Make sure the native ckb-debugger is present and current so the
+    // generated project can build and run mock tests. install() is the single
+    // decision point and is idempotent: it returns immediately when a
+    // satisfying binary is already in place, otherwise it downloads the
+    // prebuilt release. On failure (e.g. offline) the user can retry later
+    // with `offckb install ckb-debugger`.
+    logger.info('🔧 Checking the ckb-debugger installation...');
+    try {
+      await CKBDebugger.installCKBDebuggerBinary();
+    } catch {
+      // The installer already logged the detailed failure; keep this one brief.
+      logger.warn('Failed to install ckb-debugger. You can retry later with: offckb install ckb-debugger');
     }
   } catch (error: unknown) {
     throw new Error(`Failed to create project: ${(error as Error).message}`);

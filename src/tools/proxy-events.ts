@@ -63,9 +63,28 @@ export function createProxyEventLog(filePath: string, maxBytes = PROXY_LOG_MAX_B
         const line = `${new Date().toISOString()} ${sanitizeEventText(text)}\n`;
         if (size < 0) size = fs.existsSync(filePath) ? fs.statSync(filePath).size : 0;
         if (size > 0 && size + Buffer.byteLength(line) > maxBytes) {
-          fs.rmSync(`${filePath}.1`, { force: true });
-          fs.renameSync(filePath, `${filePath}.1`);
-          size = 0;
+          try {
+            // The previous archive is moved aside rather than deleted up
+            // front: if the active-log rename then fails, the archive is
+            // restored instead of permanently lost.
+            const archivePath = `${filePath}.1`;
+            const backupPath = `${filePath}.1.bak`;
+            fs.rmSync(backupPath, { force: true });
+            const hadArchive = fs.existsSync(archivePath);
+            if (hadArchive) fs.renameSync(archivePath, backupPath);
+            try {
+              fs.renameSync(filePath, archivePath);
+            } catch (error) {
+              if (hadArchive) fs.renameSync(backupPath, archivePath);
+              throw error;
+            }
+            fs.rmSync(backupPath, { force: true });
+            size = 0;
+          } catch {
+            // Rollover failed (for example the file is locked). Keep
+            // appending so events are not lost, and retry on the next event.
+            size = maxBytes;
+          }
         }
         fs.appendFileSync(filePath, line);
         size += Buffer.byteLength(line);
@@ -87,30 +106,49 @@ export function handleProxyRequestBody(reqData: string, ctx: ProxyEventContext):
   if (reqData.length === 0) return;
 
   try {
-    const jsonRpcContent = JSON.parse(reqData) as JsonRpcRequestPayload;
-    const method = jsonRpcContent.method;
-    const params = jsonRpcContent.params;
-    ctx.sink.debug('RPC Req: ', method);
-    if (typeof method === 'string') {
-      ctx.events.event(`request ${method}`);
-    }
-
-    if (method === 'send_transaction') {
-      const tx = (params as unknown[])[0];
-      const txHash = ctx.hashTransaction(tx);
-      if (!fs.existsSync(ctx.transactionsPath)) {
-        fs.mkdirSync(ctx.transactionsPath, { recursive: true });
+    // A JSON-RPC batch request is an array of payloads; normalize so batched
+    // send_transaction calls are recorded like single ones.
+    const parsed = JSON.parse(reqData) as JsonRpcRequestPayload | JsonRpcRequestPayload[];
+    for (const jsonRpcContent of Array.isArray(parsed) ? parsed : [parsed]) {
+      // Batch members are user input: JSON.parse happily yields null, strings,
+      // or nested arrays. Skip anything that is not a plain object so one
+      // malformed member cannot abort the rest of the batch.
+      if (jsonRpcContent == null || typeof jsonRpcContent !== 'object' || Array.isArray(jsonRpcContent)) {
+        ctx.sink.warn('skipping malformed JSON-RPC batch member');
+        continue;
       }
-      const txFile = path.resolve(ctx.transactionsPath, `${txHash}.json`);
-      fs.writeFileSync(txFile, JSON.stringify(tx, null, 2));
-      // The hash line mirrors the RPC method name on purpose: at request time
-      // the proxy does not yet know whether the node will accept the tx, and
-      // any rejection surfaces separately as an RPC error line.
-      ctx.sink.info(`send_transaction: ${txHash}`);
-      ctx.events.event(`send_transaction ${txHash}`);
+      handleOneRequest(jsonRpcContent, ctx);
     }
   } catch (err) {
     ctx.sink.error('Error parsing JSON-RPC req content:', (err as Error).message);
+  }
+}
+
+function handleOneRequest(jsonRpcContent: JsonRpcRequestPayload, ctx: ProxyEventContext): void {
+  const method = jsonRpcContent.method;
+  const params = jsonRpcContent.params;
+  ctx.sink.debug('RPC Req: ', method);
+  if (typeof method === 'string') {
+    ctx.events.event(`request ${method}`);
+  }
+
+  if (method === 'send_transaction') {
+    if (!Array.isArray(params) || params.length === 0) {
+      ctx.sink.warn('send_transaction request has no params; skipping tx dump');
+      return;
+    }
+    const tx = params[0];
+    const txHash = ctx.hashTransaction(tx);
+    if (!fs.existsSync(ctx.transactionsPath)) {
+      fs.mkdirSync(ctx.transactionsPath, { recursive: true });
+    }
+    const txFile = path.resolve(ctx.transactionsPath, `${txHash}.json`);
+    fs.writeFileSync(txFile, JSON.stringify(tx, null, 2));
+    // The hash line mirrors the RPC method name on purpose: at request time
+    // the proxy does not yet know whether the node will accept the tx, and
+    // any rejection surfaces separately as an RPC error line.
+    ctx.sink.info(`send_transaction: ${txHash}`);
+    ctx.events.event(`send_transaction ${txHash}`);
   }
 }
 

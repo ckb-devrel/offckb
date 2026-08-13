@@ -2,18 +2,32 @@ import httpProxy from 'http-proxy';
 import http from 'http';
 import { Network } from '../type/base';
 import { readSettings } from '../cfg/setting';
-import { logger } from '../util/logger';
+import { logger, UnifiedLogger } from '../util/logger';
 import { proxyLogPathForNetwork } from '../devnet/log-file';
-import { createProxyEventLog, handleProxyRequestBody, handleProxyResponseBody } from './proxy-events';
+import {
+  createProxyEventLog,
+  handleProxyRequestBody,
+  handleProxyResponseBody,
+  ProxyEventContext,
+} from './proxy-events';
 
 // todo: if we use import this throws error in tsc building
 const { cccA } = require('@ckb-ccc/core/advanced');
 
-export function createRPCProxy(network: Network, targetRpcUrl: string, port: number) {
+export interface RPCProxyOptions {
+  // --verbose also lifts the proxy's per-request "RPC Req" lines from debug
+  // to the console; without it they stay in proxy.log only.
+  verbose?: boolean;
+}
+
+export function createRPCProxy(network: Network, targetRpcUrl: string, port: number, options: RPCProxyOptions = {}) {
   const settings = readSettings();
   const events = createProxyEventLog(proxyLogPathForNetwork(network, settings));
-  const ctx = {
-    sink: logger,
+  // The global logger sits at info level, so a debug-level sink is needed for
+  // verbose runs to actually see the per-request lines.
+  const sink = options.verbose ? UnifiedLogger.create({ level: 'debug', showLevel: false }) : logger;
+  const ctx: ProxyEventContext = {
+    sink,
     events,
     transactionsPath: settings[network].transactionsPath,
     hashTransaction: (tx: unknown) => {
