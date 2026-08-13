@@ -47,11 +47,20 @@ function getBinaryName(): string {
   return process.platform === 'win32' ? 'ckb-debugger.exe' : 'ckb-debugger';
 }
 
-/** Numeric (not lexicographic) comparison against a required minimum version. */
+/**
+ * Numeric (not lexicographic) comparison against a required minimum version.
+ * A pre-release suffix (e.g. `0.200.0-rc1`) compares older than the plain
+ * release of the same segments.
+ */
 export function isVersionAtLeast(version: string, minVersion: string): boolean {
-  const parse = (v: string): number[] | null => {
-    const match = /^(\d+)\.(\d+)\.(\d+)/.exec(v.trim());
-    return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
+  const parse = (v: string): { segments: number[]; prerelease: boolean } | null => {
+    const match = /^(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z.]+)?/.exec(v.trim());
+    return match
+      ? {
+          segments: [Number(match[1]), Number(match[2]), Number(match[3])],
+          prerelease: Boolean(match[4]),
+        }
+      : null;
   };
   const a = parse(version);
   const b = parse(minVersion);
@@ -59,22 +68,27 @@ export function isVersionAtLeast(version: string, minVersion: string): boolean {
     return false;
   }
   for (let i = 0; i < 3; i++) {
-    if (a[i] !== b[i]) {
-      return a[i] > b[i];
+    if (a.segments[i] !== b.segments[i]) {
+      return a.segments[i] > b.segments[i];
     }
   }
-  return true;
+  // Equal release segments: a pre-release is older than the plain release.
+  return a.prerelease === b.prerelease || !a.prerelease;
 }
 
 /**
  * The `<target>` segment of the upstream release asset name for the current
  * platform (assets are named `ckb-debugger_<tag>_<target>.tar.gz`, per the
  * upstream release workflow). Returns null when no prebuilt asset exists.
+ *
+ * Note: upstream stopped publishing `x86_64-apple-darwin` assets after v1.0.0
+ * (v1.1.0+ ships `aarch64-apple-darwin` only), so an Intel Mac (or Rosetta
+ * x64 Node on Apple Silicon) has no prebuilt asset and gets the explicit
+ * "no prebuilt binary" error instead of a misleading 404.
  */
 export function getAssetTarget(platform: NodeJS.Platform, arch: string): string | null {
   if (platform === 'linux' && arch === 'x64') return 'x86_64-unknown-linux-gnu';
   if (platform === 'linux' && arch === 'arm64') return 'aarch64-unknown-linux-gnu';
-  if (platform === 'darwin' && arch === 'x64') return 'x86_64-apple-darwin';
   if (platform === 'darwin' && arch === 'arm64') return 'aarch64-apple-darwin';
   if (platform === 'win32' && arch === 'x64') return 'x86_64-pc-windows-msvc';
   return null;
@@ -145,14 +159,24 @@ export class CKBDebuggerInstaller {
       // 6. Publish atomically so a failed install never leaves a partial binary.
       this.publishExtractedBinary(extractedBinary, binaryPath);
 
-      // 7. Make executable and expose it on PATH.
+      // 7. Verify the binary actually runs before exposing it on PATH.
       if (process.platform !== 'win32') {
         fs.chmodSync(binaryPath, 0o755);
       }
+      const version = this.getVersionFromBinary(binaryPath);
+      if (!version) {
+        // The binary cannot run on this system (e.g. incompatible libc).
+        // Remove it so the next install does not keep re-downloading the same
+        // broken artifact, and report failure instead of a bogus success.
+        fs.rmSync(binaryPath, { force: true });
+        throw new Error(
+          `The installed ckb-debugger binary failed to run \`--version\`. ` +
+            'It may be incompatible with this system (e.g. missing glibc).',
+        );
+      }
       this.ensurePathShim(binaryPath);
 
-      const version = this.getVersionFromBinary(binaryPath);
-      logger.info(`✅ ckb-debugger installed successfully at ${binaryPath}${version ? ` (version ${version})` : ''}.`);
+      logger.info(`✅ ckb-debugger installed successfully at ${binaryPath} (version ${version}).`);
       logger.info('   To uninstall, remove the binary and the ckb-debugger shim next to the offckb binary.');
       return { binaryPath, version, alreadyInstalled: false };
     } catch (error) {
@@ -175,8 +199,9 @@ export class CKBDebuggerInstaller {
   /** Directory that holds the installed ckb-debugger binary. */
   static getInstallDir(): string {
     const settings = readSettings();
-    const root = this.resolveAndValidateBinDir(settings.tools.rootFolder);
-    return path.join(root, 'ckb-debugger');
+    // Flat layout under tools.rootFolder, matching CKBTui (e.g.
+    // <data>/tools/ckb-debugger rather than <data>/tools/ckb-debugger/...).
+    return this.resolveAndValidateBinDir(settings.tools.rootFolder);
   }
 
   /** Full path of the installed ckb-debugger binary. */
@@ -312,7 +337,10 @@ export class CKBDebuggerInstaller {
   private static ensurePathShim(binaryPath: string): string | null {
     const isWindows = process.platform === 'win32';
     const result = spawnSync(isWindows ? 'where' : 'which', ['offckb'], { encoding: 'utf8' });
-    const offckbPath = isWindows ? result.stdout.trim().split('\n')[0] : result.stdout.trim();
+    // `which`/`where` failing to spawn leaves stdout null; treat that as "no
+    // offckb on PATH" rather than crashing the install.
+    const stdout = result.stdout ?? '';
+    const offckbPath = stdout.trim().split('\n')[0];
     if (!offckbPath) {
       logger.warn(
         'Could not find the offckb binary in PATH, so no ckb-debugger shim was created. ' +
@@ -323,9 +351,25 @@ export class CKBDebuggerInstaller {
 
     const binName = isWindows ? 'ckb-debugger.cmd' : 'ckb-debugger';
     const targetPath = path.join(path.dirname(offckbPath), binName);
-    const content = isWindows ? `@echo off\r\n"${binaryPath}" %*\r\n` : `#!/bin/sh\nexec "${binaryPath}" "$@"\n`;
+    // The marker distinguishes our own shim (and legacy v0.4.x fallback shims
+    // that `exec offckb debugger`) from a foreign file — e.g. a real binary a
+    // user installed via cargo — which must never be silently clobbered.
+    const marker = isWindows ? '@rem offckb-managed ckb-debugger shim' : '# offckb-managed ckb-debugger shim';
+    const content = isWindows
+      ? `${marker}\r\n@echo off\r\n"${binaryPath}" %*\r\n`
+      : `#!/bin/sh\n${marker}\nexec "${binaryPath}" "$@"\n`;
 
     try {
+      if (fs.existsSync(targetPath)) {
+        const existing = fs.readFileSync(targetPath, 'utf8');
+        if (!existing.includes(marker) && !existing.includes('offckb debugger')) {
+          logger.warn(
+            `A file already exists at ${targetPath} that was not created by offckb; leaving it untouched. ` +
+              'Projects that call `ckb-debugger` directly will need it added to PATH manually.',
+          );
+          return null;
+        }
+      }
       fs.writeFileSync(targetPath, content);
       if (!isWindows) {
         fs.chmodSync(targetPath, 0o755);

@@ -36,31 +36,29 @@ import { CKBDebuggerInstaller, isVersionAtLeast, getAssetTarget } from '../src/t
 
 const requestSend = Request.send as jest.Mock;
 
-function platformTarget(): string {
-  const p = process.platform;
-  if (p === 'win32') return 'x86_64-pc-windows-msvc';
-  if (p === 'darwin') return process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin';
-  return 'x86_64-unknown-linux-gnu';
-}
+// Install-flow tests pin the host to linux/x64 so the download/install
+// assertions are host-independent: upstream publishes no Intel-macOS asset,
+// and a POSIX-shell fixture cannot run on Windows.
+const TARGET = 'x86_64-unknown-linux-gnu';
+const BINARY_NAME = 'ckb-debugger';
+const originalPlatform = process.platform;
+const originalArch = process.arch;
 
-function platformBinaryName(): string {
-  return process.platform === 'win32' ? 'ckb-debugger.exe' : 'ckb-debugger';
-}
-
-function fakeBinaryPayload(version: string): string {
-  return `#!/bin/sh\necho "ckb-debugger ${version}"\n`;
+function mockHost(platform: NodeJS.Platform, arch: string): void {
+  Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+  Object.defineProperty(process, 'arch', { value: arch, configurable: true });
 }
 
 describe('getAssetTarget', () => {
   it('maps known platform/arch combinations to upstream asset targets', () => {
     expect(getAssetTarget('linux', 'x64')).toBe('x86_64-unknown-linux-gnu');
     expect(getAssetTarget('linux', 'arm64')).toBe('aarch64-unknown-linux-gnu');
-    expect(getAssetTarget('darwin', 'x64')).toBe('x86_64-apple-darwin');
     expect(getAssetTarget('darwin', 'arm64')).toBe('aarch64-apple-darwin');
     expect(getAssetTarget('win32', 'x64')).toBe('x86_64-pc-windows-msvc');
   });
 
-  it('returns null for unsupported platforms/architectures', () => {
+  it('returns null for platforms without a prebuilt asset (incl. Intel macOS)', () => {
+    expect(getAssetTarget('darwin', 'x64')).toBeNull();
     expect(getAssetTarget('linux', 'ia32')).toBeNull();
     expect(getAssetTarget('win32', 'arm64')).toBeNull();
     expect(getAssetTarget('freebsd', 'x64')).toBeNull();
@@ -76,6 +74,11 @@ describe('isVersionAtLeast', () => {
     expect(isVersionAtLeast('0.10.0', '0.9.0')).toBe(true);
   });
 
+  it('treats a pre-release as older than the plain release', () => {
+    expect(isVersionAtLeast('0.200.0-rc1', '0.200.0')).toBe(false);
+    expect(isVersionAtLeast('0.200.0', '0.200.0-rc1')).toBe(true);
+  });
+
   it('returns false for unparseable versions', () => {
     expect(isVersionAtLeast('unknown', '0.200.0')).toBe(false);
   });
@@ -87,22 +90,25 @@ describe('CKBDebuggerInstaller', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockHost('linux', 'x64');
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'offckb-debugger-test-'));
     mockDirs.dataRoot = root;
     mockDirs.toolsRoot = path.join(root, 'tools');
-    binaryPath = path.join(mockDirs.toolsRoot, 'ckb-debugger', platformBinaryName());
+    binaryPath = path.join(mockDirs.toolsRoot, BINARY_NAME);
     mockMinVersion.current = '0.200.0';
     // The offckb binary is not on PATH in the test environment: the PATH-shim
     // step is skipped with a warning instead of touching the host.
-    mockSpawnSync.mockImplementation((cmd: string) =>
-      cmd === 'which' || cmd === 'where'
-        ? { status: 1, stdout: '', stderr: '' }
-        : { status: 0, stdout: '', stderr: '' },
-    );
+    mockSpawnSync.mockImplementation((cmd: string) => {
+      if (cmd === 'which' || cmd === 'where') {
+        return { status: 1, stdout: '', stderr: '' };
+      }
+      return { status: 0, stdout: 'ckb-debugger 0.208.0\n', stderr: '' };
+    });
   });
 
   afterEach(() => {
     fs.rmSync(root, { recursive: true, force: true });
+    mockHost(originalPlatform, originalArch);
     jest.restoreAllMocks();
   });
 
@@ -113,9 +119,9 @@ describe('CKBDebuggerInstaller', () => {
     return (async () => {
       const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'offckb-debugger-stage-'));
       try {
-        fs.writeFileSync(path.join(stage, platformBinaryName()), fakeBinaryPayload(version));
+        fs.writeFileSync(path.join(stage, BINARY_NAME), fakeBinaryPayload(version));
         const archivePath = path.join(stage, 'archive.tar.gz');
-        await tar.c({ gzip: true, file: archivePath, cwd: stage }, [platformBinaryName()]);
+        await tar.c({ gzip: true, file: archivePath, cwd: stage }, [BINARY_NAME]);
         return fs.readFileSync(archivePath);
       } finally {
         fs.rmSync(stage, { recursive: true, force: true });
@@ -123,9 +129,12 @@ describe('CKBDebuggerInstaller', () => {
     })();
   }
 
+  function fakeBinaryPayload(version: string): string {
+    return `#!/bin/sh\necho "ckb-debugger ${version}"\n`;
+  }
+
   function mockRelease(version: string, buffer: Buffer) {
     const tag = `v${version}`;
-    const target = platformTarget();
     requestSend.mockImplementation(async (url: string) => {
       if (url.includes('/releases/latest')) {
         return {
@@ -134,7 +143,7 @@ describe('CKBDebuggerInstaller', () => {
       }
       if (url.endsWith('-sha256.txt')) {
         const digest = crypto.createHash('sha256').update(buffer).digest('hex');
-        return { text: async () => `${digest}  ckb-debugger_${tag}_${target}.tar.gz` };
+        return { text: async () => `${digest}  ckb-debugger_${tag}_${TARGET}.tar.gz` };
       }
       return { arrayBuffer: async () => buffer };
     });
@@ -210,17 +219,62 @@ describe('CKBDebuggerInstaller', () => {
     expect(fs.existsSync(binaryPath)).toBe(false);
   });
 
+  it('removes the binary and throws when it cannot run --version after install', async () => {
+    const buffer = await buildTarGz('0.208.0');
+    mockRelease('0.208.0', buffer);
+    mockSpawnSync.mockImplementation((cmd: string) => {
+      if (cmd === 'which' || cmd === 'where') {
+        return { status: 1, stdout: '', stderr: '' };
+      }
+      return { status: 1, stdout: '', stderr: '' };
+    });
+
+    await expect(CKBDebuggerInstaller.install()).rejects.toThrow(/failed to run `--version`/);
+    expect(fs.existsSync(binaryPath)).toBe(false);
+  });
+
+  it('does not clobber a foreign file at the shim location', async () => {
+    const buffer = await buildTarGz('0.208.0');
+    mockRelease('0.208.0', buffer);
+    const shimPath = path.join(root, 'bin', 'ckb-debugger');
+    mockSpawnSync.mockImplementation((cmd: string) => {
+      if (cmd === 'which') {
+        return { status: 0, stdout: `${path.join(root, 'bin', 'offckb')}\n`, stderr: '' };
+      }
+      return { status: 0, stdout: 'ckb-debugger 0.208.0\n', stderr: '' };
+    });
+    fs.mkdirSync(path.dirname(shimPath), { recursive: true });
+    fs.writeFileSync(shimPath, '#!/bin/sh\nexec /usr/bin/ckb-debugger "$@"\n');
+
+    const result = await CKBDebuggerInstaller.install();
+
+    expect(result.alreadyInstalled).toBe(false);
+    expect(fs.existsSync(binaryPath)).toBe(true);
+    expect(fs.readFileSync(shimPath, 'utf-8')).toBe('#!/bin/sh\nexec /usr/bin/ckb-debugger "$@"\n');
+  });
+
+  it('upgrades a legacy v0.4.x fallback shim', async () => {
+    const buffer = await buildTarGz('0.208.0');
+    mockRelease('0.208.0', buffer);
+    const shimPath = path.join(root, 'bin', 'ckb-debugger');
+    mockSpawnSync.mockImplementation((cmd: string) => {
+      if (cmd === 'which') {
+        return { status: 0, stdout: `${path.join(root, 'bin', 'offckb')}\n`, stderr: '' };
+      }
+      return { status: 0, stdout: 'ckb-debugger 0.208.0\n', stderr: '' };
+    });
+    fs.mkdirSync(path.dirname(shimPath), { recursive: true });
+    fs.writeFileSync(shimPath, '#!/bin/sh\nexec offckb debugger "$@"\n');
+
+    await CKBDebuggerInstaller.install();
+
+    expect(fs.readFileSync(shimPath, 'utf-8')).toContain('offckb-managed');
+    expect(fs.readFileSync(shimPath, 'utf-8')).toContain(`exec "${binaryPath}" "$@"`);
+  });
+
   it('throws when the platform has no prebuilt asset', async () => {
-    const originalPlatform = process.platform;
-    const originalArch = process.arch;
-    Object.defineProperty(process, 'platform', { value: 'freebsd' });
-    Object.defineProperty(process, 'arch', { value: 'x64' });
-    try {
-      await expect(CKBDebuggerInstaller.install()).rejects.toThrow(/no prebuilt binary/);
-    } finally {
-      Object.defineProperty(process, 'platform', { value: originalPlatform });
-      Object.defineProperty(process, 'arch', { value: originalArch });
-    }
+    mockHost('freebsd', 'x64');
+    await expect(CKBDebuggerInstaller.install()).rejects.toThrow(/no prebuilt binary/);
   });
 
   it('throws when the latest release tag cannot be resolved', async () => {

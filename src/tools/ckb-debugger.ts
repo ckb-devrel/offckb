@@ -1,6 +1,6 @@
-import { spawnSync, execSync } from 'child_process';
-import { readSettings } from '../cfg/setting';
-import { CKBDebuggerInstaller, isVersionAtLeast } from './ckb-debugger-install';
+import { spawnSync, execFileSync } from 'child_process';
+import * as fs from 'fs';
+import { CKBDebuggerInstaller, CkbDebuggerInstallResult } from './ckb-debugger-install';
 
 export interface DebugOption {
   fullTxJsonFilePath: string;
@@ -9,21 +9,61 @@ export interface DebugOption {
   scriptGroupType: 'lock' | 'type';
 }
 
+/**
+ * Env var offckb sets on every `ckb-debugger` child it spawns. A stale
+ * v0.4.x fallback shim (which runs `exec offckb debugger "$@"`) re-enters
+ * offckb with this var set; resolveBinaryPath then stops instead of spawning
+ * `ckb-debugger` on PATH again, which would recurse forever.
+ */
+const RECURSION_GUARD_ENV = 'OFFCKB_DEBUGGER_GUARD';
+
 export class CKBDebugger {
-  private static execute(args: string[]): void {
-    if (!this.isBinaryInstalled()) {
-      throw new Error('ckb-debugger is not installed. Install it once with: offckb install ckb-debugger');
+  /**
+   * Resolve the binary to execute: the `ckb-debugger` on PATH (the shim
+   * written next to offckb) first, then the binary offckb manages under
+   * tools.rootFolder. Returns null when neither is usable.
+   *
+   * The managed-path fallback covers two cases where the PATH probe fails:
+   *  - Windows: a `.cmd` shim cannot be spawned without a shell since Node
+   *    20.12.2 (CVE-2024-27980), so PATH probing alone always fails there;
+   *  - offckb is not on PATH, so no shim was written, yet the managed binary
+   *    is installed and usable.
+   */
+  private static resolveBinaryPath(): string | null {
+    // When we are ourselves the child of a stale shim, the guard env var is
+    // set: skip the PATH probe (it would hit the shim again) and go straight
+    // to the managed binary.
+    if (!process.env[RECURSION_GUARD_ENV]) {
+      const probe = spawnSync('ckb-debugger', ['--version'], {
+        stdio: 'ignore',
+        env: { ...process.env, [RECURSION_GUARD_ENV]: '1' },
+      });
+      if (probe.status === 0) {
+        return 'ckb-debugger';
+      }
     }
-    const command = `ckb-debugger ${args.join(' ')}`;
-    execSync(command, { stdio: 'inherit' });
+    const installed = CKBDebuggerInstaller.getInstalledBinaryPath();
+    return fs.existsSync(installed) ? installed : null;
   }
 
-  static runRaw(options: string) {
+  private static execute(args: string[]): void {
+    const binary = this.resolveBinaryPath();
+    if (!binary) {
+      throw new Error('ckb-debugger is not installed. Install it once with: offckb install ckb-debugger');
+    }
+    // Array argv form: argument splitting and shell injection are impossible.
+    execFileSync(binary, args, {
+      stdio: 'inherit',
+      env: { ...process.env, [RECURSION_GUARD_ENV]: '1' },
+    });
+  }
+
+  static runRaw(options: string): void {
     const args = options.split(' ').filter((arg) => arg.trim());
     this.execute(args);
   }
 
-  static async runTxCellScript({ fullTxJsonFilePath, cellIndex, cellType, scriptGroupType }: DebugOption) {
+  static runTxCellScript({ fullTxJsonFilePath, cellIndex, cellType, scriptGroupType }: DebugOption): void {
     const args = [
       '--tx-file',
       fullTxJsonFilePath,
@@ -34,29 +74,7 @@ export class CKBDebugger {
       '--script-group-type',
       scriptGroupType,
     ];
-    await this.execute(args);
-  }
-
-  static isBinaryInstalled() {
-    const result = spawnSync('ckb-debugger', ['--version'], { stdio: 'ignore' });
-    return result.status === 0;
-  }
-
-  static isBinaryVersionValid() {
-    const result = spawnSync('ckb-debugger', ['--version']);
-    if (result.status !== 0) {
-      return false;
-    }
-    try {
-      const version = result.stdout.toString().split(' ')[1];
-      const settings = readSettings();
-      if (!isVersionAtLeast(version, settings.tools.ckbDebugger.minVersion)) {
-        return false;
-      }
-      return true;
-    } catch (error) {
-      return false;
-    }
+    this.execute(args);
   }
 
   /**
@@ -64,21 +82,11 @@ export class CKBDebugger {
    * release asset for the current platform (see CKBDebuggerInstaller).
    * Throws on failure; callers that can degrade should catch the error.
    */
-  static async installCKBDebuggerBinary() {
-    await CKBDebuggerInstaller.install();
+  static installCKBDebuggerBinary(): Promise<CkbDebuggerInstallResult> {
+    return CKBDebuggerInstaller.install();
   }
 
-  // Additional convenience methods that work with the native binary CLI
-  static async runWithArgs(args: string[]) {
-    await this.execute(args);
-  }
-
-  static async version() {
-    const result = spawnSync('ckb-debugger', ['--version'], { encoding: 'utf8' });
-    return {
-      exitCode: result.status || 0,
-      output: result.stdout,
-      error: result.stderr,
-    };
+  static runWithArgs(args: string[]): void {
+    this.execute(args);
   }
 }
