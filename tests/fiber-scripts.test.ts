@@ -83,6 +83,9 @@ describe('resolveFiberChainScripts', () => {
     } catch (error) {
       expect(error).toBeInstanceOf(FiberContractsMissingError);
       expect((error as FiberContractsMissingError).missing).toEqual(['funding_lock', 'commitment_lock']);
+      // The upgrade path for a pre-Fiber devnet: the error itself must carry
+      // the migration guidance, whichever command surfaces it.
+      expect((error as Error).message).toContain('offckb clean');
     }
   });
 

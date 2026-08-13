@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as crypto from 'crypto';
 import os from 'os';
 import yaml from 'js-yaml';
 import { Request } from '../util/request';
@@ -14,6 +15,21 @@ import { logger } from '../util/logger';
 // --binary-path / --fnn-binary-path with a locally built FNN.
 export const SUPPORTED_FNN_VERSIONS = ['0.9.0-rc7'] as const;
 export const DEFAULT_FNN_VERSION = SUPPORTED_FNN_VERSIONS[0];
+
+// Independently pinned SHA-256 digests of the upstream release tarballs,
+// keyed by version then package name (same pattern as ckb-tui's
+// KNOWN_SHA256). The FNN release publishes no checksums asset, so the
+// download is verified against these pins before anything is extracted;
+// a version or package without a pin fails closed.
+export const KNOWN_FNN_SHA256: Record<string, Record<string, string>> = {
+  '0.9.0-rc7': {
+    'fnn_v0.9.0-rc7-x86_64-linux-portable': 'a27627e8cea2304e6075084d2fab72cd1276f512548351d6060e26622cc26faa',
+    'fnn_v0.9.0-rc7-aarch64-linux-portable': 'fc25e907f9f24d345397da5794bac09c03fd76456a0f776bf3377192e3689143',
+    'fnn_v0.9.0-rc7-x86_64-darwin-portable': '3ffa7ca2e3801e2d549c306200ae3add9ee90ec4a5093dfad6fefe04881e107b',
+    'fnn_v0.9.0-rc7-aarch64-darwin-portable': '0127370913d7ec0291c0e1e38a0fff06efb6cdf999bafc87abb5b98e23b5df47',
+    'fnn_v0.9.0-rc7-x86_64-windows': '7c9dd492a481aa18079aef17134bc16e8e247bd0535cb0372ab3476d55cb688b',
+  },
+};
 
 export interface ResolvedFnn {
   fnnPath: string;
@@ -81,6 +97,30 @@ function isInstallComplete(version: string, settings: Settings): boolean {
   }
 }
 
+/**
+ * Verify a downloaded release tarball against its pinned SHA-256. Fails
+ * closed: an unsupported version or package has no pin and is rejected, as
+ * is any digest mismatch — nothing unverified is ever extracted.
+ */
+export function verifyFnnPackageChecksum(version: string, packageName: string, filePath: string): void {
+  const pinned = KNOWN_FNN_SHA256[version]?.[packageName];
+  if (!pinned) {
+    throw new Error(
+      `No trusted SHA-256 checksum is pinned for FNN ${version} (${packageName}). ` +
+        'Refusing to install an unverified binary.',
+    );
+  }
+  const actual = crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+  if (actual !== pinned) {
+    throw new Error(
+      `SHA-256 checksum mismatch for ${packageName}.tar.gz.\n` +
+        `Expected: ${pinned}\nActual:   ${actual}\n` +
+        'The downloaded file may be corrupted or tampered with; refusing to install it.',
+    );
+  }
+  logger.info('FNN release checksum verified (SHA-256).');
+}
+
 export async function downloadFnnAndUnzip(version: string, settings: Settings = readSettings()) {
   const packageName = buildFnnPackageName(version);
   const downloadURL = buildFnnDownloadUrl(version);
@@ -92,6 +132,7 @@ export async function downloadFnnAndUnzip(version: string, settings: Settings = 
   fs.writeFileSync(tempFilePath, Buffer.from(arrayBuffer));
 
   try {
+    verifyFnnPackageChecksum(version, packageName, tempFilePath);
     const extractDir = path.join(settings.bins.downloadPath, `fnn_v${version}`);
     fs.rmSync(extractDir, { recursive: true, force: true });
     await unZipFile(tempFilePath, extractDir, true);

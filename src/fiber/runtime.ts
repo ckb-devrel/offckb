@@ -54,15 +54,22 @@ export function readRuntime(settings: Settings = readSettings()): FiberRuntime |
 
 /**
  * A runtime record is only meaningful while its manager process exists. Once
- * the manager is gone the record is stale — no further inspection of program
- * paths, ports or versions (per the Fiber design: leftovers are discarded,
- * never used to hunt processes).
+ * the manager is confirmed gone the record is stale — no further inspection
+ * of program paths, ports or versions (per the Fiber design: leftovers are
+ * discarded, never used to hunt processes).
+ *
+ * A liveness check that cannot be performed (EPERM on a process owned by
+ * another user, a transient /proc error, ...) proves nothing: the manager may
+ * still be running. Fail closed — the same rule the environment lock uses —
+ * and treat the record as live instead of discarding the only reference to a
+ * potentially running environment. Recovery from a genuine leftover in that
+ * situation is manual: confirm the manager is gone, then delete runtime.json.
  */
 export function isRuntimeStale(runtime: FiberRuntime): boolean {
   try {
     return !isProcessAlive(runtime.managerPid);
   } catch {
-    return true;
+    return false;
   }
 }
 

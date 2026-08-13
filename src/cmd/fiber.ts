@@ -24,13 +24,10 @@ function fiberDaemonChildArgs(): string[] {
   return process.argv.slice(2).filter((arg) => arg !== '--daemon');
 }
 
+// The error message carries the full migration guidance (rebuild via
+// `offckb clean`); `node --fiber` surfaces the same text by rethrowing.
 function logMissingContractsGuidance(error: FiberContractsMissingError) {
   logger.error(error.message);
-  logger.error(
-    'The current devnet was initialized without the Fiber contracts. To rebuild it: stop CKB and all FNNs, ' +
-      'then run `offckb clean` and start again. WARNING: `offckb clean` deletes the local chain data, ' +
-      'all Fiber channels and all node data.',
-  );
 }
 
 export function printFiberSummary(env: FiberEnvironment) {

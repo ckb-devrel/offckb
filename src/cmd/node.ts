@@ -37,8 +37,9 @@ import { resolveFnnBinary, ResolvedFnn } from '../fiber/install';
 import { resolveFiberChainScripts } from '../fiber/scripts';
 import { FiberEnvironment, startFiberEnvironment, stopFiberNodes } from '../fiber/manager';
 import { printFiberSummary } from './fiber';
-import { readLiveRuntime, readRuntime } from '../fiber/runtime';
+import { readRuntime } from '../fiber/runtime';
 import { fiberDaemonPaths } from '../fiber/paths';
+import { assertNodeStopDoesNotOrphanFiber } from '../fiber/daemon';
 
 export interface NodeProp {
   version?: string;
@@ -721,7 +722,7 @@ async function waitForFiberRuntimeRunning(managerPid: number, settings: Settings
   throw new Error(`Timed out waiting for the fiber environment to become ready. See ${logFile}.`);
 }
 
-export async function stopNode() {
+export async function stopNode(options: { force?: boolean } = {}) {
   const { pidFile } = resolveDaemonPaths();
 
   const metadata = readPidFile(pidFile);
@@ -739,13 +740,6 @@ export async function stopNode() {
     throw new Error(
       `Fiber nodes are managed by a separate fiber daemon (PID ${fiberDaemon.pid}). ` +
         'Stop them first with: offckb fiber stop',
-    );
-  }
-  const fiberRuntime = readLiveRuntime(settings);
-  if (fiberRuntime && fiberRuntime.managerPid !== metadata.pid) {
-    logger.warn(
-      `FNN nodes appear to be managed by a foreground OffCKB process (PID ${fiberRuntime.managerPid}); ` +
-        'stop them in that terminal. Continuing to stop the CKB daemon...',
     );
   }
 
@@ -773,6 +767,10 @@ export async function stopNode() {
         `If you are sure this is the daemon, stop it manually and remove ${pidFile}.`,
     );
   }
+
+  // A fiber environment managed by another live process (a foreground
+  // terminal) would be orphaned on the stopped chain — refuse unless forced.
+  assertNodeStopDoesNotOrphanFiber({ ckbDaemonPid: pid, force: options.force }, settings);
 
   logger.info(`Stopping CKB devnet daemon (PID ${pid})...`);
   try {

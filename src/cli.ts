@@ -132,7 +132,8 @@ const nodeCommand = program
 nodeCommand
   .command('stop')
   .description('Stop the running CKB devnet daemon')
-  .action(async () => stopNode());
+  .option('--force', 'Stop CKB even while a foreground fiber environment is running (its FNNs keep running)')
+  .action(async (options: { force?: boolean }) => stopNode(options));
 
 const fiberCommand = program.command('fiber').description('Manage Fiber (FNN) nodes on the local devnet');
 

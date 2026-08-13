@@ -218,6 +218,34 @@ async function stopManagerAndCleanup(options: {
 }
 
 /**
+ * Guard for `node stop`: a live fiber environment managed by a process OTHER
+ * than the CKB daemon being stopped (a foreground `fiber start` or
+ * `node --fiber` terminal) would keep running on a chain that no longer
+ * exists. Refuse the stop unless the caller explicitly forces it. When the
+ * fiber manager IS the CKB daemon being stopped (`node --fiber --daemon`),
+ * stopping it stops the FNNs with it — nothing is orphaned.
+ */
+export function assertNodeStopDoesNotOrphanFiber(
+  options: { ckbDaemonPid: number; force?: boolean },
+  settings: Settings = readSettings(),
+): void {
+  const runtime = readLiveRuntime(settings);
+  if (runtime == null || runtime.managerPid === options.ckbDaemonPid) return;
+  if (options.force) {
+    logger.warn(
+      `Fiber nodes managed by OffCKB process ${runtime.managerPid} will keep running on a stopped chain (--force). ` +
+        'Stop them afterwards: Ctrl+C in that terminal, or `offckb fiber stop` if it is a fiber daemon.',
+    );
+    return;
+  }
+  throw new Error(
+    `Fiber nodes are managed by a foreground OffCKB process (PID ${runtime.managerPid}). ` +
+      'Stopping the CKB daemon would orphan them on a stopped chain. ' +
+      'Stop them first (Ctrl+C in that terminal), or override with: offckb node stop --force',
+  );
+}
+
+/**
  * Stop daemon-managed FNNs. Only manager processes recorded in a daemon PID
  * file are ever signaled: the fiber daemon of `fiber start --daemon`, or the
  * CKB daemon of `node --fiber --daemon` (which manages CKB and FNNs as one

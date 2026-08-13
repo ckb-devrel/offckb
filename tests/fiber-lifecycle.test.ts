@@ -13,8 +13,10 @@ import {
 import { isStoreLockHeld } from '../src/fiber/store-lock';
 import { assertFiberFullyStopped } from '../src/fiber/clean';
 import { startFiberEnvironment, stopFiberNodes, FnnProcessHandle } from '../src/fiber/manager';
-import { fiberDaemonPaths, fiberNodePaths, runtimeJsonPath } from '../src/fiber/paths';
-import { writeRuntime } from '../src/fiber/runtime';
+import { fiberDaemonPaths, fiberNodePaths, fiberRootPath, runtimeJsonPath } from '../src/fiber/paths';
+import { writeRuntime, isRuntimeStale, FiberRuntime } from '../src/fiber/runtime';
+import { assertNodeStopDoesNotOrphanFiber, stopFiber } from '../src/fiber/daemon';
+import { fiberClean } from '../src/fiber/clean';
 import { FiberChainScripts } from '../src/fiber/scripts';
 
 /**
@@ -214,6 +216,85 @@ describe('isStoreLockHeld', () => {
   });
 });
 
+describe('isRuntimeStale', () => {
+  const runtimeFor = (managerPid: number): FiberRuntime => ({
+    managerPid,
+    startedAt: new Date().toISOString(),
+    status: 'running',
+    nodes: [],
+  });
+
+  it('treats a record whose manager process is gone as stale', () => {
+    expect(isRuntimeStale(runtimeFor(99999999))).toBe(true);
+  });
+
+  it('treats a record whose manager process is alive as not stale', () => {
+    expect(isRuntimeStale(runtimeFor(process.pid))).toBe(false);
+  });
+
+  it('fails closed when the liveness check itself fails (EPERM) — the record is NOT stale', () => {
+    // A manager we cannot inspect (owned by another user, transient /proc
+    // error) may still be running; discarding its record would orphan the
+    // environment. Same rule as the environment lock: unverifiable == held.
+    jest.isolateModules(() => {
+      jest.doMock('../src/util/daemon', () => ({
+        ...jest.requireActual('../src/util/daemon'),
+        isProcessAlive: () => {
+          throw new Error('Permission denied when checking daemon process 1234.');
+        },
+      }));
+      try {
+        const isolated = require('../src/fiber/runtime') as typeof import('../src/fiber/runtime');
+        expect(isolated.isRuntimeStale(runtimeFor(1234))).toBe(false);
+      } finally {
+        jest.dontMock('../src/util/daemon');
+      }
+    });
+  });
+});
+
+describe('assertNodeStopDoesNotOrphanFiber', () => {
+  const liveRuntime = (managerPid: number): FiberRuntime => ({
+    managerPid,
+    startedAt: new Date().toISOString(),
+    status: 'running',
+    nodes: [],
+  });
+
+  it('refuses to stop CKB while a live fiber environment is managed by another (foreground) process', () => {
+    const settings = makeSettings(tempRoot());
+    writeRuntime(liveRuntime(process.pid), settings);
+    expect(() => assertNodeStopDoesNotOrphanFiber({ ckbDaemonPid: 424242 }, settings)).toThrow(
+      'offckb node stop --force',
+    );
+  });
+
+  it('permits the stop when the fiber manager is the CKB daemon being stopped (node --fiber --daemon)', () => {
+    const settings = makeSettings(tempRoot());
+    writeRuntime(liveRuntime(process.pid), settings);
+    expect(() =>
+      assertNodeStopDoesNotOrphanFiber({ ckbDaemonPid: process.pid }, settings),
+    ).not.toThrow();
+  });
+
+  it('permits the stop with --force even while a foreground fiber manager is live', () => {
+    const settings = makeSettings(tempRoot());
+    writeRuntime(liveRuntime(process.pid), settings);
+    expect(() => assertNodeStopDoesNotOrphanFiber({ ckbDaemonPid: 424242, force: true }, settings)).not.toThrow();
+  });
+
+  it('permits the stop when no fiber runtime exists', () => {
+    const settings = makeSettings(tempRoot());
+    expect(() => assertNodeStopDoesNotOrphanFiber({ ckbDaemonPid: 424242 }, settings)).not.toThrow();
+  });
+
+  it('permits the stop when the recorded fiber manager is already dead (stale runtime)', () => {
+    const settings = makeSettings(tempRoot());
+    writeRuntime(liveRuntime(99999999), settings);
+    expect(() => assertNodeStopDoesNotOrphanFiber({ ckbDaemonPid: 424242 }, settings)).not.toThrow();
+  });
+});
+
 describe('assertFiberFullyStopped', () => {
   it('refuses while a live manager runtime exists', () => {
     const settings = makeSettings(tempRoot());
@@ -256,6 +337,70 @@ describe('assertFiberFullyStopped', () => {
       }
       expect(() => assertFiberFullyStopped(settings)).toThrow('Cannot confirm all Fiber stores are closed');
     });
+  });
+});
+
+describe('stopFiber', () => {
+  it('reports not-running when neither a daemon pid file nor a runtime record exists', async () => {
+    const settings = makeSettings(tempRoot());
+    await expect(stopFiber(settings)).resolves.toBeUndefined();
+    expect(fs.existsSync(runtimeJsonPath(settings))).toBe(false);
+  });
+
+  it('discards a stale runtime record whose manager is dead, signaling nothing', async () => {
+    const settings = makeSettings(tempRoot());
+    writeRuntime(
+      { managerPid: 99999999, startedAt: new Date().toISOString(), status: 'running', nodes: [] },
+      settings,
+    );
+    await stopFiber(settings);
+    expect(fs.existsSync(runtimeJsonPath(settings))).toBe(false);
+  });
+
+  it('removes an unparseable daemon pid file and reports not-running', async () => {
+    const settings = makeSettings(tempRoot());
+    const { pidFile } = fiberDaemonPaths(settings);
+    fs.mkdirSync(path.dirname(pidFile), { recursive: true });
+    fs.writeFileSync(pidFile, 'this is not a pid');
+    await stopFiber(settings);
+    expect(fs.existsSync(pidFile)).toBe(false);
+  });
+
+  it('refuses to signal a live daemon pid file whose identity cannot be verified', async () => {
+    const settings = makeSettings(tempRoot());
+    const { pidFile } = fiberDaemonPaths(settings);
+    fs.mkdirSync(path.dirname(pidFile), { recursive: true });
+    // A live process that is not this CLI: identity verification must fail
+    // closed and stopFiber must refuse without sending any signal.
+    const victim = spawnScriptProcess(path.join(tempRoot(), 'unrelated', 'victim.js'));
+    writePidFile(pidFile, pidMetadata(victim.pid as number));
+    await expect(stopFiber(settings)).rejects.toThrow('Refusing to signal');
+    expect(isProcessAlive(victim.pid as number)).toBe(true);
+  });
+});
+
+describe('fiberClean', () => {
+  it('reports nothing-to-clean when no fiber environment exists', async () => {
+    const settings = makeSettings(tempRoot());
+    await expect(fiberClean({ yes: true }, settings)).resolves.toBeUndefined();
+  });
+
+  it('refuses to clean while a live manager runtime exists', async () => {
+    const settings = makeSettings(tempRoot());
+    fs.mkdirSync(fiberRootPath(settings), { recursive: true });
+    writeRuntime(
+      { managerPid: process.pid, startedAt: new Date().toISOString(), status: 'running', nodes: [] },
+      settings,
+    );
+    await expect(fiberClean({ yes: true }, settings)).rejects.toThrow('still managed by OffCKB process');
+    expect(fs.existsSync(fiberRootPath(settings))).toBe(true);
+  });
+
+  it('deletes the fiber root when everything is stopped', async () => {
+    const settings = makeSettings(tempRoot());
+    fs.mkdirSync(fiberNodePaths(1, settings).dir, { recursive: true });
+    await fiberClean({ yes: true }, settings);
+    expect(fs.existsSync(fiberRootPath(settings))).toBe(false);
   });
 });
 

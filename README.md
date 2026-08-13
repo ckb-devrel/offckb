@@ -151,6 +151,8 @@ Stop the daemon later with:
 offckb node stop
 ```
 
+If a fiber environment is running in a foreground terminal, `node stop` refuses rather than orphaning its FNNs on a stopped chain — stop them there first, or pass `offckb node stop --force` to stop CKB anyway (the FNNs keep running).
+
 **View Logs**
 
 A foreground `offckb node` stays quiet by default: it prints lifecycle events, contract script debug output (`debug!` in your scripts), submitted transaction hashes, and RPC errors. The node, miner, and RPC proxy always write full logs to files under the devnet data folder, and `offckb logs` reads them in any run mode (foreground, daemon, or while `offckb status` is attached):
@@ -475,10 +477,12 @@ offckb fiber clean                # delete the whole fiber environment
 ```
 
 - Only the plain local devnet is supported: no mainnet/testnet, and no forked devnet (a `fork.json` present in the devnet directory rejects Fiber startup).
+- A devnet created by an offckb version without Fiber support does not have the Fiber contracts in its genesis. `fiber start` / `node --fiber` on such a devnet refuse with migration guidance: rebuild with `offckb clean` (which deletes the local chain data) and start again; a plain `offckb node` keeps working on the old devnet unchanged.
 - Node `N` uses built-in CKB account `N+2` (accounts 3-18 are reserved for Fiber), RPC port `21713+N` and P2P port `8343+N`. Up to 16 nodes: `offckb fiber start --nodes 4`.
-- `offckb fiber start [FNN-Version]` downloads a tested FNN release (currently `0.9.0-rc7`). Use `--binary-path <fnn>` (or `--fnn-binary-path <fnn>` with `node --fiber`) to run a locally built FNN.
+- `offckb fiber start [FNN-Version]` downloads a tested FNN release (currently `0.9.0-rc7`). Downloaded tarballs are verified against SHA-256 digests pinned in offckb before installation. Use `--binary-path <fnn>` (or `--fnn-binary-path <fnn>` with `node --fiber`) to run a locally built FNN.
 - Every FNN writes its stdout/stderr to `devnet/fiber/nodes/<id>/fnn.log`, never to your terminal. Per-node FNN config overrides live in `devnet/fiber/nodes.yml` (regenerated `config.yml` files do not keep hand edits). Fields owned by offckb — chain, scripts, listening/bootnode addresses, store path, CKB RPC/UDT wiring, services — are managed and cannot be overridden there.
 - Startup verifies that the devnet spec, the running CKB and every FNN agree on the same chain (genesis hash), and checks each node's identity key, CKB account and available balance before reporting ready.
+- One fiber environment per machine: the RPC/P2P ports are fixed per node id, so a second concurrent fiber environment fails its port check. Note the CKB side of the check is the chain's genesis hash, and every plain offckb devnet shares the same genesis — if you run several offckb environments on one machine (e.g. separate `XDG_DATA_HOME`), make sure `fiber start` attaches to the CKB you actually started for it; when in doubt, check `offckb fiber status` against the environment you mean to use.
 - UDT channels: the FNN config whitelists the devnet sUDT and xUDT issued by built-in account 19, so issue test UDTs from that account (`offckb udt issue ... --privkey-file` with account 19's key) to the node accounts before opening UDT channels.
 
 ## Config Setting

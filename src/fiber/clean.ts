@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import { confirm } from '@inquirer/prompts';
 import { acquireEnvLock } from './env-lock';
-import { fiberDaemonPaths, fiberNodeIds, fiberNodePaths, fiberRootPath } from './paths';
+import { envLockPath, fiberDaemonPaths, fiberNodeIds, fiberNodePaths, fiberRootPath } from './paths';
 import { readLiveRuntime, removeRuntimeFileIfStale } from './runtime';
 import { readPidFile, isProcessAlive } from '../util/daemon';
 import { isStoreLockHeld } from './store-lock';
@@ -58,7 +58,7 @@ async function confirmOrAbort(message: string, yes?: boolean) {
 }
 
 export async function fiberClean(options: FiberCleanOptions, settings: Settings = readSettings()) {
-  const lock = acquireEnvLock(options.data ? 'offckb fiber clean --data' : 'offckb fiber clean');
+  const lock = acquireEnvLock(options.data ? 'offckb fiber clean --data' : 'offckb fiber clean', envLockPath(settings));
   try {
     const root = fiberRootPath(settings);
     if (!isFolderExists(root)) {
@@ -82,6 +82,9 @@ export async function fiberClean(options: FiberCleanOptions, settings: Settings 
       }
       await confirmOrAbort('Delete all FNN stores?', options.yes);
 
+      // The confirmation prompt can sit open for an arbitrary time; re-verify
+      // nothing started in that window before deleting anything.
+      assertFiberFullyStopped(settings);
       removeRuntimeFileIfStale(settings);
       for (const store of stores) {
         fs.rmSync(store, { recursive: true, force: true });
@@ -100,6 +103,8 @@ export async function fiberClean(options: FiberCleanOptions, settings: Settings 
     logger.info(`  will delete: ${root}`);
     await confirmOrAbort('Delete the whole fiber environment?', options.yes);
 
+    // Same post-confirmation re-check as the --data path above.
+    assertFiberFullyStopped(settings);
     fs.rmSync(root, { recursive: true, force: true });
     logger.success('Fiber environment cleaned.');
     logger.result({ command: 'fiber.clean', cleaned: true, dataOnly: false, removed: [root] });

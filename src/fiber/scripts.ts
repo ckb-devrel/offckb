@@ -70,7 +70,12 @@ function requireScript(scripts: SystemScriptsRecord, name: SystemScriptName): Sy
 export class FiberContractsMissingError extends Error {
   public readonly missing: string[];
   constructor(missing: string[]) {
-    super(`The devnet chain spec does not include the Fiber contracts: ${missing.join(', ')}.`);
+    super(
+      `The devnet chain spec does not include the Fiber contracts: ${missing.join(', ')}. ` +
+        'This devnet was initialized before Fiber support, so its genesis predates the Fiber contracts. ' +
+        'To use Fiber, rebuild the devnet: stop CKB and all FNNs, run `offckb clean`, and start again. ' +
+        'WARNING: `offckb clean` deletes the local chain data, all Fiber channels and all node data.',
+    );
     this.name = 'FiberContractsMissingError';
     this.missing = missing;
   }
