@@ -15,5 +15,8 @@ export function setUTF8EncodingForWindows() {
 export function encodeBinPathForTerminal(path: string) {
   // some path contains space in the string
   // this fix the space in the terminal
-  return `"${path}"`;
+  // Escape embedded double quotes: a path containing `"` stays a single
+  // argument both through shell interpolation (execSync) and through the
+  // quote-aware split in CKBDebugger.runRaw.
+  return `"${path.replace(/"/g, '\\"')}"`;
 }

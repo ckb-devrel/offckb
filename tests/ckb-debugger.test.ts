@@ -125,6 +125,18 @@ describe('CKBDebugger.runRaw', () => {
     );
   });
 
+  it('unescapes an embedded quote so the path stays a single argv element', () => {
+    mockSpawnSync.mockReturnValue({ status: 0 });
+
+    CKBDebugger.runRaw('--tx-file "/path/with\\"quote/tx.json"');
+
+    expect(mockExecFileSync).toHaveBeenCalledWith(
+      'ckb-debugger',
+      ['--tx-file', '/path/with"quote/tx.json'],
+      expect.anything(),
+    );
+  });
+
   it('passes unquoted arguments through unchanged', () => {
     mockSpawnSync.mockReturnValue({ status: 0 });
 
