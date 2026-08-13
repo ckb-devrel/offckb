@@ -59,7 +59,20 @@ export class CKBDebugger {
   }
 
   static runRaw(options: string): void {
-    const args = options.split(' ').filter((arg) => arg.trim());
+    // `options` is a space-separated command line whose space-containing
+    // paths are wrapped in quotes by callers (encodeBinPathForTerminal),
+    // which also backslash-escapes embedded double quotes. execFileSync's
+    // array argv does not run through a shell, so a naive split(' ') would
+    // leave the literal quotes in the argument and break such paths. Split
+    // quote-aware instead: a quoted segment stays one argv element, the
+    // surrounding quotes are stripped, and escaped quotes (\") are unescaped.
+    const args =
+      options.match(/"(?:[^"\\]|\\.)*"|\S+/g)?.map((arg) => {
+        if (arg.startsWith('"') && arg.endsWith('"')) {
+          return arg.slice(1, -1).replace(/\\"/g, '"');
+        }
+        return arg;
+      }) ?? [];
     this.execute(args);
   }
 
