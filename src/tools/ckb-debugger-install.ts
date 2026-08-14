@@ -354,10 +354,11 @@ export class CKBDebuggerInstaller {
     // The marker distinguishes our own shim from a foreign file — e.g. a real
     // binary a user installed via cargo — which must never be silently
     // clobbered. Legacy v0.4.x fallback shims are also upgraded in place, but
-    // only when they match the exact body offckb wrote back then (a shebang
-    // line plus `exec offckb debugger "$@"` on Unix, `@echo off` plus
-    // `offckb debugger %*` on Windows); a mere mention of `offckb debugger`
-    // in an arbitrary user script is not enough to claim it.
+    // only when the whole file is exactly the body offckb wrote back then (a
+    // shebang line plus `exec offckb debugger "$@"` on Unix, `@echo off` plus
+    // `offckb debugger %*` on Windows), line endings normalized and one
+    // trailing newline ignored; a mere mention of `offckb debugger`, or a
+    // legacy body with extra user content, is not enough to claim the file.
     const marker = isWindows ? '@rem offckb-managed ckb-debugger shim' : '# offckb-managed ckb-debugger shim';
     const content = isWindows
       ? `${marker}\r\n@echo off\r\n"${binaryPath}" %*\r\n`
@@ -366,9 +367,8 @@ export class CKBDebuggerInstaller {
     try {
       if (fs.existsSync(targetPath)) {
         const existing = fs.readFileSync(targetPath, 'utf8');
-        const isLegacyShim = isWindows
-          ? existing.includes('@echo off') && existing.includes('offckb debugger %*')
-          : existing.startsWith('#!/bin/sh') && existing.includes('exec offckb debugger "$@"');
+        const legacyBody = isWindows ? '@echo off\noffckb debugger %*' : '#!/bin/sh\nexec offckb debugger "$@"';
+        const isLegacyShim = existing.replace(/\r\n/g, '\n').replace(/\n$/, '') === legacyBody;
         if (!existing.includes(marker) && !isLegacyShim) {
           logger.warn(
             `A file already exists at ${targetPath} that was not created by offckb; leaving it untouched. ` +

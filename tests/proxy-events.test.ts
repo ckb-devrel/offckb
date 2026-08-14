@@ -125,6 +125,55 @@ describe('handleProxyRequestBody', () => {
     expect(content).toMatch(/send_transaction 0xhash/);
   });
 
+  it('normalizes a non-Error throw when isolating a failing batch member', () => {
+    const ctx = makeCtx(transactionsPath);
+    ctx.hashTransaction = jest.fn((tx: unknown) => {
+      if ((tx as { bad?: boolean }).bad) {
+        throw 'hash boom';
+      }
+      return '0xhash';
+    });
+    const goodTx = { cell_deps: [], inputs: [], outputs: [] };
+    handleProxyRequestBody(
+      JSON.stringify([
+        { jsonrpc: '2.0', id: 1, method: 'send_transaction', params: [{ bad: true }] },
+        { jsonrpc: '2.0', id: 2, method: 'send_transaction', params: [goodTx] },
+      ]),
+      ctx,
+    );
+    // The thrown string is logged as-is instead of rendering as "undefined".
+    expect(ctx.sink.warn).toHaveBeenCalledWith(expect.stringContaining('hash boom'));
+    expect(ctx.sink.warn).not.toHaveBeenCalledWith(expect.stringContaining('undefined'));
+    expect(ctx.sink.error).not.toHaveBeenCalled();
+    // The valid send_transaction after it is still recorded.
+    expect(ctx.sink.info).toHaveBeenCalledWith(expect.stringContaining('0xhash'));
+    expect(fs.existsSync(path.join(transactionsPath, '0xhash.json'))).toBe(true);
+  });
+
+  it('tolerates a null throw when isolating a failing batch member', () => {
+    const ctx = makeCtx(transactionsPath);
+    ctx.hashTransaction = jest.fn((tx: unknown) => {
+      if ((tx as { bad?: boolean }).bad) {
+        throw null;
+      }
+      return '0xhash';
+    });
+    const goodTx = { cell_deps: [], inputs: [], outputs: [] };
+    handleProxyRequestBody(
+      JSON.stringify([
+        { jsonrpc: '2.0', id: 1, method: 'send_transaction', params: [{ bad: true }] },
+        { jsonrpc: '2.0', id: 2, method: 'send_transaction', params: [goodTx] },
+      ]),
+      ctx,
+    );
+    // Reading .message off null would itself throw; the warning must not.
+    expect(ctx.sink.warn).toHaveBeenCalledWith(expect.stringContaining('null'));
+    expect(ctx.sink.error).not.toHaveBeenCalled();
+    // The valid send_transaction after it is still recorded.
+    expect(ctx.sink.info).toHaveBeenCalledWith(expect.stringContaining('0xhash'));
+    expect(fs.existsSync(path.join(transactionsPath, '0xhash.json'))).toBe(true);
+  });
+
   it('warns and skips the tx dump when send_transaction has no usable params', () => {
     const ctx = makeCtx(transactionsPath);
     handleProxyRequestBody(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'send_transaction' }), ctx);

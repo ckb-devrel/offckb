@@ -120,7 +120,11 @@ export function handleProxyRequestBody(reqData: string, ctx: ProxyEventContext):
       try {
         handleOneRequest(jsonRpcContent, ctx);
       } catch (error) {
-        ctx.sink.warn(`skipping JSON-RPC request event: ${(error as Error).message}`);
+        // Thrown values are not necessarily Error instances (user code can
+        // throw anything), so normalize before logging; reading .message off
+        // a non-Error (e.g. null) would itself throw and abort the batch.
+        const message = error instanceof Error ? error.message : String(error);
+        ctx.sink.warn(`skipping JSON-RPC request event: ${message}`);
       }
     }
   } catch (err) {
