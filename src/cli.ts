@@ -32,6 +32,7 @@ import { genSystemScriptsJsonFile } from './scripts/gen';
 import { CKBDebugger } from './tools/ckb-debugger';
 import { resolveMainnetForkOverride } from './util/fork-safety';
 import { logger } from './util/logger';
+import { installBrokenPipeHandlers } from './util/shutdown';
 import { Network } from './type/base';
 import { status } from './cmd/status';
 
@@ -432,17 +433,6 @@ function normalizeGlobalJsonFlag(argv: string[]): string[] {
   const jsonRequested = argv.slice(2).includes('--json');
   if (!jsonRequested) return argv;
   return [argv[0], argv[1], '--json', ...argv.slice(2).filter((arg) => arg !== '--json')];
-}
-
-function installBrokenPipeHandlers() {
-  for (const stream of [process.stdout, process.stderr]) {
-    stream.on('error', (error: NodeJS.ErrnoException) => {
-      if (error.code === 'EPIPE') {
-        process.exit(0);
-      }
-      throw error;
-    });
-  }
 }
 
 function configureCommanderErrors(command: Command) {

@@ -12,6 +12,7 @@ import { fiberAccountIndex, fiberNodePaths, FIBER_DAEMON_PID_FILE, fiberDaemonPa
 import { readNodesYml } from '../fiber/nodes-yml';
 import { readLogTail, followLogFile } from '../devnet/log-file';
 import { cleanupPidFile } from '../util/daemon';
+import { enterGracefulShutdown } from '../util/shutdown';
 import * as fs from 'fs';
 
 export interface FiberStartOptions {
@@ -58,6 +59,9 @@ export async function superviseFiberNodes(
       return new Promise<never>(() => {});
     }
     stopping = true;
+    // Committed to tearing down: a broken stdout/stderr pipe must not abort
+    // the cleanup below (see util/shutdown.ts).
+    enterGracefulShutdown();
     if (reason) logger.error(reason);
     await stopFiberNodes(env.nodes, settings);
     if (process.env.OFFCKB_DAEMON_CHILD === '1') {

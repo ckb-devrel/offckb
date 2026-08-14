@@ -26,6 +26,7 @@ import {
   FiberRuntime,
 } from './runtime';
 import { closeFileDescriptors } from '../util/daemon';
+import { enterGracefulShutdown } from '../util/shutdown';
 
 export interface FnnProcessHandle {
   id: number;
@@ -326,6 +327,10 @@ export async function startFiberEnvironment(options: StartFiberEnvironmentOption
   const handles: FnnProcessHandle[] = [];
   let signalCleanupStarted = false;
   const onStartupSignal = (signal: 'SIGINT' | 'SIGTERM') => {
+    // Set before the first log line of the cleanup: with piped output the
+    // reader may die with this same signal, and an EPIPE must not abort the
+    // shutdown (see util/shutdown.ts).
+    enterGracefulShutdown();
     void (async () => {
       if (signalCleanupStarted) return;
       signalCleanupStarted = true;

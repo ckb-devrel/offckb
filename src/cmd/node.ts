@@ -38,6 +38,7 @@ import { resolveFiberChainScripts } from '../fiber/scripts';
 import { FiberEnvironment, startFiberEnvironment, stopFiberNodes } from '../fiber/manager';
 import { printFiberSummary } from './fiber';
 import { readRuntime } from '../fiber/runtime';
+import { enterGracefulShutdown } from '../util/shutdown';
 import { fiberDaemonPaths } from '../fiber/paths';
 import { assertNodeStopDoesNotOrphanFiber, FIBER_DAEMON_READY_TIMEOUT_MS } from '../fiber/daemon';
 
@@ -359,6 +360,9 @@ async function runNodeDevnet(
   let shutdownPromise: Promise<void> | null = null;
   const runShutdownOnce = (trigger: ShutdownTrigger): Promise<void> => {
     if (shutdownPromise) return shutdownPromise;
+    // Committed to tearing down: a broken stdout/stderr pipe must not abort
+    // the cleanup below (see util/shutdown.ts).
+    enterGracefulShutdown();
     shutdownPromise = (async () => {
       const failedComponent = 'component' in trigger ? trigger.component : null;
       logSubscription?.close();
@@ -401,6 +405,9 @@ function installFiberSignalHandlers(runShutdownOnce: (trigger: { signal: 'SIGINT
   const handler = (signal: 'SIGINT' | 'SIGTERM') => {
     if (handling) return;
     handling = true;
+    // Set before the first log line: with piped output the reader may die
+    // with this same signal, and an EPIPE must not abort the shutdown.
+    enterGracefulShutdown();
     void (async () => {
       logger.info(`Received ${signal}, stopping the devnet and fiber nodes...`);
       await runShutdownOnce({ signal });
