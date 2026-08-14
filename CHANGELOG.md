@@ -1,5 +1,14 @@
 # @offckb/cli
 
+## 0.4.12
+
+### Patch Changes
+
+- a591136: Update the ckb-tui download URL to the new `nervosnetwork/ckb-tui` org repository after ckb-tui was transferred out of the original personal repo. Release assets moved with the transfer, so the pinned SHA-256 digests still match byte-for-byte and verified installs are unaffected.
+- e156a5a: Fix `offckb debug` failing with `ENOENT` on the tx-file path. The debugger now splits its command line quote-aware, so the quotes `encodeBinPathForTerminal` adds around space-containing paths are stripped instead of becoming part of the file name (a regression from the native ckb-debugger switch, which passes array argv to `execFileSync` instead of a shell string).
+- 4f27ae9: Add `offckb install ckb-debugger` to install the native `ckb-debugger` binary. Instead of compiling from source with `cargo install` (which needs a Rust toolchain), offckb now downloads the prebuilt release asset for the current platform from the official ckb-standalone-debugger GitHub releases, verifies its SHA-256 digest, publishes it under the offckb data directory, and puts a `ckb-debugger` shim next to the offckb binary so generated projects can find it on PATH. `offckb create` installs the native debugger automatically when it is missing. The bundled WASM debugger and its fallback logic have been removed — `offckb debug` now requires the native binary. Version checks against the configured minimum now compare numerically, so an installed binary that satisfies `tools.ckbDebugger.minVersion` is correctly recognized.
+- 852b68b: Fix review findings from the v0.4.11 release merge. `offckb logs script` now scans a wider window before filtering so sparse script entries are not missed, and an unknown `offckb logs` target is rejected instead of silently reading the node log. `offckb logs -f` detects log rotation by inode change, so a rotated-in file that is already larger than the old one is re-read from the start. `offckb logs --tail` rejects zero and negative values instead of printing the entire filtered log. CKB 0.205.0 prerelease binaries (rc builds), including prereleases of newer versions, are now correctly treated as Terminal-RPC capable during chain init. A ckb-tui binary that lost its execute bit is reinstalled instead of failing at spawn time. The RPC proxy keeps appending events when a proxy.log rollover fails (previously all further events were dropped) and preserves the previous archive when the rollover's rename fails, records batched JSON-RPC requests including batched `send_transaction`, skips malformed batch members without aborting the rest of the batch, and warns instead of misreporting a parse error when `send_transaction` has no usable params. `--verbose` on `offckb node` now also enables the proxy's per-request debug lines.
+
 ## 0.4.11
 
 ### Patch Changes
