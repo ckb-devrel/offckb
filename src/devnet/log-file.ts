@@ -122,7 +122,10 @@ export function followLogFile(filePath: string, onLine: (line: string) => void, 
   let decoder = new TextDecoder('utf-8');
 
   const onChange = (curr: fs.Stats, prev: fs.Stats) => {
-    if (curr.size < prev.size || curr.size < offset) {
+    // Rotation swaps in a new inode at the same path; a replacement that is
+    // already larger than the old file fools the size checks below, so the
+    // inode change must also reset the offset.
+    if (curr.size < prev.size || curr.size < offset || curr.ino !== prev.ino) {
       // Truncated or rotated: restart from the beginning.
       offset = 0;
       partial = '';

@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import winston from 'winston';
-import { showLogs } from '../src/cmd/logs';
+import { logsCommand, showLogs } from '../src/cmd/logs';
 import { defaultSettings, Settings } from '../src/cfg/setting';
 import { UnifiedLogger } from '../src/util/logger';
 
@@ -70,6 +70,17 @@ describe('showLogs', () => {
     expect(transport.logs).toEqual([SCRIPT_LINE]);
   });
 
+  it('finds sparse script entries beyond the raw tail window', () => {
+    const { settings, transport } = fixture();
+    const runLog = path.join(settings.devnet.dataPath, 'logs', 'run.log');
+    // The only script entry sits above the last `tail` lines, so a plain
+    // filter-after-tail would print nothing.
+    fs.writeFileSync(runLog, [SCRIPT_LINE, NODE_LINE, ERROR_LINE, NODE_LINE].join('\n') + '\n');
+    const log = UnifiedLogger.create({ transports: [transport], showLevel: false });
+    showLogs('script', { tail: 2 }, settings, log);
+    expect(transport.logs).toEqual([SCRIPT_LINE]);
+  });
+
   it('reads miner.log for the miner target', () => {
     const { settings, transport } = fixture();
     const log = UnifiedLogger.create({ transports: [transport], showLevel: false });
@@ -91,13 +102,23 @@ describe('showLogs', () => {
     expect(transport.logs).toEqual([ERROR_LINE]);
   });
 
+  it('rejects a zero or negative tail instead of dumping the whole filtered log', () => {
+    const { settings, transport } = fixture();
+    const log = UnifiedLogger.create({ transports: [transport], showLevel: false });
+    // slice(-0) is slice(0): without validation, script mode would print every
+    // filtered line it scanned instead of nothing.
+    expect(() => showLogs('script', { tail: 0 }, settings, log)).toThrow(/positive integer/);
+    expect(() => showLogs('script', { tail: -0 }, settings, log)).toThrow(/positive integer/);
+    expect(() => showLogs('node', { tail: -5 }, settings, log)).toThrow(/positive integer/);
+    expect(transport.logs).toEqual([]);
+  });
+
   it('throws a helpful error when the log file does not exist', () => {
     const settings = JSON.parse(JSON.stringify(defaultSettings)) as Settings;
     settings.devnet.dataPath = '/nonexistent';
     const log = UnifiedLogger.create({ transports: [new CapturingTransport()] });
     expect(() => showLogs('node', { tail: 100 }, settings, log)).toThrow(/log file not found/i);
   });
-
   it('in follow mode gates script entries and applies grep to streamed lines', () => {
     const { settings, transport } = fixture();
     type StatListener = (curr: fs.Stats, prev: fs.Stats) => void;
@@ -129,5 +150,12 @@ describe('showLogs', () => {
       mockWatchFile.mockReset();
       mockUnwatchFile.mockReset();
     }
+  });
+});
+
+describe('logsCommand', () => {
+  it('rejects an unknown log target instead of falling back to node', () => {
+    expect(() => logsCommand('scrpit', {})).toThrow(/unknown log target 'scrpit'/i);
+    expect(() => logsCommand('scrpit', {})).toThrow(/node, script, miner, rpc/);
   });
 });

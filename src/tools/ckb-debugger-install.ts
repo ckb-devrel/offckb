@@ -1,0 +1,410 @@
+/**
+ * CKB Debugger Installer
+ *
+ * Installs the native `ckb-debugger` binary by downloading the prebuilt
+ * release asset from the official ckb-standalone-debugger GitHub releases.
+ *
+ * Why prebuilt binaries instead of `cargo install`? Installing via cargo
+ * requires a Rust toolchain and compiles the debugger from source, which is
+ * slow and error-prone for most users. The upstream repository publishes
+ * prebuilt binaries for Linux/macOS/Windows on every release, so offckb can
+ * simply download the one that matches the current platform.
+ *
+ * The installer follows the same shape as CKBTui's install flow:
+ *   1. Resolve the latest release tag via the `releases/latest` redirect
+ *      (no GitHub API involved, so there is no per-IP rate limit to hit).
+ *   2. Download the matching archive from a deterministic URL (the upstream
+ *      release workflow names assets `ckb-debugger_<tag>_<target>.tar.gz`).
+ *   3. Verify its SHA-256 digest against the published `-sha256.txt` (fail closed).
+ *   4. Extract and publish the binary atomically under tools.rootFolder.
+ *   5. Put a `ckb-debugger` shim next to the offckb binary so generated
+ *      projects can find it on PATH.
+ */
+
+import { spawnSync } from 'child_process';
+import * as path from 'path';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as crypto from 'crypto';
+import * as tar from 'tar';
+import { Request } from '../util/request';
+import { readSettings, dataPath } from '../cfg/setting';
+import { logger } from '../util/logger';
+import { findFileInFolder } from '../util/fs';
+
+const DEBUGGER_REPO = 'nervosnetwork/ckb-standalone-debugger';
+const RELEASES_URL = `https://github.com/${DEBUGGER_REPO}/releases`;
+const LATEST_URL = `${RELEASES_URL}/latest`;
+
+export interface CkbDebuggerInstallResult {
+  binaryPath: string;
+  version: string | null;
+  /** True when a usable binary was already installed and no download happened. */
+  alreadyInstalled: boolean;
+}
+
+function getBinaryName(): string {
+  return process.platform === 'win32' ? 'ckb-debugger.exe' : 'ckb-debugger';
+}
+
+/**
+ * Numeric (not lexicographic) comparison against a required minimum version.
+ * A pre-release suffix (e.g. `0.200.0-rc1`) compares older than the plain
+ * release of the same segments.
+ */
+export function isVersionAtLeast(version: string, minVersion: string): boolean {
+  const parse = (v: string): { segments: number[]; prerelease: boolean } | null => {
+    const match = /^(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z.]+)?/.exec(v.trim());
+    return match
+      ? {
+          segments: [Number(match[1]), Number(match[2]), Number(match[3])],
+          prerelease: Boolean(match[4]),
+        }
+      : null;
+  };
+  const a = parse(version);
+  const b = parse(minVersion);
+  if (!a || !b) {
+    return false;
+  }
+  for (let i = 0; i < 3; i++) {
+    if (a.segments[i] !== b.segments[i]) {
+      return a.segments[i] > b.segments[i];
+    }
+  }
+  // Equal release segments: a pre-release is older than the plain release.
+  return a.prerelease === b.prerelease || !a.prerelease;
+}
+
+/**
+ * The `<target>` segment of the upstream release asset name for the current
+ * platform (assets are named `ckb-debugger_<tag>_<target>.tar.gz`, per the
+ * upstream release workflow). Returns null when no prebuilt asset exists.
+ *
+ * Note: upstream stopped publishing `x86_64-apple-darwin` assets after v1.0.0
+ * (v1.1.0+ ships `aarch64-apple-darwin` only), so an Intel Mac (or Rosetta
+ * x64 Node on Apple Silicon) has no prebuilt asset and gets the explicit
+ * "no prebuilt binary" error instead of a misleading 404.
+ */
+export function getAssetTarget(platform: NodeJS.Platform, arch: string): string | null {
+  if (platform === 'linux' && arch === 'x64') return 'x86_64-unknown-linux-gnu';
+  if (platform === 'linux' && arch === 'arm64') return 'aarch64-unknown-linux-gnu';
+  if (platform === 'darwin' && arch === 'arm64') return 'aarch64-apple-darwin';
+  if (platform === 'win32' && arch === 'x64') return 'x86_64-pc-windows-msvc';
+  return null;
+}
+
+export class CKBDebuggerInstaller {
+  /**
+   * Install (or refresh) the native ckb-debugger binary for this platform.
+   * Throws on any failure; callers that can degrade (e.g. the create flow)
+   * should catch the error.
+   */
+  static async install(): Promise<CkbDebuggerInstallResult> {
+    const binaryPath = this.getInstalledBinaryPath();
+
+    // Already installed and satisfies the required minimum version: nothing
+    // to download, just make sure the PATH shim is in place.
+    if (fs.existsSync(binaryPath)) {
+      const version = this.getVersionFromBinary(binaryPath);
+      if (version && this.satisfiesMinVersion(version)) {
+        this.ensurePathShim(binaryPath);
+        logger.info(`ckb-debugger ${version} is already installed at ${binaryPath}.`);
+        return { binaryPath, version, alreadyInstalled: true };
+      }
+      if (version) {
+        logger.info(
+          `The installed ckb-debugger (${version}) is older than the required minimum ` +
+            `(${this.minVersion()}); installing the latest release...`,
+        );
+      } else {
+        logger.info('The installed ckb-debugger looks stale; installing the latest release...');
+      }
+    }
+
+    const target = getAssetTarget(process.platform, process.arch);
+    if (!target) {
+      throw new Error(`ckb-debugger has no prebuilt binary for ${process.platform}/${process.arch}.`);
+    }
+
+    fs.mkdirSync(this.getInstallDir(), { recursive: true });
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'offckb-ckb-debugger-'));
+    try {
+      // 1. Resolve the latest release tag (no GitHub API, no rate limit).
+      logger.info(`Looking up the latest ckb-debugger release from ${DEBUGGER_REPO}...`);
+      const tag = await this.resolveLatestTag();
+      const pkg = `ckb-debugger_${tag}_${target}`;
+      const archiveUrl = `${RELEASES_URL}/download/${tag}/${pkg}.tar.gz`;
+      const checksumUrl = `${RELEASES_URL}/download/${tag}/${pkg}-sha256.txt`;
+      logger.info(`Found ${tag} · ${pkg}.tar.gz`);
+
+      // 2. Download the archive.
+      const archivePath = path.join(tempDir, `${pkg}.tar.gz`);
+      await this.download(archiveUrl, archivePath);
+
+      // 3. Verify the SHA-256 digest from the published checksum file.
+      await this.verifyChecksum(checksumUrl, archivePath);
+
+      // 4. Extract to a temp directory.
+      const extractDir = path.join(tempDir, 'extracted');
+      fs.mkdirSync(extractDir, { recursive: true });
+      await this.extractArchive(archivePath, extractDir);
+
+      // 5. Locate the extracted binary.
+      const extractedBinary = findFileInFolder(extractDir, getBinaryName());
+      if (!extractedBinary) {
+        throw new Error(`ckb-debugger binary ("${getBinaryName()}") was not found after extraction.`);
+      }
+
+      // 6. Publish atomically so a failed install never leaves a partial binary.
+      this.publishExtractedBinary(extractedBinary, binaryPath);
+
+      // 7. Verify the binary actually runs before exposing it on PATH.
+      if (process.platform !== 'win32') {
+        fs.chmodSync(binaryPath, 0o755);
+      }
+      const version = this.getVersionFromBinary(binaryPath);
+      if (!version) {
+        // The binary cannot run on this system (e.g. incompatible libc).
+        // Remove it so the next install does not keep re-downloading the same
+        // broken artifact, and report failure instead of a bogus success.
+        fs.rmSync(binaryPath, { force: true });
+        throw new Error(
+          `The installed ckb-debugger binary failed to run \`--version\`. ` +
+            'It may be incompatible with this system (e.g. missing glibc).',
+        );
+      }
+      this.ensurePathShim(binaryPath);
+
+      logger.info(`✅ ckb-debugger installed successfully at ${binaryPath} (version ${version}).`);
+      logger.info('   To uninstall, remove the binary and the ckb-debugger shim next to the offckb binary.');
+      return { binaryPath, version, alreadyInstalled: false };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error(
+        'Failed to install ckb-debugger:',
+        message,
+        '\nPlease check your network connectivity and try again with: offckb install ckb-debugger',
+      );
+      throw error;
+    } finally {
+      try {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      } catch {
+        // Best-effort cleanup; the OS will reap the temp dir eventually.
+      }
+    }
+  }
+
+  /** Directory that holds the installed ckb-debugger binary. */
+  static getInstallDir(): string {
+    const settings = readSettings();
+    // Flat layout under tools.rootFolder, matching CKBTui (e.g.
+    // <data>/tools/ckb-debugger rather than <data>/tools/ckb-debugger/...).
+    return this.resolveAndValidateBinDir(settings.tools.rootFolder);
+  }
+
+  /** Full path of the installed ckb-debugger binary. */
+  static getInstalledBinaryPath(): string {
+    return path.join(this.getInstallDir(), getBinaryName());
+  }
+
+  // --- private helpers ---
+
+  private static minVersion(): string {
+    return readSettings().tools.ckbDebugger.minVersion;
+  }
+
+  private static satisfiesMinVersion(version: string): boolean {
+    return isVersionAtLeast(version, this.minVersion());
+  }
+
+  private static getVersionFromBinary(binaryPath: string): string | null {
+    try {
+      const result = spawnSync(binaryPath, ['--version'], { encoding: 'utf8' });
+      if (result.status !== 0) {
+        return null;
+      }
+      const match = /(\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?)/.exec(`${result.stdout}${result.stderr || ''}`);
+      return match ? match[1] : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private static async resolveLatestTag(): Promise<string> {
+    // Follow the /releases/latest redirect (no GitHub API, so no per-IP rate
+    // limit) and read the tag from the final URL.
+    const response = await Request.send(LATEST_URL);
+    const match = /\/releases\/tag\/([^/?#]+)/.exec(response.url);
+    if (!match) {
+      throw new Error(`Could not resolve the latest ckb-debugger release from ${LATEST_URL}.`);
+    }
+    return match[1];
+  }
+
+  private static async download(url: string, targetPath: string): Promise<void> {
+    logger.info(`Downloading ${url} ...`);
+    const response = await Request.send(url);
+    const arrayBuffer = await response.arrayBuffer();
+    fs.writeFileSync(targetPath, Buffer.from(arrayBuffer));
+  }
+
+  /** Verify the archive against the SHA-256 digest published in the release. */
+  private static async verifyChecksum(checksumUrl: string, archivePath: string): Promise<void> {
+    const response = await Request.send(checksumUrl);
+    const text = await response.text();
+    const match = /([0-9a-f]{64})/i.exec(text);
+    if (!match) {
+      throw new Error(`Could not read a SHA-256 digest from ${checksumUrl}.`);
+    }
+    const expected = match[1].toLowerCase();
+    const actual = crypto.createHash('sha256').update(fs.readFileSync(archivePath)).digest('hex');
+    if (actual !== expected) {
+      throw new Error(
+        `SHA-256 checksum mismatch.\nExpected: ${expected}\nActual:   ${actual}\n` +
+          'The downloaded file may be corrupted or tampered with.',
+      );
+    }
+    logger.info('SHA-256 checksum verified successfully.');
+  }
+
+  private static async extractArchive(archivePath: string, extractDir: string): Promise<void> {
+    // Use the cross-platform `tar` npm package rather than shelling out to the
+    // system tar binary, whose behavior differs across platforms (GNU tar on
+    // Linux/Windows, BSD tar on macOS). This matches node/install.ts.
+    await tar.x({ file: archivePath, cwd: extractDir });
+  }
+
+  /**
+   * Atomically publish the extracted binary to the install path. A directory
+   * occupying the install path is set aside (never deleted) and restored if
+   * publishing fails; cross-filesystem temp dirs fall back to a staged copy.
+   */
+  private static publishExtractedBinary(extractedBinary: string, binaryPath: string): void {
+    let dirBackupPath: string | null = null;
+    let existing: fs.Stats | null = null;
+    try {
+      existing = fs.lstatSync(binaryPath);
+    } catch {
+      existing = null;
+    }
+    if (existing?.isDirectory()) {
+      dirBackupPath = `${binaryPath}.backup-${process.pid}-${Date.now()}`;
+      fs.renameSync(binaryPath, dirBackupPath);
+    }
+
+    try {
+      this.renameIntoPlace(extractedBinary, binaryPath);
+    } catch (error) {
+      if (dirBackupPath) {
+        try {
+          fs.renameSync(dirBackupPath, binaryPath);
+        } catch {
+          // Best effort: the original directory remains at its backup path.
+        }
+      }
+      throw error;
+    }
+
+    if (dirBackupPath) {
+      logger.info(`A directory unexpectedly occupied ${binaryPath}; moved it aside to ${dirBackupPath}.`);
+    }
+  }
+
+  private static renameIntoPlace(source: string, target: string): void {
+    try {
+      fs.renameSync(source, target);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EXDEV') {
+        throw error;
+      }
+      const stagingPath = path.join(path.dirname(target), `.${path.basename(target)}.staging-${process.pid}`);
+      try {
+        fs.copyFileSync(source, stagingPath);
+        fs.renameSync(stagingPath, target);
+      } finally {
+        fs.rmSync(stagingPath, { force: true });
+      }
+    }
+  }
+
+  /**
+   * Write a `ckb-debugger` shim next to the offckb binary so generated
+   * projects that shell out to `ckb-debugger` resolve to the installed
+   * native binary. When offckb is not on PATH (unusual), skip with a warning.
+   */
+  private static ensurePathShim(binaryPath: string): string | null {
+    const isWindows = process.platform === 'win32';
+    const result = spawnSync(isWindows ? 'where' : 'which', ['offckb'], { encoding: 'utf8' });
+    // `which`/`where` failing to spawn leaves stdout null; treat that as "no
+    // offckb on PATH" rather than crashing the install.
+    const stdout = result.stdout ?? '';
+    const offckbPath = stdout.trim().split('\n')[0];
+    if (!offckbPath) {
+      logger.warn(
+        'Could not find the offckb binary in PATH, so no ckb-debugger shim was created. ' +
+          'Projects that call `ckb-debugger` directly will need it added to PATH manually.',
+      );
+      return null;
+    }
+
+    const binName = isWindows ? 'ckb-debugger.cmd' : 'ckb-debugger';
+    const targetPath = path.join(path.dirname(offckbPath), binName);
+    // The marker distinguishes our own shim from a foreign file — e.g. a real
+    // binary a user installed via cargo — which must never be silently
+    // clobbered. Legacy v0.4.x fallback shims are also upgraded in place, but
+    // only when the whole file is exactly the body offckb wrote back then (a
+    // shebang line plus `exec offckb debugger "$@"` on Unix, `@echo off` plus
+    // `offckb debugger %*` on Windows), line endings normalized and one
+    // trailing newline ignored; a mere mention of `offckb debugger`, or a
+    // legacy body with extra user content, is not enough to claim the file.
+    const marker = isWindows ? '@rem offckb-managed ckb-debugger shim' : '# offckb-managed ckb-debugger shim';
+    const content = isWindows
+      ? `${marker}\r\n@echo off\r\n"${binaryPath}" %*\r\n`
+      : `#!/bin/sh\n${marker}\nexec "${binaryPath}" "$@"\n`;
+
+    try {
+      if (fs.existsSync(targetPath)) {
+        const existing = fs.readFileSync(targetPath, 'utf8');
+        const legacyBody = isWindows ? '@echo off\noffckb debugger %*' : '#!/bin/sh\nexec offckb debugger "$@"';
+        const isLegacyShim = existing.replace(/\r\n/g, '\n').replace(/\n$/, '') === legacyBody;
+        if (!existing.includes(marker) && !isLegacyShim) {
+          logger.warn(
+            `A file already exists at ${targetPath} that was not created by offckb; leaving it untouched. ` +
+              'Projects that call `ckb-debugger` directly will need it added to PATH manually.',
+          );
+          return null;
+        }
+      }
+      fs.writeFileSync(targetPath, content);
+      if (!isWindows) {
+        fs.chmodSync(targetPath, 0o755);
+      }
+      logger.info(`✅ ckb-debugger shim updated: ${targetPath}`);
+      return targetPath;
+    } catch (error) {
+      // A missing shim must not fail an otherwise successful install: the
+      // binary is already in place and offckb can use it directly.
+      logger.warn(
+        `Could not write the ckb-debugger shim at ${targetPath}: ${(error as Error).message}. ` +
+          'Projects that call `ckb-debugger` directly will need it added to PATH manually.',
+      );
+      return null;
+    }
+  }
+
+  /** Resolve and validate that tools.rootFolder stays under the OffCKB data path. */
+  private static resolveAndValidateBinDir(configuredRoot: string): string {
+    const resolved = path.resolve(configuredRoot);
+    const resolvedData = path.resolve(dataPath);
+    const relative = path.relative(resolvedData, resolved);
+    if (relative.startsWith('..') || path.isAbsolute(relative)) {
+      throw new Error(
+        `tools.rootFolder ("${configuredRoot}") resolves outside the OffCKB data directory ` +
+          `("${resolvedData}"). For security, tool binaries must be stored under the data path.`,
+      );
+    }
+    return resolved;
+  }
+}

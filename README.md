@@ -83,6 +83,7 @@ Commands:
   transfer [options] [toAddress] [amountInCKB]  Transfer CKB tokens to address, only devnet and testnet
   transfer-all [options] [toAddress]            Transfer All CKB tokens to address, only devnet and testnet
   balance [options] [toAddress]                 Check account balance, only devnet and testnet
+  install <tool>                                Install a tool binary used by offckb (e.g. the native ckb-debugger)
   debugger                                      Port of the raw CKB Standalone Debugger
   status [options]                              Show ckb-tui status interface
   logs [options] [target]                       Show devnet logs: node (default), contract script debug output, miner, or RPC proxy events
@@ -218,30 +219,26 @@ offckb create <your-project-name> -c <your-contract-name>
 
 **Note for Windows Users:**
 
-To run mock tests in the generated project, you need to manually install `ckb-debugger` until [this upstream fix about ckb-testtool wasm](https://github.com/nervosnetwork/ckb-js-vm/pull/98) is applied.
+The generated project uses `ckb-testtool` with the WASM debugger by default, which works on all platforms. To run mock tests with the _native_ debugger instead (for example, while debugging upstream WASM issues), install `ckb-debugger` once with offckb:
 
-**Installation Steps:**
+```sh
+offckb install ckb-debugger
+```
 
-1. Download the latest `ckb-debugger` release for Windows from the [releases page](https://github.com/nervosnetwork/ckb-standalone-debugger/releases)
-2. Extract the downloaded archive (e.g., `ckb-debugger-win64.zip`)
-3. Add the extracted binary to your system PATH:
-   - Open "System Properties" → "Environment Variables"
-   - Under "System variables" or "User variables", find and edit the `Path` variable
-   - Click "New" and add the full path to the folder containing `ckb-debugger.exe`
-   - Click "OK" to save
-4. Verify installation by opening a new terminal and running:
-   ```sh
-   ckb-debugger --version
-   ```
-5. Disable WASM debugger in your mock test file:
-   - Open the mock test file (e.g., `<your-contract-name>.mock.test.ts`)
-   - Comment out or delete the `verifier.setWasmDebuggerEnabled(true)` line:
+This downloads the prebuilt `ckb-debugger` binary for your platform from the official [ckb-standalone-debugger releases](https://github.com/nervosnetwork/ckb-standalone-debugger/releases) and puts a `ckb-debugger` shim next to the offckb binary so it is available on PATH.
+
+Then disable the WASM debugger in your mock test file:
+
+1. Open the mock test file (e.g., `<your-contract-name>.mock.test.ts`)
+2. Comment out or delete the `verifier.setWasmDebuggerEnabled(true)` line:
    ```typescript
    // When using native ckb-debugger, comment out or delete the following line:
    // verifier.setWasmDebuggerEnabled(true);
    ```
 
 After completing these steps, `npm run test` should pass without mock test failures.
+
+`offckb create` installs `ckb-debugger` for you automatically when it is missing.
 
 ### 3. Deploy Your Contract {#deploy-contract}
 
@@ -317,7 +314,19 @@ Example:
 offckb debug --tx-hash <tx-hash> --single-script input[0].lock
 ```
 
-All debug utilities are powered by [ckb-debugger](https://github.com/nervosnetwork/ckb-standalone-debugger/tree/develop/ckb-debugger).
+All debug utilities are powered by [ckb-debugger](https://github.com/nervosnetwork/ckb-standalone-debugger/tree/develop/ckb-debugger).
+
+**Install the Native ckb-debugger**
+
+`offckb debug` requires the native `ckb-debugger` binary. Install it once with:
+
+```sh
+offckb install ckb-debugger
+```
+
+This downloads the prebuilt binary for your platform from the official [ckb-standalone-debugger releases](https://github.com/nervosnetwork/ckb-standalone-debugger/releases) (no Rust toolchain or compilation needed), verifies its checksum, and exposes it on PATH.
+
+To uninstall, remove the binary under the offckb data directory (see `offckb config list`) and the `ckb-debugger` shim next to the offckb binary.
 
 ### 5. Explore Built-in Scripts {#explore-scripts}
 

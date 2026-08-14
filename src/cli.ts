@@ -111,8 +111,8 @@ program
   .option('--grep <pattern>', 'Only show lines containing the given text')
   .option('--tail <lines>', 'Show the last N lines before following', (value: string) => {
     const parsed = Number(value);
-    if (!Number.isInteger(parsed) || parsed < 0) {
-      throw new InvalidArgumentError('--tail must be a non-negative integer');
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      throw new InvalidArgumentError('--tail must be a positive integer');
     }
     return parsed;
   })
@@ -272,6 +272,14 @@ mainnetForkOverrideOption(
 ).action(async (amount: string, options: UdtDestroyOption) => {
   await udtDestroy(amount, resolveMainnetForkOverride(options));
 });
+
+program
+  .command('install')
+  .description('Install a tool binary used by offckb (e.g. the native ckb-debugger)')
+  .addArgument(new Argument('<tool>', 'The tool to install').choices(['ckb-debugger']))
+  .action(async () => {
+    await CKBDebugger.installCKBDebuggerBinary();
+  });
 
 program
   .command('debugger')

@@ -203,7 +203,7 @@ export async function nodeDevnet({ version, binaryPath, daemon, verbose }: NodeP
     throw new Error('CKB devnet exited while the miner was starting.');
   }
 
-  const proxy = createRPCProxy(Network.devnet, settings.devnet.rpcUrl, settings.devnet.rpcProxyPort);
+  const proxy = createRPCProxy(Network.devnet, settings.devnet.rpcUrl, settings.devnet.rpcProxyPort, { verbose });
   proxy.start();
 
   // Contract script debug output (debug! in scripts) streams live over the
