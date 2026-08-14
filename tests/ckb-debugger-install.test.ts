@@ -253,6 +253,27 @@ describe('CKBDebuggerInstaller', () => {
     expect(fs.readFileSync(shimPath, 'utf-8')).toBe('#!/bin/sh\nexec /usr/bin/ckb-debugger "$@"\n');
   });
 
+  it('does not overwrite a user file that merely mentions offckb debugger', async () => {
+    const buffer = await buildTarGz('0.208.0');
+    mockRelease('0.208.0', buffer);
+    const shimPath = path.join(root, 'bin', 'ckb-debugger');
+    mockSpawnSync.mockImplementation((cmd: string) => {
+      if (cmd === 'which') {
+        return { status: 0, stdout: `${path.join(root, 'bin', 'offckb')}\n`, stderr: '' };
+      }
+      return { status: 0, stdout: 'ckb-debugger 0.208.0\n', stderr: '' };
+    });
+    fs.mkdirSync(path.dirname(shimPath), { recursive: true });
+    // A user wrapper that documents offckb debugger without being the exact
+    // v0.4.x fallback body must stay untouched.
+    const userScript = '#!/bin/sh\n# How to call: offckb debugger --help\n/usr/bin/ckb-debugger "$@"\n';
+    fs.writeFileSync(shimPath, userScript);
+
+    await CKBDebuggerInstaller.install();
+
+    expect(fs.readFileSync(shimPath, 'utf-8')).toBe(userScript);
+  });
+
   it('upgrades a legacy v0.4.x fallback shim', async () => {
     const buffer = await buildTarGz('0.208.0');
     mockRelease('0.208.0', buffer);

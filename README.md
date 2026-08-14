@@ -83,6 +83,7 @@ Commands:
   transfer [options] [toAddress] [amountInCKB]  Transfer CKB tokens to address, only devnet and testnet
   transfer-all [options] [toAddress]            Transfer All CKB tokens to address, only devnet and testnet
   balance [options] [toAddress]                 Check account balance, only devnet and testnet
+  install <tool>                                Install a tool binary used by offckb (e.g. the native ckb-debugger)
   debugger                                      Port of the raw CKB Standalone Debugger
   status [options]                              Show ckb-tui status interface
   logs [options] [target]                       Show devnet logs: node (default), contract script debug output, miner, or RPC proxy events

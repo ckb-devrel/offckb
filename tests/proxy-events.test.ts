@@ -98,6 +98,33 @@ describe('handleProxyRequestBody', () => {
     expect(content).toMatch(/send_transaction 0xhash/);
   });
 
+  it('isolates a failing batch member and still records a valid request after it', () => {
+    const ctx = makeCtx(transactionsPath);
+    // Simulate a member whose tx dump blows up mid-processing.
+    ctx.hashTransaction = jest.fn((tx: unknown) => {
+      if ((tx as { bad?: boolean }).bad) {
+        throw new Error('hash boom');
+      }
+      return '0xhash';
+    });
+    const goodTx = { cell_deps: [], inputs: [], outputs: [] };
+    handleProxyRequestBody(
+      JSON.stringify([
+        { jsonrpc: '2.0', id: 1, method: 'send_transaction', params: [{ bad: true }] },
+        { jsonrpc: '2.0', id: 2, method: 'send_transaction', params: [goodTx] },
+      ]),
+      ctx,
+    );
+    // The failing member is skipped with a warning instead of aborting the batch.
+    expect(ctx.sink.warn).toHaveBeenCalledWith(expect.stringContaining('hash boom'));
+    expect(ctx.sink.error).not.toHaveBeenCalled();
+    // The valid send_transaction after it is still recorded.
+    expect(ctx.sink.info).toHaveBeenCalledWith(expect.stringContaining('0xhash'));
+    expect(fs.existsSync(path.join(transactionsPath, '0xhash.json'))).toBe(true);
+    const content = fs.readFileSync(ctx.events.filePath, 'utf8');
+    expect(content).toMatch(/send_transaction 0xhash/);
+  });
+
   it('warns and skips the tx dump when send_transaction has no usable params', () => {
     const ctx = makeCtx(transactionsPath);
     handleProxyRequestBody(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'send_transaction' }), ctx);
