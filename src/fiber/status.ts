@@ -1,5 +1,11 @@
 import { checkNodeReadiness } from '../devnet/readiness';
-import { getProcessCommandLine, isProcessAlive, nodeDaemonPaths, readPidFile } from '../util/daemon';
+import {
+  getProcessCommandLine,
+  isProcessAlive,
+  nodeDaemonPaths,
+  readPidFile,
+  verifyDaemonIdentity,
+} from '../util/daemon';
 import { readSettings, Settings } from '../cfg/setting';
 import { fiberAccountIndex, fiberDaemonPaths, fiberP2pAddr, fiberRpcUrl } from './paths';
 import { readNodesYml } from './nodes-yml';
@@ -45,21 +51,25 @@ async function resolveOffckbManaged(runtime: FiberRuntime | null, settings: Sett
   }
   if (!alive) return 'no';
 
+  // A daemon PID file that claims fiber management must agree with the
+  // runtime record, and the process behind it must verify as that daemon —
+  // the same hardened identity check every other PID-file consumer uses.
+  // (The fiber daemon PID file always claims management; the node daemon PID
+  // file only when the fiber manager IS the node daemon, node --fiber
+  // --daemon. An unrelated CKB daemon does not disqualify.)
+  const fiberPid = readPidFile(fiberDaemonPaths(settings).pidFile);
+  if (fiberPid != null && fiberPid.pid === runtime.managerPid) {
+    return (await verifyDaemonIdentity(fiberPid.pid, fiberPid)) ? 'yes' : 'no';
+  }
+  if (fiberPid != null) return 'no';
+  const nodePid = readPidFile(nodeDaemonPaths(settings).pidFile);
+  if (nodePid != null && nodePid.pid === runtime.managerPid) {
+    return (await verifyDaemonIdentity(nodePid.pid, nodePid)) ? 'yes' : 'no';
+  }
+  // A foreground manager has no PID file; fall back to a command-line probe.
   const cmdline = await getProcessCommandLine(runtime.managerPid);
   if (cmdline == null) return 'unknown';
-  if (!cmdline.includes('offckb')) return 'no';
-
-  // A daemon PID file that claims fiber management must agree with the
-  // runtime record: the fiber daemon PID file always claims it, the node
-  // daemon PID file only when the fiber manager IS the node daemon
-  // (node --fiber --daemon). An unrelated CKB daemon does not disqualify.
-  const fiberPid = readPidFile(fiberDaemonPaths(settings).pidFile);
-  if (fiberPid != null && fiberPid.pid !== runtime.managerPid) return 'no';
-  if (fiberPid == null) {
-    const nodePid = readPidFile(nodeDaemonPaths(settings).pidFile);
-    if (nodePid != null && nodePid.pid === runtime.managerPid) return 'yes';
-  }
-  return 'yes';
+  return cmdline.includes('offckb') ? 'yes' : 'no';
 }
 
 // Case-insensitive comparison of an FNN-reported funding lock against the
@@ -80,8 +90,10 @@ export function lockMatches(
 /**
  * Check the live state of the devnet and every configured FNN. Status is
  * derived only from this moment's RPC answers and key material — no
- * list-hashes, no genesis comparison, no port/PID/process inspection (the
- * OFFCKB column is the single exception, and it never changes the status).
+ * list-hashes, no genesis comparison, no port inspection. The single
+ * exception is process ownership (the OFFCKB column), which only gates the
+ * 'starting' display of unreachable nodes: a runtime record that says
+ * 'starting' is trusted unless ownership is disproven.
  */
 export async function collectFiberStatus(settings: Settings = readSettings()): Promise<FiberStatusReport> {
   const ckbReadiness = await checkNodeReadiness(settings.devnet.rpcUrl, 2000);
@@ -100,9 +112,15 @@ export async function collectFiberStatus(settings: Settings = readSettings()): P
 
   const runtime = readRuntime(settings);
   const offckb = await resolveOffckbManaged(runtime, settings);
-  const managerStarting = runtime != null && offckb === 'yes' && runtime.status === 'starting';
+  const managerStarting = runtime != null && offckb !== 'no' && runtime.status === 'starting';
 
-  for (const entry of entries) {
+  // Probe every node concurrently: a stopped node costs the full 2s timeout,
+  // and a sequential loop would block `fiber status` for 2s per down node.
+  const infos = await Promise.all(
+    entries.map((entry) => fnnNodeInfo(fiberRpcUrl(entry.id), 2000).catch(() => null as FnnNodeInfo | null)),
+  );
+
+  for (const [index, entry] of entries.entries()) {
     const statusEntry: FiberNodeStatusEntry = {
       id: entry.id,
       status: 'unknown',
@@ -114,12 +132,7 @@ export async function collectFiberStatus(settings: Settings = readSettings()): P
     };
     report.nodes.push(statusEntry);
 
-    let info: FnnNodeInfo | null = null;
-    try {
-      info = await fnnNodeInfo(statusEntry.rpcUrl, 2000);
-    } catch {
-      info = null;
-    }
+    const info: FnnNodeInfo | null = infos[index];
 
     if (info == null) {
       statusEntry.status = managerStarting ? 'starting' : 'stopped';

@@ -4,7 +4,7 @@ import { ccc } from '@ckb-ccc/core';
 import { callJsonRpc } from '../util/json-rpc';
 import { logger } from '../util/logger';
 import { readSettings, Settings } from '../cfg/setting';
-import { fiberNodePaths, fiberRpcUrl, fiberRpcPort, fiberP2pPort, fiberAccountIndex, runtimeJsonPath } from './paths';
+import { fiberNodePaths, fiberRpcUrl, fiberRpcPort, fiberP2pPort, fiberAccountIndex } from './paths';
 import { ensureNodesYml, FiberNodeEntry } from './nodes-yml';
 import {
   ensureNodeKeyMaterial,
@@ -17,7 +17,14 @@ import { generateNodeConfig } from './config-gen';
 import { FiberChainScripts } from './scripts';
 import { fnnNodeInfo, fnnConnectPeer, fnnListPeers, checkPortFree, FnnNodeInfo } from './rpc';
 import { lockMatches } from './status';
-import { writeRuntime, readLiveRuntime, removeRuntimeFile, removeRuntimeFileIfStale, FiberRuntime } from './runtime';
+import {
+  writeRuntime,
+  readRuntime,
+  readLiveRuntime,
+  removeRuntimeFile,
+  removeRuntimeFileIfStale,
+  FiberRuntime,
+} from './runtime';
 import { closeFileDescriptors } from '../util/daemon';
 
 export interface FnnProcessHandle {
@@ -430,13 +437,8 @@ function waitForChildExit(child: ChildProcess, timeoutMs: number): Promise<void>
 }
 
 function removeRuntimeFileIfManager(settings: Settings) {
-  try {
-    const raw = fs.readFileSync(runtimeJsonPath(settings), 'utf8');
-    const parsed = JSON.parse(raw) as { managerPid?: number };
-    if (parsed.managerPid === process.pid) {
-      removeRuntimeFile(settings);
-    }
-  } catch {
-    // no runtime file or unreadable — nothing to do
+  const runtime = readRuntime(settings);
+  if (runtime?.managerPid === process.pid) {
+    removeRuntimeFile(settings);
   }
 }

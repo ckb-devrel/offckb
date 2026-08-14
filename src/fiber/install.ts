@@ -53,17 +53,29 @@ export function getFnnBundledTestnetConfigPath(version: string, settings: Settin
   return path.join(getFnnInstallPath(version, settings), 'config', 'testnet', 'config.yml');
 }
 
-function buildFnnPackageName(version: string): string {
-  const platform = os.platform();
-  const arch = os.arch();
-  if (platform === 'linux') {
-    return arch === 'arm64' ? `fnn_v${version}-aarch64-linux-portable` : `fnn_v${version}-x86_64-linux-portable`;
-  }
-  if (platform === 'darwin') {
-    return arch === 'arm64' ? `fnn_v${version}-aarch64-darwin-portable` : `fnn_v${version}-x86_64-darwin-portable`;
+/**
+ * The release package name for a platform/arch combination. Linux and macOS
+ * publish x86_64 and aarch64 portable builds; any other architecture there is
+ * unsupported and must fail clearly instead of silently mapping to x86_64
+ * (the checksum pin would pass for the genuine-but-incompatible tarball).
+ * Windows publishes x86_64 only, which Windows on ARM runs under emulation.
+ */
+export function buildFnnPackageName(
+  version: string,
+  platform: NodeJS.Platform = os.platform(),
+  arch: string = os.arch(),
+): string {
+  if (platform === 'linux' || platform === 'darwin') {
+    if (arch !== 'x64' && arch !== 'arm64') {
+      throw new Error(
+        `Unsupported CPU architecture for FNN on ${platform}: ${arch}. ` +
+          'FNN publishes x86_64 and aarch64 builds only; use --binary-path with a locally built binary.',
+      );
+    }
+    const fnnArch = arch === 'arm64' ? 'aarch64' : 'x86_64';
+    return `fnn_v${version}-${fnnArch}-${platform}-portable`;
   }
   if (platform === 'win32') {
-    // Fiber only publishes x86_64 Windows packages.
     return `fnn_v${version}-x86_64-windows`;
   }
   throw new Error(`Unsupported operating system for FNN: ${platform}`);
@@ -124,7 +136,11 @@ export function verifyFnnPackageChecksum(version: string, packageName: string, f
 export async function downloadFnnAndUnzip(version: string, settings: Settings = readSettings()) {
   const packageName = buildFnnPackageName(version);
   const downloadURL = buildFnnDownloadUrl(version);
-  const tempFilePath = path.join(os.tmpdir(), `${packageName}.tar.gz`);
+  // A private per-run temp dir: a predictable path in the shared tmp lets
+  // another local user pre-create/symlink it, and two concurrent installs
+  // would overwrite each other's tarball and extraction tree.
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'offckb-fnn-'));
+  const tempFilePath = path.join(tempDir, `${packageName}.tar.gz`);
 
   logger.info(`downloading ${downloadURL} ..`);
   const response = await Request.send(downloadURL);
@@ -133,8 +149,7 @@ export async function downloadFnnAndUnzip(version: string, settings: Settings = 
 
   try {
     verifyFnnPackageChecksum(version, packageName, tempFilePath);
-    const extractDir = path.join(settings.bins.downloadPath, `fnn_v${version}`);
-    fs.rmSync(extractDir, { recursive: true, force: true });
+    const extractDir = path.join(tempDir, 'extract');
     await unZipFile(tempFilePath, extractDir, true);
 
     // FNN packages ship the binary and config/ flat at the tarball root (unlike
@@ -151,14 +166,13 @@ export async function downloadFnnAndUnzip(version: string, settings: Settings = 
     for (const entry of fs.readdirSync(sourcePath)) {
       fs.cpSync(path.join(sourcePath, entry), path.join(targetPath, entry), { recursive: true, force: true });
     }
-    fs.rmSync(extractDir, { recursive: true, force: true });
     if (process.platform !== 'win32') {
       fs.chmodSync(getFnnBinaryPath(version, settings), '755');
     }
   } finally {
-    // The tarball is only an intermediate; never leave it in the temp dir,
-    // whether the install succeeded or failed.
-    fs.rmSync(tempFilePath, { force: true });
+    // The tarball and extraction tree are only intermediates; never leave
+    // them behind, whether the install succeeded or failed.
+    fs.rmSync(tempDir, { recursive: true, force: true });
   }
   logger.info(`FNN ${version} installed successfully.`);
 }

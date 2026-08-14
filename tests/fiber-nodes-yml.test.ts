@@ -84,6 +84,15 @@ describe('readNodesYml', () => {
     expect(() => readNodesYml(settings)).toThrow('duplicate node id 1');
   });
 
+  it('rejects an empty node list', () => {
+    // An empty stored list must not bypass the minimum-node constraint that
+    // validateNodeCount enforces for the --nodes flag.
+    const settings = fixture();
+    fs.mkdirSync(path.dirname(nodesYmlPath(settings)), { recursive: true });
+    fs.writeFileSync(nodesYmlPath(settings), yaml.dump({ nodes: [] }));
+    expect(() => readNodesYml(settings)).toThrow('at least 1 node must be configured');
+  });
+
   it('rejects managed config fields', () => {
     const settings = fixture();
     fs.mkdirSync(path.dirname(nodesYmlPath(settings)), { recursive: true });

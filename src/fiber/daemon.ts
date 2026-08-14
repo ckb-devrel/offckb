@@ -21,7 +21,13 @@ import { readSettings, Settings } from '../cfg/setting';
 import { logger } from '../util/logger';
 
 const FIBER_DAEMON_CHILD_ENV = 'OFFCKB_DAEMON_CHILD';
-const FIBER_DAEMON_READY_TIMEOUT_MS = 10 * 60_000; // first run may download FNN
+// First run may download FNN. Exported: the `node --fiber --daemon` readiness
+// wait in cmd/node.ts must use exactly this value.
+export const FIBER_DAEMON_READY_TIMEOUT_MS = 10 * 60_000;
+// The launcher flips a 'starting' PID record to 'running' within the ready
+// timeout (or deletes it on failure). Beyond this grace window a 'starting'
+// record means the launcher died mid-startup and the record is stoppable.
+const FIBER_DAEMON_STARTUP_GRACE_MS = FIBER_DAEMON_READY_TIMEOUT_MS + 60_000;
 const STOP_WAIT_TIMEOUT_MS = 15_000;
 const STORE_LOCK_WAIT_TIMEOUT_MS = 15_000;
 
@@ -47,8 +53,13 @@ export async function startFiberDaemon(childArgs: string[], settings: Settings =
           `A fiber daemon is already running (PID ${existing.pid}). Stop it first with: offckb fiber stop`,
         );
       }
-      logger.warn(
-        `PID ${existing.pid} from ${pidFile} belongs to another process; removing stale daemon metadata without signaling it.`,
+      // Fail closed: a live process whose identity cannot be verified keeps
+      // its metadata. Replacing it would strand a possibly-running daemon with
+      // no PID record for stop/status/clean to find, and the replacement
+      // child would die at the environment lock anyway.
+      throw new Error(
+        `PID ${existing.pid} from ${pidFile} is alive but does not look like the offckb fiber daemon. ` +
+          `Refusing to replace its metadata. If that process is unrelated, stop it manually and remove ${pidFile}.`,
       );
     }
     cleanupPidFile(pidFile);
@@ -185,7 +196,7 @@ async function stopManagerAndCleanup(options: {
   pidFile: string | null;
   label: string;
   settings: Settings;
-}) {
+}): Promise<'stopped' | 'unconfirmed'> {
   const { pid, pidFile, label, settings } = options;
   // Capture the node lock files while runtime.json still exists; the manager
   // removes it during its own shutdown.
@@ -213,8 +224,26 @@ async function stopManagerAndCleanup(options: {
     );
   }
 
+  // Only a confirmed-gone manager loses its ownership records. While the
+  // process may still be alive, the PID file and runtime.json are the only
+  // way later commands (fiber stop, node stop, clean) can see the
+  // environment — deleting them would strand running FNNs.
+  let managerGone: boolean;
+  try {
+    managerGone = !isProcessAlive(pid);
+  } catch {
+    managerGone = false; // liveness unverifiable → treat as possibly alive
+  }
+  if (!managerGone) {
+    logger.warn(
+      `${label} (PID ${pid}) could not be confirmed stopped; keeping its PID file and runtime.json so ` +
+        'later commands still see the environment. Stop it manually before starting Fiber again.',
+    );
+    return 'unconfirmed';
+  }
   if (pidFile) cleanupPidFile(pidFile);
   removeRuntimeFile(settings);
+  return 'stopped';
 }
 
 /**
@@ -260,8 +289,21 @@ export async function stopFiber(settings: Settings = readSettings()) {
   if (fiberDaemon && Number.isInteger(fiberDaemon.pid) && fiberDaemon.pid > 0) {
     if (isProcessAlive(fiberDaemon.pid)) {
       if (fiberDaemon.status === 'starting') {
-        throw new Error(
-          `The fiber daemon startup is still in progress (PID ${fiberDaemon.pid}). Try stopping it again shortly.`,
+        // A genuine startup finishes (or fails and deletes the record) within
+        // the ready timeout. A 'starting' record older than that means the
+        // launcher was interrupted mid-startup; fall through to identity
+        // verification instead of deadlocking stop and clean forever.
+        const startedAtMs = Date.parse(fiberDaemon.startedAt ?? '');
+        const withinStartupWindow =
+          Number.isFinite(startedAtMs) && Date.now() - startedAtMs <= FIBER_DAEMON_STARTUP_GRACE_MS;
+        if (withinStartupWindow) {
+          throw new Error(
+            `The fiber daemon startup is still in progress (PID ${fiberDaemon.pid}). Try stopping it again shortly.`,
+          );
+        }
+        logger.warn(
+          `The fiber daemon (PID ${fiberDaemon.pid}) has been 'starting' beyond the startup window; ` +
+            'its launcher appears to have exited. Verifying its identity before stopping it.',
         );
       }
       const identityOk = await verifyDaemonIdentity(fiberDaemon.pid, fiberDaemon);
@@ -271,9 +313,13 @@ export async function stopFiber(settings: Settings = readSettings()) {
             `If you are sure, stop it manually and remove ${pidFile}.`,
         );
       }
-      await stopManagerAndCleanup({ pid: fiberDaemon.pid, pidFile, label: 'fiber daemon', settings });
-      logger.success('Fiber daemon stopped.');
-      logger.result({ command: 'fiber.stop', stopped: true, pid: fiberDaemon.pid });
+      const outcome = await stopManagerAndCleanup({ pid: fiberDaemon.pid, pidFile, label: 'fiber daemon', settings });
+      if (outcome === 'stopped') {
+        logger.success('Fiber daemon stopped.');
+        logger.result({ command: 'fiber.stop', stopped: true, pid: fiberDaemon.pid });
+      } else {
+        logger.result({ command: 'fiber.stop', stopped: false, reason: 'stop-unconfirmed', pid: fiberDaemon.pid });
+      }
       return;
     }
     logger.warn(`Fiber daemon process ${fiberDaemon.pid} is not running; removing the stale PID file.`);
@@ -316,14 +362,18 @@ export async function stopFiber(settings: Settings = readSettings()) {
       'The FNN nodes are managed by the `offckb node --fiber --daemon` manager; ' +
         'stopping it stops the whole environment (CKB, miner, RPC proxy and FNNs).',
     );
-    await stopManagerAndCleanup({
+    const outcome = await stopManagerAndCleanup({
       pid: nodeDaemon.pid,
       pidFile: nodeDaemonPaths(settings).pidFile,
       label: 'node --fiber daemon',
       settings,
     });
-    logger.success('The node --fiber environment (CKB and FNNs) stopped.');
-    logger.result({ command: 'fiber.stop', stopped: true, pid: nodeDaemon.pid, includedCkb: true });
+    if (outcome === 'stopped') {
+      logger.success('The node --fiber environment (CKB and FNNs) stopped.');
+      logger.result({ command: 'fiber.stop', stopped: true, pid: nodeDaemon.pid, includedCkb: true });
+    } else {
+      logger.result({ command: 'fiber.stop', stopped: false, reason: 'stop-unconfirmed', pid: nodeDaemon.pid });
+    }
     return;
   }
 

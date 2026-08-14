@@ -93,6 +93,9 @@ export function readNodesYml(settings: Settings = readSettings()): FiberNodeEntr
     ids.add(entry.id);
     assertNoManagedFields(entry.config, entry.id);
   }
+  if (entries.length < MIN_FIBER_NODES) {
+    throw new Error(`Invalid ${file}: at least ${MIN_FIBER_NODES} node must be configured.`);
+  }
   if (entries.length > MAX_FIBER_NODES) {
     throw new Error(`Invalid ${file}: ${entries.length} nodes configured, at most ${MAX_FIBER_NODES} are supported.`);
   }

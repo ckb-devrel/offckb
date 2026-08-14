@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { defaultSettings, Settings } from '../src/cfg/setting';
+import * as daemonUtil from '../src/util/daemon';
 import {
   isProcessAlive,
   PidMetadata,
@@ -15,7 +16,7 @@ import { assertFiberFullyStopped } from '../src/fiber/clean';
 import { startFiberEnvironment, stopFiberNodes, FnnProcessHandle } from '../src/fiber/manager';
 import { fiberDaemonPaths, fiberNodePaths, fiberRootPath, runtimeJsonPath } from '../src/fiber/paths';
 import { writeRuntime, isRuntimeStale, FiberRuntime } from '../src/fiber/runtime';
-import { assertNodeStopDoesNotOrphanFiber, stopFiber } from '../src/fiber/daemon';
+import { assertNodeStopDoesNotOrphanFiber, startFiberDaemon, stopFiber } from '../src/fiber/daemon';
 import { fiberClean } from '../src/fiber/clean';
 import { FiberChainScripts } from '../src/fiber/scripts';
 
@@ -377,6 +378,124 @@ describe('stopFiber', () => {
     await expect(stopFiber(settings)).rejects.toThrow('Refusing to signal');
     expect(isProcessAlive(victim.pid as number)).toBe(true);
   });
+
+  it('still refuses a recently-started daemon whose startup is in progress', async () => {
+    const settings = makeSettings(tempRoot());
+    const { pidFile } = fiberDaemonPaths(settings);
+    fs.mkdirSync(path.dirname(pidFile), { recursive: true });
+    const victim = spawnScriptProcess(path.join(tempRoot(), 'unrelated', 'victim.js'));
+    writePidFile(pidFile, pidMetadata(victim.pid as number, { status: 'starting' }));
+    await expect(stopFiber(settings)).rejects.toThrow('startup is still in progress');
+    expect(isProcessAlive(victim.pid as number)).toBe(true);
+  });
+
+  it('treats a long-starting pid record as abandoned and reaches identity verification', async () => {
+    // A launcher interrupted mid-startup leaves status 'starting' forever;
+    // past the startup grace window the record must become stoppable instead
+    // of deadlocking stop and clean. Identity verification still gates the
+    // signal, so this foreign process is refused, not killed.
+    const settings = makeSettings(tempRoot());
+    const { pidFile } = fiberDaemonPaths(settings);
+    fs.mkdirSync(path.dirname(pidFile), { recursive: true });
+    const victim = spawnScriptProcess(path.join(tempRoot(), 'unrelated', 'victim.js'));
+    writePidFile(
+      pidFile,
+      pidMetadata(victim.pid as number, {
+        status: 'starting',
+        startedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      }),
+    );
+    await expect(stopFiber(settings)).rejects.toThrow('does not appear to be the offckb fiber daemon');
+    expect(isProcessAlive(victim.pid as number)).toBe(true);
+  });
+
+  describePosix('verified manager shutdown', () => {
+    const savedCliPath = process.env.OFFCKB_CLI_PATH;
+    let cliEntry: string;
+
+    beforeEach(() => {
+      // Pin our CLI entry to a real script so the spawned stub verifies as
+      // the daemon; detached makes it a process-group leader, which is what
+      // terminateProcess signals.
+      cliEntry = path.join(tempRoot(), 'offckb', 'build', 'index.js');
+      fs.mkdirSync(path.dirname(cliEntry), { recursive: true });
+      fs.writeFileSync(cliEntry, 'setInterval(() => {}, 1000);\n');
+      process.env.OFFCKB_CLI_PATH = cliEntry;
+    });
+
+    afterEach(() => {
+      if (savedCliPath === undefined) {
+        delete process.env.OFFCKB_CLI_PATH;
+      } else {
+        process.env.OFFCKB_CLI_PATH = savedCliPath;
+      }
+    });
+
+    function spawnVerifiedManager(): ChildProcess {
+      return track(spawn(process.execPath, [cliEntry], { stdio: 'ignore', detached: true }));
+    }
+
+    it('stops a verified daemon and removes its pid file and runtime record', async () => {
+      const settings = makeSettings(tempRoot());
+      const { pidFile } = fiberDaemonPaths(settings);
+      fs.mkdirSync(path.dirname(pidFile), { recursive: true });
+      const manager = spawnVerifiedManager();
+      writePidFile(pidFile, pidMetadata(manager.pid as number, { scriptPath: cliEntry, status: 'running' }));
+      writeRuntime(
+        { managerPid: manager.pid as number, startedAt: new Date().toISOString(), status: 'running', nodes: [] },
+        settings,
+      );
+
+      await stopFiber(settings);
+
+      expect(isProcessAlive(manager.pid as number)).toBe(false);
+      expect(fs.existsSync(pidFile)).toBe(false);
+      expect(fs.existsSync(runtimeJsonPath(settings))).toBe(false);
+    });
+
+    it('keeps the pid file and runtime record when the manager cannot be confirmed stopped', async () => {
+      const settings = makeSettings(tempRoot());
+      const { pidFile } = fiberDaemonPaths(settings);
+      fs.mkdirSync(path.dirname(pidFile), { recursive: true });
+      const manager = spawnVerifiedManager();
+      writePidFile(pidFile, pidMetadata(manager.pid as number, { scriptPath: cliEntry, status: 'running' }));
+      writeRuntime(
+        { managerPid: manager.pid as number, startedAt: new Date().toISOString(), status: 'running', nodes: [] },
+        settings,
+      );
+
+      // The SIGTERM really lands, but the final liveness probe reports alive:
+      // cleanup must keep the ownership records and report the stop as
+      // unconfirmed instead of erasing the environment's only trace.
+      const aliveSpy = jest.spyOn(daemonUtil, 'isProcessAlive').mockReturnValue(true);
+      try {
+        await stopFiber(settings);
+      } finally {
+        aliveSpy.mockRestore();
+      }
+
+      expect(fs.existsSync(pidFile)).toBe(true);
+      expect(fs.existsSync(runtimeJsonPath(settings))).toBe(true);
+    });
+  });
+});
+
+describe('startFiberDaemon', () => {
+  it('refuses to replace live pid metadata whose identity cannot be verified', async () => {
+    const settings = makeSettings(tempRoot());
+    const { pidFile } = fiberDaemonPaths(settings);
+    fs.mkdirSync(path.dirname(pidFile), { recursive: true });
+    const victim = spawnScriptProcess(path.join(tempRoot(), 'unrelated', 'victim.js'));
+    writePidFile(pidFile, pidMetadata(victim.pid as number));
+
+    await expect(startFiberDaemon([], settings)).rejects.toThrow('does not look like the offckb fiber daemon');
+
+    // The live process keeps the metadata it owns and is never signaled; no
+    // replacement startup is attempted (which would die at the env lock and
+    // strand the real daemon without any PID record).
+    expect(fs.existsSync(pidFile)).toBe(true);
+    expect(isProcessAlive(victim.pid as number)).toBe(true);
+  });
 });
 
 describe('fiberClean', () => {
@@ -521,6 +640,10 @@ describe('startFiberEnvironment signal handling', () => {
         nodeCount: 1,
         settings,
       });
+      // The assertions below can throw before the final await reaches this
+      // promise; park a no-op handler now so an early failure does not also
+      // surface as an unhandled rejection that hides the real cause.
+      started.catch(() => {});
       // Wait for the spawn + starting runtime record.
       let fnnPid: number | null = null;
       for (let i = 0; i < 50 && fnnPid == null; i++) {

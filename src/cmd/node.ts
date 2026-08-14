@@ -39,7 +39,7 @@ import { FiberEnvironment, startFiberEnvironment, stopFiberNodes } from '../fibe
 import { printFiberSummary } from './fiber';
 import { readRuntime } from '../fiber/runtime';
 import { fiberDaemonPaths } from '../fiber/paths';
-import { assertNodeStopDoesNotOrphanFiber } from '../fiber/daemon';
+import { assertNodeStopDoesNotOrphanFiber, FIBER_DAEMON_READY_TIMEOUT_MS } from '../fiber/daemon';
 
 export interface NodeProp {
   version?: string;
@@ -347,23 +347,40 @@ async function runNodeDevnet(
 
   // Treat CKB, miner, proxy and the FNNs as one service. A dead component
   // must not leave the rest looking healthy.
-  let serviceStopping = false;
-  const stopService = (component: string, code: number | null, signal: NodeJS.Signals | null) => {
-    if (serviceStopping) return;
-    serviceStopping = true;
-    void (async () => {
+  //
+  // Component-exit and Ctrl+C/SIGTERM shutdowns share ONE cleanup promise:
+  // whoever fires second awaits the in-progress cleanup instead of running a
+  // competing stopFiberNodes on the same handles and exiting the process in
+  // the middle of runtime/lock teardown. Only a component exit reports the
+  // failure and sets the exit code; the signal path reports its own code.
+  type ShutdownTrigger =
+    | { component: string; code: number | null; signal: NodeJS.Signals | null }
+    | { signal: 'SIGINT' | 'SIGTERM' };
+  let shutdownPromise: Promise<void> | null = null;
+  const runShutdownOnce = (trigger: ShutdownTrigger): Promise<void> => {
+    if (shutdownPromise) return shutdownPromise;
+    shutdownPromise = (async () => {
+      const failedComponent = 'component' in trigger ? trigger.component : null;
       logSubscription?.close();
-      if (component !== 'CKB node' && !ckbProcess.killed) ckbProcess.kill('SIGTERM');
-      if (component !== 'CKB miner' && !minerProcess.killed) minerProcess.kill('SIGTERM');
+      if (failedComponent !== 'CKB node' && !ckbProcess.killed) ckbProcess.kill('SIGTERM');
+      if (failedComponent !== 'CKB miner' && !minerProcess.killed) minerProcess.kill('SIGTERM');
       proxy.stop();
       if (fiberEnv) {
         await stopFiberNodes(fiberEnv.nodes, settings);
       }
       if (process.env[DAEMON_CHILD_ENV] === '1') cleanupPidFile(resolveDaemonPaths().pidFile);
       envLock?.release();
-      logger.error(`${component} exited unexpectedly (code=${code ?? 'null'}, signal=${signal ?? 'none'}).`);
-      process.exitCode = typeof code === 'number' && code > 0 ? code : 1;
+      if ('component' in trigger) {
+        logger.error(
+          `${trigger.component} exited unexpectedly (code=${trigger.code ?? 'null'}, signal=${trigger.signal ?? 'none'}).`,
+        );
+        process.exitCode = typeof trigger.code === 'number' && trigger.code > 0 ? trigger.code : 1;
+      }
     })();
+    return shutdownPromise;
+  };
+  const stopService = (component: string, code: number | null, signal: NodeJS.Signals | null) => {
+    void runShutdownOnce({ component, code, signal });
   };
   ckbProcess.once('exit', (code, signal) => stopService('CKB node', code, signal));
   minerProcess.once('exit', (code, signal) => stopService('CKB miner', code, signal));
@@ -371,31 +388,22 @@ async function runNodeDevnet(
     for (const node of fiberEnv.nodes) {
       node.process.once('exit', (code, signal) => stopService(`FNN node ${node.id}`, code, signal));
     }
-    installFiberSignalHandlers(ckbProcess, minerProcess, proxy, fiberEnv, settings);
+    installFiberSignalHandlers(runShutdownOnce);
   }
 }
 
 // With --fiber the process group contains FNNs whose runtime.json should not
 // outlive a clean shutdown. Stop the whole group on Ctrl+C/SIGTERM instead of
-// letting each process fend for itself.
-function installFiberSignalHandlers(
-  ckbProcess: ChildProcess,
-  minerProcess: ChildProcess,
-  proxy: { stop: () => void },
-  fiberEnv: FiberEnvironment,
-  settings: Settings,
-) {
+// letting each process fend for itself. The cleanup itself is shared with the
+// component-exit path via runShutdownOnce; this only adds the exit code.
+function installFiberSignalHandlers(runShutdownOnce: (trigger: { signal: 'SIGINT' | 'SIGTERM' }) => Promise<void>) {
   let handling = false;
   const handler = (signal: 'SIGINT' | 'SIGTERM') => {
     if (handling) return;
     handling = true;
     void (async () => {
       logger.info(`Received ${signal}, stopping the devnet and fiber nodes...`);
-      if (!ckbProcess.killed) ckbProcess.kill('SIGTERM');
-      if (!minerProcess.killed) minerProcess.kill('SIGTERM');
-      proxy.stop();
-      await stopFiberNodes(fiberEnv.nodes, settings);
-      if (process.env[DAEMON_CHILD_ENV] === '1') cleanupPidFile(resolveDaemonPaths().pidFile);
+      await runShutdownOnce({ signal });
       process.exit(signal === 'SIGINT' ? 130 : 143);
     })();
   };
@@ -705,11 +713,8 @@ async function startDaemon(waitForFiber = false) {
 }
 
 async function waitForFiberRuntimeRunning(managerPid: number, settings: Settings, logFile: string) {
-  // Matches FIBER_DAEMON_READY_TIMEOUT_MS in fiber/daemon.ts: the child's
-  // first run may still be downloading FNN.
-  const timeoutMs = 10 * 60_000;
   const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
+  while (Date.now() - start < FIBER_DAEMON_READY_TIMEOUT_MS) {
     if (!isProcessAlive(managerPid)) {
       throw new Error(`The daemon exited before the fiber environment became ready. See ${logFile}.`);
     }
@@ -733,13 +738,28 @@ export async function stopNode(options: { force?: boolean } = {}) {
   }
 
   // FNNs managed by a separate fiber daemon must be stopped by that daemon's
-  // owner command; node stop never reaches across another manager.
+  // owner command; node stop never reaches across another manager. The guard
+  // fires only for a CONFIRMED fiber daemon — an unverifiable (recycled or
+  // foreign) PID must not deadlock node stop, and the runtime-based check
+  // below (assertNodeStopDoesNotOrphanFiber) remains the fail-closed net for
+  // any live fiber manager, verified or not.
   const settings = readSettings();
   const fiberDaemon = readPidFile(fiberDaemonPaths(settings).pidFile);
-  if (fiberDaemon && Number.isInteger(fiberDaemon.pid) && fiberDaemon.pid > 0 && isProcessAlive(fiberDaemon.pid)) {
-    throw new Error(
-      `Fiber nodes are managed by a separate fiber daemon (PID ${fiberDaemon.pid}). ` +
-        'Stop them first with: offckb fiber stop',
+  if (
+    fiberDaemon &&
+    Number.isInteger(fiberDaemon.pid) &&
+    fiberDaemon.pid > 0 &&
+    isProcessAlive(fiberDaemon.pid) &&
+    (await verifyDaemonIdentity(fiberDaemon.pid, fiberDaemon))
+  ) {
+    if (!options.force) {
+      throw new Error(
+        `Fiber nodes are managed by a separate fiber daemon (PID ${fiberDaemon.pid}). ` +
+          'Stop them first with: offckb fiber stop, or override with: offckb node stop --force',
+      );
+    }
+    logger.warn(
+      `Fiber nodes managed by the fiber daemon (PID ${fiberDaemon.pid}) will keep running on a stopped chain (--force).`,
     );
   }
 
