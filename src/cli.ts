@@ -234,7 +234,7 @@ mainnetForkOverrideOption(
 });
 
 program
-  .command('balance [toAddress]')
+  .command('balance <toAddress>')
   .description('Check account balance (CKB + detected SUDT/xUDT), only devnet and testnet')
   .option('--network <network>', 'Specify the network to check', 'devnet')
   .addOption(new Option('--udt-kind <kind>', 'Filter by UDT kind').choices(['sudt', 'xudt']))
@@ -387,7 +387,13 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
     if (error instanceof CommanderError && error.exitCode === 0) return;
     const message = error instanceof Error ? error.message : String(error);
     const code = error instanceof CommanderError ? error.code : 'COMMAND_FAILED';
-    logger.failure(code, message);
+    // Commander errors were already written to stderr once by writeErr in
+    // configureCommanderErrors (non-JSON mode); re-emitting would duplicate
+    // the line. In JSON mode writeErr is suppressed, so logger.failure emits
+    // the single structured record instead.
+    if (!(error instanceof CommanderError) || logger.isJsonMode()) {
+      logger.failure(code, message);
+    }
     process.exitCode = error instanceof CommanderError ? error.exitCode : 1;
   }
 }
