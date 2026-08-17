@@ -117,7 +117,15 @@ export function handleProxyRequestBody(reqData: string, ctx: ProxyEventContext):
         ctx.sink.warn('skipping malformed JSON-RPC batch member');
         continue;
       }
-      handleOneRequest(jsonRpcContent, ctx);
+      try {
+        handleOneRequest(jsonRpcContent, ctx);
+      } catch (error) {
+        // Thrown values are not necessarily Error instances (user code can
+        // throw anything), so normalize before logging; reading .message off
+        // a non-Error (e.g. null) would itself throw and abort the batch.
+        const message = error instanceof Error ? error.message : String(error);
+        ctx.sink.warn(`skipping JSON-RPC request event: ${message}`);
+      }
     }
   } catch (err) {
     ctx.sink.error('Error parsing JSON-RPC req content:', (err as Error).message);

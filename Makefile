@@ -1,4 +1,4 @@
-.PHONY: all omnilock anyone-can-pay xudt spore ckb-js-vm nostr-lock
+.PHONY: all omnilock anyone-can-pay xudt spore ckb-js-vm nostr-lock pw-lock secp256k1_multisig_v2
 
 all: omnilock anyone-can-pay xudt spore ckb-js-vm nostr-lock pw-lock secp256k1_multisig_v2
 

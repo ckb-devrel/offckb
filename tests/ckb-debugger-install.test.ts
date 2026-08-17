@@ -253,6 +253,27 @@ describe('CKBDebuggerInstaller', () => {
     expect(fs.readFileSync(shimPath, 'utf-8')).toBe('#!/bin/sh\nexec /usr/bin/ckb-debugger "$@"\n');
   });
 
+  it('does not overwrite a user file that merely mentions offckb debugger', async () => {
+    const buffer = await buildTarGz('0.208.0');
+    mockRelease('0.208.0', buffer);
+    const shimPath = path.join(root, 'bin', 'ckb-debugger');
+    mockSpawnSync.mockImplementation((cmd: string) => {
+      if (cmd === 'which') {
+        return { status: 0, stdout: `${path.join(root, 'bin', 'offckb')}\n`, stderr: '' };
+      }
+      return { status: 0, stdout: 'ckb-debugger 0.208.0\n', stderr: '' };
+    });
+    fs.mkdirSync(path.dirname(shimPath), { recursive: true });
+    // A user wrapper that documents offckb debugger without being the exact
+    // v0.4.x fallback body must stay untouched.
+    const userScript = '#!/bin/sh\n# How to call: offckb debugger --help\n/usr/bin/ckb-debugger "$@"\n';
+    fs.writeFileSync(shimPath, userScript);
+
+    await CKBDebuggerInstaller.install();
+
+    expect(fs.readFileSync(shimPath, 'utf-8')).toBe(userScript);
+  });
+
   it('upgrades a legacy v0.4.x fallback shim', async () => {
     const buffer = await buildTarGz('0.208.0');
     mockRelease('0.208.0', buffer);
@@ -270,6 +291,72 @@ describe('CKBDebuggerInstaller', () => {
 
     expect(fs.readFileSync(shimPath, 'utf-8')).toContain('offckb-managed');
     expect(fs.readFileSync(shimPath, 'utf-8')).toContain(`exec "${binaryPath}" "$@"`);
+  });
+
+  it('does not overwrite a legacy shim that has extra user content', async () => {
+    const buffer = await buildTarGz('0.208.0');
+    mockRelease('0.208.0', buffer);
+    const shimPath = path.join(root, 'bin', 'ckb-debugger');
+    mockSpawnSync.mockImplementation((cmd: string) => {
+      if (cmd === 'which') {
+        return { status: 0, stdout: `${path.join(root, 'bin', 'offckb')}\n`, stderr: '' };
+      }
+      return { status: 0, stdout: 'ckb-debugger 0.208.0\n', stderr: '' };
+    });
+    fs.mkdirSync(path.dirname(shimPath), { recursive: true });
+    // The complete legacy body plus one user line is not an offckb shim: the
+    // whole file must match exactly, so it stays untouched.
+    const userScript = '#!/bin/sh\nexec offckb debugger "$@"\n# custom wrapper\n';
+    fs.writeFileSync(shimPath, userScript);
+
+    await CKBDebuggerInstaller.install();
+
+    expect(fs.readFileSync(shimPath, 'utf-8')).toBe(userScript);
+  });
+
+  it('upgrades an exact legacy v0.4.x fallback shim on Windows', async () => {
+    mockHost('win32', 'x64');
+    const winBinaryPath = path.join(mockDirs.toolsRoot, 'ckb-debugger.exe');
+    fs.mkdirSync(path.dirname(winBinaryPath), { recursive: true });
+    fs.writeFileSync(winBinaryPath, fakeBinaryPayload('0.208.0'));
+    const shimPath = path.join(root, 'bin', 'ckb-debugger.cmd');
+    mockSpawnSync.mockImplementation((cmd: string) => {
+      if (cmd === 'where') {
+        return { status: 0, stdout: `${path.join(root, 'bin', 'offckb')}\n`, stderr: '' };
+      }
+      return { status: 0, stdout: 'ckb-debugger 0.208.0\n', stderr: '' };
+    });
+    fs.mkdirSync(path.dirname(shimPath), { recursive: true });
+    // CRLF line endings are normalized before the exact-body comparison.
+    fs.writeFileSync(shimPath, '@echo off\r\noffckb debugger %*\r\n');
+
+    const result = await CKBDebuggerInstaller.install();
+
+    expect(result.alreadyInstalled).toBe(true);
+    const upgraded = fs.readFileSync(shimPath, 'utf-8');
+    expect(upgraded).toContain('offckb-managed');
+    expect(upgraded).toContain(`"${winBinaryPath}" %*`);
+  });
+
+  it('does not overwrite a legacy shim with extra user content on Windows', async () => {
+    mockHost('win32', 'x64');
+    const winBinaryPath = path.join(mockDirs.toolsRoot, 'ckb-debugger.exe');
+    fs.mkdirSync(path.dirname(winBinaryPath), { recursive: true });
+    fs.writeFileSync(winBinaryPath, fakeBinaryPayload('0.208.0'));
+    const shimPath = path.join(root, 'bin', 'ckb-debugger.cmd');
+    mockSpawnSync.mockImplementation((cmd: string) => {
+      if (cmd === 'where') {
+        return { status: 0, stdout: `${path.join(root, 'bin', 'offckb')}\n`, stderr: '' };
+      }
+      return { status: 0, stdout: 'ckb-debugger 0.208.0\n', stderr: '' };
+    });
+    fs.mkdirSync(path.dirname(shimPath), { recursive: true });
+    const userScript = '@echo off\r\noffckb debugger %*\r\nREM custom wrapper\r\n';
+    fs.writeFileSync(shimPath, userScript);
+
+    await CKBDebuggerInstaller.install();
+
+    expect(fs.readFileSync(shimPath, 'utf-8')).toBe(userScript);
   });
 
   it('throws when the platform has no prebuilt asset', async () => {
