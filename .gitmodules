@@ -22,3 +22,6 @@
 [submodule "ckb/ckb-system-scripts"]
 	path = ckb/ckb-system-scripts
 	url = https://github.com/nervosnetwork/ckb-system-scripts.git
+[submodule "ckb/fiber"]
+	path = ckb/fiber
+	url = https://github.com/nervosnetwork/fiber.git

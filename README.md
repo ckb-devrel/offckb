@@ -73,6 +73,11 @@ Options:
 Commands:
   node [CKB-Version]                            Use the CKB to start devnet
   node stop                                     Stop the running CKB devnet daemon
+  fiber start [FNN-Version]                     Start Fiber (FNN) nodes on the running devnet CKB
+  fiber stop                                    Stop the daemon-managed fiber nodes
+  fiber status                                  Show the status of the local CKB and all fiber nodes
+  fiber logs --node <id>                        Show the log of a fiber node
+  fiber clean                                   Clean the fiber environment
   create [options] [project-name]               Create a new CKB Smart Contract project in JavaScript.
   deploy [options]                              Deploy contracts to different networks, only supports devnet and testnet
   debug [options]                               Quickly debug transaction with tx-hash
@@ -145,6 +150,8 @@ Stop the daemon later with:
 ```sh
 offckb node stop
 ```
+
+If a fiber environment is running in a foreground terminal, `node stop` refuses rather than orphaning its FNNs on a stopped chain — stop them there first, or pass `offckb node stop --force` to stop CKB anyway (the FNNs keep running).
 
 **View Logs**
 
@@ -444,6 +451,43 @@ On a forked devnet, `offckb system-scripts`, transfers, deploys and `offckb debu
 
 `offckb transfer` fails closed on a Mainnet fork: non-built-in keys require `--allow-external-key-on-mainnet-fork`, and inputs copied from Mainnet are rejected even with that override. (`--allow-mainnet-replay-risk` from 0.4.9 remains as a deprecated alias.)
 
+### 8. Run a Fiber Devnet {#fiber-devnet}
+
+OffCKB can start and manage a local [Fiber](https://github.com/nervosnetwork/fiber) development environment on top of the devnet: the Fiber contracts (`auth`, `funding_lock`, `commitment_lock`) live in the local chain's genesis block, and each FNN node gets its own CKB account, network identity, ports, data and log file.
+
+```sh
+# Start CKB, miner, RPC proxy and 2 FNN nodes in one command
+offckb node --fiber
+
+# Or start only the FNN nodes on an already-running devnet
+offckb node
+offckb fiber start
+
+# Background mode
+offckb node --fiber --daemon      # one manager for CKB + FNNs, stopped by `offckb node stop`
+offckb fiber start --daemon       # separate fiber manager, stopped by `offckb fiber stop`
+
+# Inspect
+offckb fiber status [--json]
+offckb fiber logs --node 1 [-f]
+
+# Clean up
+offckb fiber clean --data         # delete only the FNN stores (channels/payments)
+offckb fiber clean                # delete the whole fiber environment
+```
+
+- Only the plain local devnet is supported: no mainnet/testnet, and no forked devnet (a `fork.json` present in the devnet directory rejects Fiber startup).
+- A devnet created by an offckb version without Fiber support does not have the Fiber contracts in its genesis. `fiber start` / `node --fiber` on such a devnet refuse with migration guidance: rebuild with `offckb clean` (which deletes the local chain data) and start again; a plain `offckb node` keeps working on the old devnet unchanged.
+- Node `N` uses built-in CKB account `N+2` (accounts 3-18 are reserved for Fiber), RPC port `21713+N` and P2P port `8343+N`. Up to 16 nodes: `offckb fiber start --nodes 4`.
+- `offckb fiber start [FNN-Version]` downloads a tested FNN release (currently `0.9.0-rc7`). Downloaded tarballs are verified against SHA-256 digests pinned in offckb before installation. Use `--binary-path <fnn>` (or `--fnn-binary-path <fnn>` with `node --fiber`) to run a locally built FNN.
+- Every FNN writes its stdout/stderr to `devnet/fiber/nodes/<id>/fnn.log`, never to your terminal. Per-node FNN config overrides live in `devnet/fiber/nodes.yml` (regenerated `config.yml` files do not keep hand edits). Fields owned by offckb — chain, scripts, listening/bootnode addresses, store path, CKB RPC/UDT wiring, services — are managed and cannot be overridden there.
+- Startup verifies that the devnet spec, the running CKB and every FNN agree on the same chain (genesis hash), and checks each node's identity key, CKB account and available balance before reporting ready.
+- One fiber environment per machine: the RPC/P2P ports are fixed per node id, so a second concurrent fiber environment fails its port check. Note the CKB side of the check is the chain's genesis hash, and every plain offckb devnet shares the same genesis — if you run several offckb environments on one machine (e.g. separate `XDG_DATA_HOME`), make sure `fiber start` attaches to the CKB you actually started for it; when in doubt, check `offckb fiber status` against the environment you mean to use.
+- UDT channels: the FNN config whitelists the devnet sUDT and xUDT issued by built-in account 19, so issue test UDTs from that account (`offckb udt issue ... --privkey-file` with account 19's key) to the node accounts before opening UDT channels. A few things that differ from plain CKB channels:
+  - `offckb udt issue <amount>` takes the amount in the token's base unit (no 10^8 conversion): `3000` issues 0.00003 sUDT at 8 decimals, so issue generously before funding a channel.
+  - Both sides of a UDT channel must hold the UDT. The accepting node needs its own UDT cells — otherwise `accept_channel` fails with "can not find enough UDT owner cells" — so issue the UDT to both node accounts first.
+  - UDT channels are not auto-accepted (CKB channels are). After `open_channel` the peer stays in `NegotiatingFunding` until you call `accept_channel` on the peer node, and its `funding_amount` must be `0x0` — a nonzero amount fails with "invalid funding tx".
+
 ## Config Setting
 
 ### List All Settings
@@ -501,6 +545,8 @@ LOG_LEVEL=debug offckb node
   - version: 1.0.0
 - [x] Nostr-Lock https://github.com/cryptape/nostr-binding/tree/main/contracts/nostr-lock
   - version: 25dd59d
+- [x] Fiber (auth / funding-lock / commitment-lock) https://github.com/nervosnetwork/fiber
+  - commit id: bc361aa (FNN v0.9.0-rc7)
 - [x] Type ID built-in
 
 ## Accounts

@@ -20,6 +20,9 @@ export enum SystemScriptName {
   secp256k1_keccak256_sighash_all = 'secp256k1_keccak256_sighash_all',
   secp256k1_keccak256_sighash_all_acpl = 'secp256k1_keccak256_sighash_all_acpl',
   secp256k1_blake160_multisig_all_v2 = 'secp256k1_blake160_multisig_all_v2',
+  auth = 'auth',
+  funding_lock = 'funding_lock',
+  commitment_lock = 'commitment_lock',
 }
 
 export interface ScriptInfo {

@@ -76,21 +76,69 @@ jest.mock('../src/util/logger', () => ({
 }));
 
 import { logger } from '../src/util/logger';
+import { fiberDaemonPaths } from '../src/fiber/paths';
+import { Settings } from '../src/cfg/setting';
 
 const dataPath = '/tmp/offckb-devnet-data';
 const logDir = path.join(dataPath, 'logs');
 const pidFile = path.join(logDir, 'daemon.pid');
 
+// Format a Date the way `ps -o lstart=` prints it ("Wed Aug 13 12:36:26 2026"),
+// which verifyDaemonIdentity parses for the start-time consistency check.
+function formatPsLstart(date: Date): string {
+  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return (
+    `${days[date.getDay()]} ${months[date.getMonth()]} ${pad(date.getDate())} ` +
+    `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())} ${date.getFullYear()}`
+  );
+}
+
+// execFile callbacks in the code under test are attached either directly or
+// after an options object; normalize both arities.
+function execFileCallback(optionsOrCallback: unknown, maybeCallback: unknown) {
+  return (typeof optionsOrCallback === 'function' ? optionsOrCallback : maybeCallback) as (
+    err: Error | null,
+    stdout?: string,
+  ) => void;
+}
+
 function mockDaemonCommandLine(scriptPath: string) {
   mockExecFile.mockImplementation(
-    (file: string, _args: string[], callback: (err: Error | null, stdout?: string) => void) => {
+    (file: string, args: string[], optionsOrCallback: unknown, maybeCallback?: unknown) => {
+      const callback = execFileCallback(optionsOrCallback, maybeCallback);
       if (file === 'ps') {
+        if (args.includes('lstart=')) {
+          callback(null, formatPsLstart(new Date()));
+          return undefined as unknown as ReturnType<typeof mockExecFile>;
+        }
         callback(null, `/usr/bin/node ${scriptPath} node`);
         return undefined as unknown as ReturnType<typeof mockExecFile>;
       }
-      if (file === 'wmic') {
-        // WMIC returns key/value pairs, e.g. "CommandLine=..."
-        callback(null, `CommandLine=/usr/bin/node ${scriptPath} node`);
+      callback(null, '');
+      return undefined as unknown as ReturnType<typeof mockExecFile>;
+    },
+  );
+}
+
+// A process whose command line is NOT our CLI: the ps lstart query still gets
+// a valid answer so identity verification reaches the executable/CLI-entry
+// comparison (an unparseable lstart would fail the start-time check first and
+// the test would prove nothing about the command-line rules). `pidCmdline`
+// may map pids to different command lines to verify one process while another
+// stays foreign.
+function mockUnrelatedCommandLine(pidCmdline: Record<number, string> = {}) {
+  mockExecFile.mockImplementation(
+    (file: string, args: string[], optionsOrCallback: unknown, maybeCallback?: unknown) => {
+      const callback = execFileCallback(optionsOrCallback, maybeCallback);
+      if (file === 'ps') {
+        if (args.includes('lstart=')) {
+          callback(null, formatPsLstart(new Date()));
+          return undefined as unknown as ReturnType<typeof mockExecFile>;
+        }
+        const pid = Number(args[args.indexOf('-p') + 1]);
+        callback(null, pidCmdline[pid] ?? '/usr/bin/some-unrelated-process');
         return undefined as unknown as ReturnType<typeof mockExecFile>;
       }
       callback(null, '');
@@ -196,12 +244,7 @@ describe('node command daemon mode', () => {
     mockReadFileSync.mockReturnValue(
       JSON.stringify({ pid: 9999, scriptPath: '/path/to/offckb', startedAt: new Date().toISOString() }),
     );
-    mockExecFile.mockImplementation(
-      (_file: string, _args: string[], callback: (err: Error | null, stdout?: string) => void) => {
-        callback(null, '/usr/bin/some-unrelated-process');
-        return undefined as unknown as ReturnType<typeof mockExecFile>;
-      },
-    );
+    mockUnrelatedCommandLine();
 
     await startNode({ network: Network.devnet, daemon: true });
 
@@ -401,6 +444,19 @@ describe('node command stop', () => {
   let processAlive = true;
   const scriptPath = '/path/to/offckb';
   const originalPlatform = process.platform;
+  const originalArgv = process.argv;
+
+  // Serve the given content only for the CKB daemon PID file; other files
+  // (fiber daemon PID, fiber runtime.json) read as absent, matching a
+  // machine with no fiber environment.
+  function mockPidFileContent(content: string) {
+    mockReadFileSync.mockImplementation((file: string) => {
+      if (file === pidFile) return content;
+      const err = new Error('ENOENT') as NodeJS.ErrnoException;
+      err.code = 'ENOENT';
+      throw err;
+    });
+  }
 
   function setPlatform(value: string) {
     Object.defineProperty(process, 'platform', { value });
@@ -412,8 +468,11 @@ describe('node command stop', () => {
     processAlive = true;
     mockExecFile.mockReset();
     mockStatSync.mockReturnValue({ isFile: () => true });
-    mockReadFileSync.mockReturnValue(JSON.stringify({ pid: 12345, scriptPath, startedAt: new Date().toISOString() }));
+    mockPidFileContent(JSON.stringify({ pid: 12345, scriptPath, startedAt: new Date().toISOString() }));
     mockDaemonCommandLine(scriptPath);
+    // The stop command runs from the same CLI installation as the daemon;
+    // identity verification resolves our entry from argv.
+    process.argv = ['node', scriptPath, 'node', 'stop'];
 
     // Normalize to POSIX for deterministic signal-based assertions.  The
     // implementation has a separate Windows path (taskkill) that is exercised
@@ -440,6 +499,7 @@ describe('node command stop', () => {
   afterEach(() => {
     killSpy.mockRestore();
     setPlatform(originalPlatform);
+    process.argv = originalArgv;
     jest.useRealTimers();
   });
 
@@ -456,7 +516,7 @@ describe('node command stop', () => {
   });
 
   it('errors when the PID file contains an invalid PID', async () => {
-    mockReadFileSync.mockReturnValue('not-a-number');
+    mockPidFileContent('not-a-number');
     await expect(stopNode()).rejects.toThrow('Invalid PID');
     expect(mockUnlinkSync).toHaveBeenCalledWith(pidFile);
   });
@@ -469,7 +529,7 @@ describe('node command stop', () => {
   });
 
   it('does not signal the CLI process while daemon startup is in progress', async () => {
-    mockReadFileSync.mockReturnValue(
+    mockPidFileContent(
       JSON.stringify({ pid: 12345, scriptPath, startedAt: new Date().toISOString(), status: 'starting' }),
     );
 
@@ -507,12 +567,7 @@ describe('node command stop', () => {
   });
 
   it('refuses to kill a process that does not look like the daemon', async () => {
-    mockExecFile.mockImplementation(
-      (_file: string, _args: string[], callback: (err: Error | null, stdout?: string) => void) => {
-        callback(null, '/usr/bin/some-other-process');
-        return undefined as unknown as ReturnType<typeof mockExecFile>;
-      },
-    );
+    mockUnrelatedCommandLine();
 
     await expect(stopNode()).rejects.toThrow('does not appear to be the offckb daemon');
 
@@ -564,5 +619,56 @@ describe('node command stop', () => {
 
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('is not running'));
     expect(mockUnlinkSync).toHaveBeenCalledWith(pidFile);
+  });
+
+  describe('fiber daemon guard', () => {
+    const fiberPidFile = fiberDaemonPaths({
+      devnet: { configPath: '/tmp/offckb-devnet-config' },
+    } as unknown as Settings).pidFile;
+    const fiberMetadata = (pid: number) =>
+      JSON.stringify({ pid, scriptPath, startedAt: new Date().toISOString(), status: 'running' });
+
+    function mockNodeAndFiberPidFiles(fiberContent: string) {
+      mockReadFileSync.mockImplementation((file: string) => {
+        if (file === pidFile) {
+          return JSON.stringify({ pid: 12345, scriptPath, startedAt: new Date().toISOString() });
+        }
+        if (file === fiberPidFile) return fiberContent;
+        const err = new Error('ENOENT') as NodeJS.ErrnoException;
+        err.code = 'ENOENT';
+        throw err;
+      });
+    }
+
+    it('refuses to stop while a verified fiber daemon manages FNNs, hinting at fiber stop and --force', async () => {
+      mockNodeAndFiberPidFiles(fiberMetadata(23456));
+      // The default mockDaemonCommandLine verifies BOTH daemons' identity.
+      await expect(stopNode()).rejects.toThrow(
+        'Fiber nodes are managed by a separate fiber daemon (PID 23456)',
+      );
+      await expect(stopNode()).rejects.toThrow('offckb node stop --force');
+      expect(killSpy).not.toHaveBeenCalledWith(-12345, 'SIGTERM');
+    });
+
+    it('stops the CKB daemon when the fiber daemon PID file points at an unverifiable process', async () => {
+      mockNodeAndFiberPidFiles(fiberMetadata(23456));
+      // PID 23456 was recycled by something foreign; the CKB daemon still verifies.
+      mockUnrelatedCommandLine({ 12345: `/usr/bin/node ${scriptPath} node` });
+
+      await stopNode();
+
+      expect(killSpy).toHaveBeenCalledWith(-12345, 'SIGTERM');
+      expect(mockUnlinkSync).toHaveBeenCalledWith(pidFile);
+      expect(logger.success).toHaveBeenCalledWith('CKB devnet daemon stopped.');
+    });
+
+    it('warns and proceeds with --force while a verified fiber daemon is live', async () => {
+      mockNodeAndFiberPidFiles(fiberMetadata(23456));
+
+      await stopNode({ force: true });
+
+      expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('will keep running on a stopped chain'));
+      expect(killSpy).toHaveBeenCalledWith(-12345, 'SIGTERM');
+    });
   });
 });
