@@ -302,8 +302,12 @@ function parsePsLstart(text: string): number | null {
 const PROCESS_PROBE_TIMEOUT_MS = 15_000;
 
 function execFileText(command: string, args: string[]): Promise<string | null> {
+  const options: { timeout: number; env?: NodeJS.ProcessEnv } = { timeout: PROCESS_PROBE_TIMEOUT_MS };
+  if (command === 'ps') {
+    options.env = { ...process.env, LC_ALL: 'C' };
+  }
   return new Promise((resolve) => {
-    execFile(command, args, { timeout: PROCESS_PROBE_TIMEOUT_MS }, (error, stdout) => {
+    execFile(command, args, options, (error, stdout) => {
       if (error) {
         resolve(null);
         return;
