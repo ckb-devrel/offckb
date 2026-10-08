@@ -1,3 +1,4 @@
+import { ccc } from '@ckb-ccc/core';
 import { CKB, UdtKind } from '../../src/sdk/ckb';
 import { Network } from '../../src/type/base';
 import { logger } from '../../src/util/logger';
@@ -193,7 +194,7 @@ describe('CKB SDK UDT helpers', () => {
       await expect(
         (
           ckb as unknown as {
-            assertInputsCreatedAfter: (tx: { inputs: typeof input[] }, block: bigint) => Promise<void>;
+            assertInputsCreatedAfter: (tx: { inputs: (typeof input)[] }, block: bigint) => Promise<void>;
           }
         ).assertInputsCreatedAfter({ inputs: [input] }, 100n),
       ).rejects.toThrow('at or before the Mainnet fork boundary');
@@ -206,7 +207,7 @@ describe('CKB SDK UDT helpers', () => {
       await expect(
         (
           ckb as unknown as {
-            assertInputsCreatedAfter: (tx: { inputs: typeof input[] }, block: bigint) => Promise<void>;
+            assertInputsCreatedAfter: (tx: { inputs: (typeof input)[] }, block: bigint) => Promise<void>;
           }
         ).assertInputsCreatedAfter({ inputs: [input] }, 100n),
       ).resolves.toBeUndefined();
@@ -219,18 +220,129 @@ describe('CKB SDK UDT helpers', () => {
       await expect(
         (
           ckb as unknown as {
-            assertInputsCreatedAfter: (tx: { inputs: typeof input[] }, block: bigint) => Promise<void>;
+            assertInputsCreatedAfter: (tx: { inputs: (typeof input)[] }, block: bigint) => Promise<void>;
           }
         ).assertInputsCreatedAfter({ inputs: [input] }, 100n),
       ).rejects.toThrow('could not verify the origin block');
     });
   });
+
+  describe('udtDestroy', () => {
+    const typeArgs = '0x' + '12'.repeat(32);
+    const privateKey = '0x' + '11'.repeat(32);
+    const signerCtor = ccc.SignerCkbPrivateKey as unknown as jest.Mock;
+
+    beforeEach(() => {
+      mockFindCellsByLock.mockReset();
+    });
+
+    const seedCells = (kind: UdtKind) => {
+      mockFindCellsByLock.mockImplementation(async function* () {
+        yield makeCell(kind, typeArgs, '100', 0);
+        yield makeCell(kind, typeArgs, '200', 1);
+      });
+    };
+
+    it.each(['sudt', 'xudt'] as const)('destroys the full balance (%s) and keeps a zero-balance cell', async (kind) => {
+      seedCells(kind);
+      const ckb = createCKB();
+
+      const txHash = await ckb.udtDestroy({ privateKey, kind, typeArgs, amount: '300' });
+
+      expect(txHash).toBe('0xtxhash');
+
+      const signer = signerCtor.mock.results[0].value as {
+        getAddressObjSecp256k1: () => Promise<{ script: { hash: () => string } }>;
+        sendTransaction: jest.Mock;
+      };
+      const from = await signer.getAddressObjSecp256k1();
+      const sendTx = signer.sendTransaction;
+      expect(sendTx).toHaveBeenCalledTimes(1);
+      const tx = sendTx.mock.calls[0][0] as {
+        addInput: jest.Mock;
+        addOutput: jest.Mock;
+        addCellDeps: jest.Mock;
+        completeInputsByCapacity: jest.Mock;
+        completeFeeBy: jest.Mock;
+      };
+
+      expect(tx.addInput).toHaveBeenCalledTimes(2);
+      expect(tx.addInput).toHaveBeenCalledWith({ previousOutput: { txHash: '0x' + '00'.repeat(32), index: 0 } });
+      expect(tx.addInput).toHaveBeenCalledWith({ previousOutput: { txHash: '0x' + '00'.repeat(32), index: 1 } });
+
+      expect(tx.addOutput).toHaveBeenCalledTimes(1);
+      const [output, data] = tx.addOutput.mock.calls[0] as [Record<string, unknown>, string];
+      expect(output.lock).toBe(from.script);
+      expect(output.type).toEqual({
+        codeHash: kind === 'sudt' ? '0x' + 'c3'.repeat(32) : '0x' + 'dd'.repeat(32),
+        hashType: 'type',
+        args: typeArgs,
+      });
+      expect(output.capacity).toBe(0n);
+      expect(data).toBe('0x' + '00'.repeat(16));
+
+      expect(tx.addCellDeps).toHaveBeenCalledWith([
+        { outPoint: { txHash: '0x' + 'aa'.repeat(32), index: 0 }, depType: 'depGroup' },
+      ]);
+      expect(tx.completeInputsByCapacity).toHaveBeenCalledTimes(1);
+      expect(tx.completeFeeBy).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(['sudt', 'xudt'] as const)('destroys part of the balance (%s) and returns the remainder', async (kind) => {
+      seedCells(kind);
+      const ckb = createCKB();
+
+      const txHash = await ckb.udtDestroy({ privateKey, kind, typeArgs, amount: '100' });
+
+      expect(txHash).toBe('0xtxhash');
+      const signer = signerCtor.mock.results[0].value as { sendTransaction: jest.Mock };
+      const tx = signer.sendTransaction.mock.calls[0][0] as { addOutput: jest.Mock };
+      expect(tx.addOutput).toHaveBeenCalledTimes(1);
+      // The numToBytes mock is not a real little-endian encoder, so assert the call args rather than the encoded hex.
+      expect(ccc.numToBytes as unknown as jest.Mock).toHaveBeenCalledWith(200n, 16);
+    });
+
+    it('rejects an amount above the total balance without sending', async () => {
+      seedCells('sudt');
+      const ckb = createCKB();
+
+      await expect(ckb.udtDestroy({ privateKey, kind: 'sudt', typeArgs, amount: '301' })).rejects.toThrow(
+        'Insufficient UDT balance: 300 < 301',
+      );
+
+      const signer = signerCtor.mock.results[0].value as { sendTransaction: jest.Mock };
+      expect(signer.sendTransaction).not.toHaveBeenCalled();
+    });
+
+    it('rejects a zero amount without sending', async () => {
+      const ckb = createCKB();
+
+      await expect(ckb.udtDestroy({ privateKey, kind: 'sudt', typeArgs, amount: '0' })).rejects.toThrow(
+        'invalid UDT amount "0"',
+      );
+
+      const signer = signerCtor.mock.results[0].value as { sendTransaction: jest.Mock };
+      expect(signer.sendTransaction).not.toHaveBeenCalled();
+    });
+
+    it('rejects when input cells exceed maxInputCells without sending', async () => {
+      seedCells('sudt');
+      const ckb = createCKB();
+
+      await expect(
+        ckb.udtDestroy({ privateKey, kind: 'sudt', typeArgs, amount: '300' }, { maxInputCells: 1 }),
+      ).rejects.toThrow('Too many UDT cells to destroy');
+
+      const signer = signerCtor.mock.results[0].value as { sendTransaction: jest.Mock };
+      expect(signer.sendTransaction).not.toHaveBeenCalled();
+    });
+  });
 });
 
-function makeCell(kind: UdtKind, args: string, balance: string) {
+function makeCell(kind: UdtKind, args: string, balance: string, index = 0) {
   const codeHash = kind === 'sudt' ? '0x' + 'c3'.repeat(32) : '0x' + 'dd'.repeat(32);
   return {
-    outPoint: { txHash: '0x' + '00'.repeat(32), index: 0 },
+    outPoint: { txHash: '0x' + '00'.repeat(32), index },
     cellOutput: {
       type: { codeHash, hashType: 'type', args },
     },
