@@ -70,6 +70,11 @@ minimumReleaseAgeExclude:
   - "@hono/node-server@2.0.10"
   - "@modelcontextprotocol/sdk@1.31.0"
 
+# Build-script approvals read by newer pnpm (11+ fails the install on any unlisted build script).
+# - cpu-features: optional runtime dep of the CLI; src/node/install.ts falls back to the portable CKB
+#   binary when it is not compiled, and it is kept external in the ncc bundle so end users build it
+#   on their own install. Nothing in this repo's build/tests needs the native addon.
+# - unrs-resolver: its postinstall only checks for the prebuilt @unrs/resolver-binding-* package.
 allowBuilds:
-  cpu-features: set this to true or false
-  unrs-resolver: set this to true or false
+  cpu-features: false
+  unrs-resolver: false
