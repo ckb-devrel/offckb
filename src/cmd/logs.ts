@@ -5,6 +5,7 @@ import {
   filterLinesByTarget,
   followLogFile,
   grepLines,
+  isScriptDebugRecord,
   parseCkbLogLine,
   readLogTail,
   resolveLogPath,
@@ -53,7 +54,7 @@ export function showLogs(target: LogTarget, options: LogsOptions, settings: Sett
     if (scriptOnly) {
       // Unparsable lines are continuations of the previous entry.
       const parsed = parseCkbLogLine(line);
-      if (parsed) inScriptEntry = parsed.target === SCRIPT_LOG_TARGET;
+      if (parsed) inScriptEntry = isScriptDebugRecord(parsed);
       show = inScriptEntry;
     }
     if (show && options.grep && !line.includes(options.grep)) show = false;

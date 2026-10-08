@@ -520,17 +520,13 @@ export class CKB {
       throw new Error(`Insufficient UDT balance: ${totalBalance} < ${destroyAmount}`);
     }
 
-    if (destroyAmount === totalBalance) {
-      throw new Error(
-        'Destroying the entire UDT balance may be rejected by the UDT script. Leave at least 1 token or use a smaller amount.',
-      );
-    }
-
     const tx = ccc.Transaction.from({});
     for (const cell of cells) {
       tx.addInput({ previousOutput: cell.outPoint });
     }
 
+    // A full-balance destroy is valid for SUDT and plain xUDT (no extensions):
+    // remaining is 0 and the zero-balance type cell below is still emitted.
     const remaining = totalBalance - destroyAmount;
     tx.addOutput(
       ccc.CellOutput.from(

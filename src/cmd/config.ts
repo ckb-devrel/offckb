@@ -1,4 +1,4 @@
-import { configPath, readSettings, writeSettings } from '../cfg/setting';
+import { configPath, readSettings, readSettingsStrict, writeSettings } from '../cfg/setting';
 import { Request } from '../util/request';
 import { isValidVersion } from '../util/validator';
 import { logger } from '../util/logger';
@@ -63,7 +63,7 @@ export async function Config(action: ConfigAction, item: ConfigItem, value?: str
         } catch (error: unknown) {
           throw new Error(`invalid proxyURL: ${(error as Error).message}`);
         }
-        const settings = readSettings();
+        const settings = readSettingsStrict();
         settings.proxy = proxy;
         return writeSettings(settings);
       }
@@ -74,7 +74,7 @@ export async function Config(action: ConfigAction, item: ConfigItem, value?: str
             `invalid version value, ${value}. Check available versions on https://github.com/nervosnetwork/ckb/tags`,
           );
         }
-        const settings = readSettings();
+        const settings = readSettingsStrict();
         const version = extractVersion(value!);
         settings.bins.defaultCKBVersion = version;
         return writeSettings(settings);
@@ -86,7 +86,7 @@ export async function Config(action: ConfigAction, item: ConfigItem, value?: str
             `invalid version value, ${value}. Check available versions on https://github.com/nervosnetwork/fiber/tags`,
           );
         }
-        const settings = readSettings();
+        const settings = readSettingsStrict();
         const version = extractVersion(value!);
         settings.bins.defaultFnnVersion = version;
         return writeSettings(settings);
@@ -100,7 +100,7 @@ export async function Config(action: ConfigAction, item: ConfigItem, value?: str
   if (action === ConfigAction.rm) {
     switch (item) {
       case ConfigItem.proxy: {
-        const settings = readSettings();
+        const settings = readSettingsStrict();
         settings.proxy = undefined;
         return writeSettings(settings);
       }

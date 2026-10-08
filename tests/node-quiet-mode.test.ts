@@ -8,6 +8,14 @@ const mockTcpListenAddress = jest.fn();
 const loggerInfo = jest.fn();
 const loggerWarn = jest.fn();
 
+// The stale-miner reaper lists real OS processes (PowerShell CIM on Windows,
+// which alone can take seconds); it has its own tests, so keep it out of
+// these command-flow unit tests.
+jest.mock('../src/devnet/stale-miner', () => ({
+  ...jest.requireActual('../src/devnet/stale-miner'),
+  reapStaleMiners: jest.fn().mockResolvedValue([]),
+}));
+
 jest.mock('child_process', () => ({
   ...jest.requireActual('child_process'),
   spawn: (...args: unknown[]) => mockSpawn(...args),
@@ -113,8 +121,42 @@ describe('foreground node output modes', () => {
     onEntry({ message: 'block 123', level: 'INFO', target: 'ckb_chain::chain', date: '' });
 
     const printed = loggerInfo.mock.calls.map((args) => args.map(String).join(' ')).join('\n');
+    expect(printed).toContain('CKB-Script:');
     expect(printed).toContain('script group: 0xabcd DEBUG OUTPUT: hello');
     expect(printed).not.toContain('block 123');
+  });
+
+  it('streams real ckb_script::verify debug log entries and filters unverified/unrelated entries', async () => {
+    await nodeDevnet({});
+    const onEntry = mockSubscribe.mock.calls[0][1] as (entry: CkbLogEntry) => void;
+
+    onEntry({
+      message:
+        'script group: Byte32(0xafa75b18ff86fe7e188169be16b3279833ceeb197b0d14abf23ff2b005199f8d) DEBUG OUTPUT: OFFCKB_DIAGNOSTIC_FIRST',
+      level: 'DEBUG',
+      target: 'ckb_script::verify',
+      date: '',
+    });
+    onEntry({
+      message: 'ordinary verify line without debug marker',
+      level: 'DEBUG',
+      target: 'ckb_script::verify',
+      date: '',
+    });
+    onEntry({
+      message: 'other script target DEBUG OUTPUT: test',
+      level: 'DEBUG',
+      target: 'ckb_script_other',
+      date: '',
+    });
+
+    const printed = loggerInfo.mock.calls.map((args) => args.map(String).join(' ')).join('\n');
+    expect(printed).toContain('CKB-Script:');
+    expect(printed).toContain(
+      'script group: Byte32(0xafa75b18ff86fe7e188169be16b3279833ceeb197b0d14abf23ff2b005199f8d) DEBUG OUTPUT: OFFCKB_DIAGNOSTIC_FIRST',
+    );
+    expect(printed).not.toContain('ordinary verify line without debug marker');
+    expect(printed).not.toContain('other script target');
   });
 
   it('strips terminal control sequences from script log entries', async () => {

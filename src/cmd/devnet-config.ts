@@ -30,7 +30,12 @@ export function parseSetItem(item: string): ParsedSetItem {
 export function applySetItems(editor: ReturnType<typeof createDevnetConfigEditor>, items: string[]): ParsedSetItem[] {
   const parsedItems = items.map(parseSetItem);
   for (const parsedItem of parsedItems) {
-    editor.setFieldValue(parsedItem.key, parsedItem.value);
+    try {
+      editor.setFieldValue(parsedItem.key, parsedItem.value);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new Error(`Invalid value '${parsedItem.value}' for '${parsedItem.key}'. ${reason}`);
+    }
   }
   editor.save();
   return parsedItems;

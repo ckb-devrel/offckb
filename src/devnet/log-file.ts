@@ -33,6 +33,14 @@ const CKB_LOG_LINE = /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)? [+-]\d{2}:
 
 export const SCRIPT_LOG_TARGET = 'ckb-script';
 
+export function isScriptDebugRecord(entry: { target: string; message: string }): boolean {
+  if (entry.target === SCRIPT_LOG_TARGET) {
+    return true;
+  }
+  const isCkbScriptTarget = entry.target === 'ckb_script' || entry.target.startsWith('ckb_script::');
+  return isCkbScriptTarget && entry.message.includes('DEBUG OUTPUT:');
+}
+
 export function parseCkbLogLine(line: string): CkbLogLine | null {
   const match = line.match(CKB_LOG_LINE);
   if (!match) return null;
@@ -50,7 +58,7 @@ export function filterLinesByTarget(lines: string[], target: string): string[] {
   for (const line of lines) {
     const parsed = parseCkbLogLine(line);
     if (parsed) {
-      previousKept = parsed.target === target;
+      previousKept = target === SCRIPT_LOG_TARGET ? isScriptDebugRecord(parsed) : parsed.target === target;
       if (previousKept) kept.push(line);
     } else if (previousKept) {
       kept.push(line);

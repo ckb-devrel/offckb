@@ -554,11 +554,13 @@ LOG_LEVEL=debug offckb node
 On a pure OffCKB devnet, OffCKB comes with 20 pre-funded accounts, each initialized with `42_000_000_00000000` capacity in the genesis block. A fork keeps the source chain genesis and therefore has no OffCKB genesis allocation; built-in dev accounts are funded by locally mined cellbase cells instead.
 
 ```sh
-offckb accounts
-offckb accounts --show-private-keys  # trusted local terminals only
+offckb accounts                      # prints address, private key, pubkey and lock script
+offckb accounts --hide-private-keys  # omit private keys, e.g. when output goes to logs
 ```
 
-On a Mainnet fork, `accounts` re-encodes the same dev lock scripts with the `ckb` address prefix. Once the Indexer is caught up it also reports each account's spendable pure-CKB balance; until then the field is omitted with a warning. Private keys are hidden by default so JSON and agent logs do not collect them.
+The built-in accounts are public test keys, so `accounts` prints their private keys by default (also in `--json` output).
+
+On a Mainnet fork, `accounts` re-encodes the same dev lock scripts with the `ckb` address prefix, so private keys are hidden by default there; pass `--show-private-keys` (trusted local terminals only) to print them. Once the Indexer is caught up it also reports each account's spendable pure-CKB balance; until then the field is omitted with a warning.
 
 - All private keys are stored in the `account/keys` file.
 - Detailed information for each account is recorded in `account/account.json`.

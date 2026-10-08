@@ -147,6 +147,36 @@ describe('DevnetConfigEditor', () => {
     expect(minerToml.miner.client.poll_interval).toBe(1500);
   });
 
+  it('rejects invalid --set values with key, value, and original reason without saving changes', () => {
+    const editor = createDevnetConfigEditor(configPath);
+    const ckbTomlPath = path.join(configPath, 'ckb.toml');
+    const minerTomlPath = path.join(configPath, 'ckb-miner.toml');
+    const initialCkbContent = fs.readFileSync(ckbTomlPath, 'utf8');
+    const initialMinerContent = fs.readFileSync(minerTomlPath, 'utf8');
+
+    expect(() =>
+      applySetItems(editor, [
+        'ckb.logger.filter=info',
+        'miner.client.poll_interval=1001',
+        'ckb.logger.color=maybe',
+      ]),
+    ).toThrow(
+      "Invalid value 'maybe' for 'ckb.logger.color'. Boolean value must be one of: true/false/yes/no/1/0.",
+    );
+
+    // Verify both TOML files remain byte-for-byte unchanged
+    expect(fs.readFileSync(ckbTomlPath, 'utf8')).toBe(initialCkbContent);
+    expect(fs.readFileSync(minerTomlPath, 'utf8')).toBe(initialMinerContent);
+
+    // Also verify number validation reason is preserved with poll_interval=0
+    expect(() => applySetItems(editor, ['miner.client.poll_interval=0'])).toThrow(
+      "Invalid value '0' for 'miner.client.poll_interval'. Value must be a positive integer.",
+    );
+
+    expect(fs.readFileSync(ckbTomlPath, 'utf8')).toBe(initialCkbContent);
+    expect(fs.readFileSync(minerTomlPath, 'utf8')).toBe(initialMinerContent);
+  });
+
   it('provides full TOML document and flattened entries', () => {
     const editor = createDevnetConfigEditor(configPath);
 

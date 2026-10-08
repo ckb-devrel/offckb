@@ -181,7 +181,7 @@ export interface ProcessInfo {
 
 // Executables allowed to host the offckb CLI entry script. Compared by exact
 // basename — never by substring, which any path containing "node" would pass.
-const NODE_EXECUTABLE_NAMES = new Set(['node', 'nodejs', 'node.exe']);
+export const NODE_EXECUTABLE_NAMES: ReadonlySet<string> = new Set(['node', 'nodejs', 'node.exe']);
 
 // How closely the live process start time must match the pid file's
 // startedAt. The file is written immediately after spawn, so the true delta
@@ -302,8 +302,12 @@ function parsePsLstart(text: string): number | null {
 const PROCESS_PROBE_TIMEOUT_MS = 15_000;
 
 function execFileText(command: string, args: string[]): Promise<string | null> {
+  const options: { timeout: number; env?: NodeJS.ProcessEnv } = { timeout: PROCESS_PROBE_TIMEOUT_MS };
+  if (command === 'ps') {
+    options.env = { ...process.env, LC_ALL: 'C' };
+  }
   return new Promise((resolve) => {
-    execFile(command, args, { timeout: PROCESS_PROBE_TIMEOUT_MS }, (error, stdout) => {
+    execFile(command, args, options, (error, stdout) => {
       if (error) {
         resolve(null);
         return;
@@ -371,25 +375,26 @@ export async function getProcessCommandLine(pid: number): Promise<string | null>
   return info.cmdline;
 }
 
-// Split a flat command line into tokens, honoring single/double quotes. Used
-// on platforms without /proc; the first two tokens (executable, script) are
-// all the identity check consumes, and both are spawned by us without shell
-// metacharacters, so a simple tokenizer suffices.
-function splitCommandLine(cmdline: string): string[] {
-  const tokens: string[] = [];
-  const pattern = /"([^"]*)"|'([^']*)'|(\S+)/g;
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(cmdline)) !== null) {
-    tokens.push(match[1] ?? match[2] ?? match[3]);
+// Path rules for comparing process paths. `platform` is only passed by unit
+// tests that exercise another OS's command lines; by default the host's own
+// `path` module is used (not process.platform, which tests may override).
+type PathRules = { api: path.PlatformPath; native: boolean; caseInsensitive: boolean };
+
+function pathRules(platform?: NodeJS.Platform): PathRules {
+  if (platform == null) {
+    return { api: path, native: true, caseInsensitive: path.sep === '\\' };
   }
-  return tokens;
+  const api = platform === 'win32' ? path.win32 : path.posix;
+  return { api, native: (platform === 'win32') === (path.sep === '\\'), caseInsensitive: platform === 'win32' };
 }
 
 // Resolve symlinks on both sides before comparing (nvm shims,
 // /usr/bin/node → /etc/alternatives, symlinked install prefixes). A path
-// that cannot be resolved still compares by its absolute form.
-function normalizePathForCompare(candidate: string): string {
-  const resolved = path.resolve(candidate);
+// that cannot be resolved still compares by its absolute form. Paths of
+// another OS (unit tests) are only resolved lexically.
+function normalizePathForCompare(candidate: string, rules: PathRules = pathRules()): string {
+  const resolved = rules.api.resolve(candidate);
+  if (!rules.native) return resolved;
   try {
     return fs.realpathSync(resolved);
   } catch {
@@ -397,11 +402,69 @@ function normalizePathForCompare(candidate: string): string {
   }
 }
 
-function executableLooksLikeNode(executable: string): boolean {
-  if (normalizePathForCompare(executable) === normalizePathForCompare(process.execPath)) {
+// Windows file systems are case-insensitive.
+function samePath(a: string, b: string, rules: PathRules): boolean {
+  return rules.caseInsensitive ? a.toLowerCase() === b.toLowerCase() : a === b;
+}
+
+function executableLooksLikeNode(executable: string, rules: PathRules = pathRules()): boolean {
+  if (rules.native && samePath(normalizePathForCompare(executable), normalizePathForCompare(process.execPath), rules)) {
     return true;
   }
-  return NODE_EXECUTABLE_NAMES.has(path.basename(executable).toLowerCase());
+  return NODE_EXECUTABLE_NAMES.has(rules.api.basename(executable).toLowerCase());
+}
+
+// A piece of a flat command line, optionally wrapped in one pair of quotes
+// (Windows quotes arguments that contain spaces). Stray quotes inside an
+// unquoted piece mean the split point is not a real argument boundary.
+function unquoteCommandLinePiece(piece: string): string | null {
+  if (
+    piece.length >= 2 &&
+    ((piece.startsWith('"') && piece.endsWith('"')) || (piece.startsWith("'") && piece.endsWith("'")))
+  ) {
+    return piece.slice(1, -1);
+  }
+  if (piece.length === 0 || piece.includes('"')) return null;
+  return piece;
+}
+
+// Bounds the split search on a hostile or unusually long command line; real
+// executable + script paths have far fewer spaces.
+const MAX_COMMAND_LINE_SPLIT_POINTS = 64;
+
+/**
+ * Whether a flat command line — `ps -o args=` (argv joined by single spaces,
+ * never quoted) or a Windows CommandLine (arguments with spaces quoted) —
+ * starts with `<node executable> <expectedScript>`, followed by the end or a
+ * space.
+ *
+ * The line is NOT tokenized: unquoted paths may contain spaces (macOS
+ * `~/Library/Application Support/...`), so splitting at the first space
+ * would cut the executable or the script apart. Instead every space is tried
+ * as the executable/script boundary and every later space (or the end) as
+ * the script's end. A split only matches when the executable is a Node
+ * runtime and the script resolves to exactly `expectedScript` — the same
+ * strict identity as for an exact argv, without guessing token boundaries.
+ */
+export function commandLineRunsScript(cmdline: string, expectedScript: string, platform?: NodeJS.Platform): boolean {
+  const rules = pathRules(platform);
+  const text = cmdline.trim();
+  const expected = normalizePathForCompare(expectedScript, rules);
+  const spaces: number[] = [];
+  for (let i = 0; i < text.length && spaces.length < MAX_COMMAND_LINE_SPLIT_POINTS; i++) {
+    if (text[i] === ' ') spaces.push(i);
+  }
+  const scriptEnds = [...spaces, text.length];
+  for (const executableEnd of spaces) {
+    const executable = unquoteCommandLinePiece(text.slice(0, executableEnd));
+    if (executable == null || !executableLooksLikeNode(executable, rules)) continue;
+    for (const scriptEnd of scriptEnds) {
+      if (scriptEnd <= executableEnd + 1) continue;
+      const script = unquoteCommandLinePiece(text.slice(executableEnd + 1, scriptEnd));
+      if (script != null && samePath(normalizePathForCompare(script, rules), expected, rules)) return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -413,7 +476,10 @@ function executableLooksLikeNode(executable: string): boolean {
  *   2. its first argument must be THIS installation's CLI entry script
  *      (resolveCliEntry of the verifying process, realpath-normalized) —
  *      the pid file's scriptPath is never consulted, so a stale or forged
- *      pid file cannot lend our identity to an unrelated process;
+ *      pid file cannot lend our identity to an unrelated process. When only
+ *      a flat cmdline is available (ps / Windows), that is matched by
+ *      commandLineRunsScript rather than by tokenizing, so paths that
+ *      contain spaces still resolve;
  *   3. when the pid file carries a real startedAt (everything written by
  *      current versions does), the process start time must match it, which
  *      defeats PID reuse. If the process start time cannot be determined
@@ -428,21 +494,19 @@ export async function verifyDaemonIdentity(pid: number, metadata: PidMetadata): 
     // Without our own entry point we cannot establish identity at all.
     return false;
   }
-  const expectedScript = normalizePathForCompare(cliEntry);
-
   const info = await getProcessInfo(pid);
   if (!info) return false;
 
-  let tokens: string[] | null = null;
   if (info.argv != null) {
-    tokens = info.argv;
-  } else if (info.cmdline != null) {
-    tokens = splitCommandLine(info.cmdline);
+    // Exact argv (Linux /proc): compare the first two arguments directly.
+    if (info.argv.length < 2) return false;
+    if (!executableLooksLikeNode(info.argv[0])) return false;
+    if (!samePath(normalizePathForCompare(info.argv[1]), normalizePathForCompare(cliEntry), pathRules())) {
+      return false;
+    }
+  } else if (info.cmdline == null || !commandLineRunsScript(info.cmdline, cliEntry)) {
+    return false;
   }
-  if (tokens == null || tokens.length < 2) return false;
-
-  if (!executableLooksLikeNode(tokens[0])) return false;
-  if (normalizePathForCompare(tokens[1]) !== expectedScript) return false;
 
   const recordedMs = Date.parse(metadata.startedAt);
   if (Number.isFinite(recordedMs) && recordedMs > 0) {
