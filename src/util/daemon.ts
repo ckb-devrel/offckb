@@ -181,7 +181,7 @@ export interface ProcessInfo {
 
 // Executables allowed to host the offckb CLI entry script. Compared by exact
 // basename — never by substring, which any path containing "node" would pass.
-const NODE_EXECUTABLE_NAMES = new Set(['node', 'nodejs', 'node.exe']);
+export const NODE_EXECUTABLE_NAMES: ReadonlySet<string> = new Set(['node', 'nodejs', 'node.exe']);
 
 // How closely the live process start time must match the pid file's
 // startedAt. The file is written immediately after spawn, so the true delta

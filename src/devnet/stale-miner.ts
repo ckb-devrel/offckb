@@ -1,5 +1,5 @@
 import { execFile } from 'child_process';
-import { isProcessAlive, waitForProcessExit } from '../util/daemon';
+import { isProcessAlive, NODE_EXECUTABLE_NAMES, waitForProcessExit } from '../util/daemon';
 import { logger } from '../util/logger';
 
 export interface ProcessEntry {
@@ -12,10 +12,24 @@ export interface ProcessEntry {
 }
 
 const CKB_EXECUTABLE_NAMES = new Set(['ckb', 'ckb.exe']);
-const NODE_EXECUTABLE_NAMES = new Set(['node', 'nodejs', 'node.exe']);
 const LIST_TIMEOUT_MS = 15_000;
 const STOP_TIMEOUT_MS = 5_000;
 
+/**
+ * The arguments offckb starts the devnet miner with. Single source of truth
+ * for the spawn site (cmd/node.ts) and the stale-miner matcher below.
+ */
+export function minerArgs(configPath: string): string[] {
+  return ['miner', '-C', configPath];
+}
+
+// Node's Windows argv quoting for the arguments we pass: wrap in double
+// quotes when the argument contains whitespace or is empty.
+function quoteWindowsArg(arg: string): string {
+  return arg === '' || /[\s"]/.test(arg) ? `"${arg.replace(/"/g, '\\"')}"` : arg;
+}
+
+// Executables (ps/CIM) may be quoted on Windows and use either separator.
 function basename(executable: string): string {
   const parts = executable
     .trim()
@@ -26,13 +40,15 @@ function basename(executable: string): string {
 
 /**
  * Whether `args` is exactly the command offckb uses to start the devnet miner:
- * `<.../ckb> miner -C <configPath>`. The executable must be named `ckb` and
- * the config dir must match exactly; ps prints argv joined by spaces (paths
- * may contain spaces), Windows may quote the arguments.
+ * `<.../ckb> ${minerArgs(configPath)}`. The executable must be named `ckb`
+ * and the arguments must match exactly. ps prints argv joined by spaces
+ * (paths may contain spaces, so the match is anchored at the end rather than
+ * tokenized); Windows reports the quoted command line.
  */
 export function isMinerCommandFor(args: string, configPath: string): boolean {
   const trimmed = args.trim();
-  for (const suffix of [` miner -C ${configPath}`, ` miner -C "${configPath}"`]) {
+  const argv = minerArgs(configPath);
+  for (const suffix of [` ${argv.join(' ')}`, ` ${argv.map(quoteWindowsArg).join(' ')}`]) {
     if (trimmed.endsWith(suffix)) {
       return CKB_EXECUTABLE_NAMES.has(basename(trimmed.slice(0, -suffix.length)));
     }
@@ -67,14 +83,12 @@ function execText(command: string, args: string[]): Promise<string | null> {
   });
 }
 
-async function listPosixProcesses(): Promise<ProcessEntry[] | null> {
-  // Two passes because comm (macOS: full executable path) and args may both
-  // contain spaces, so they cannot share one line unambiguously.
-  const [argsOut, commOut] = await Promise.all([
-    execText('ps', ['-A', '-ww', '-o', 'pid=,ppid=,args=']),
-    execText('ps', ['-A', '-ww', '-o', 'pid=,comm=']),
-  ]);
-  if (argsOut == null || commOut == null) return null;
+/**
+ * Parse `ps -A -ww -o pid=,ppid=,args=` and `ps -A -ww -o pid=,comm=`. Two
+ * passes because comm (macOS: full executable path) and args may both
+ * contain spaces, so they cannot share one line unambiguously.
+ */
+export function parsePosixProcessList(argsOut: string, commOut: string): ProcessEntry[] {
   const names = new Map<number, string>();
   for (const line of commOut.split('\n')) {
     const match = /^\s*(\d+)\s+(.*)$/.exec(line);
@@ -90,24 +104,46 @@ async function listPosixProcesses(): Promise<ProcessEntry[] | null> {
   return entries;
 }
 
+/**
+ * Parse `Get-CimInstance Win32_Process | Select-Object ProcessId,
+ * ParentProcessId,Name,CommandLine | ConvertTo-Json -Compress`. ConvertTo-Json
+ * emits a bare object for a single row. Returns null for malformed output.
+ */
+export function parseWindowsProcessList(json: string): ProcessEntry[] | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return null;
+  }
+  if (parsed == null || typeof parsed !== 'object') return null;
+  const rows = (Array.isArray(parsed) ? parsed : [parsed]) as Record<string, unknown>[];
+  return rows
+    .filter((row) => row != null && typeof row === 'object')
+    .map((row) => ({
+      pid: Number(row.ProcessId),
+      ppid: Number(row.ParentProcessId),
+      name: typeof row.Name === 'string' ? row.Name : '',
+      args: typeof row.CommandLine === 'string' ? row.CommandLine : '',
+    }))
+    .filter((entry) => Number.isInteger(entry.pid) && entry.pid > 0);
+}
+
+async function listPosixProcesses(): Promise<ProcessEntry[] | null> {
+  const [argsOut, commOut] = await Promise.all([
+    execText('ps', ['-A', '-ww', '-o', 'pid=,ppid=,args=']),
+    execText('ps', ['-A', '-ww', '-o', 'pid=,comm=']),
+  ]);
+  if (argsOut == null || commOut == null) return null;
+  return parsePosixProcessList(argsOut, commOut);
+}
+
 async function listWindowsProcesses(): Promise<ProcessEntry[] | null> {
   const script =
     'Get-CimInstance Win32_Process | ' +
     'Select-Object ProcessId,ParentProcessId,Name,CommandLine | ConvertTo-Json -Compress';
   const text = await execText('powershell', ['-NoProfile', '-Command', script]);
-  if (text == null) return null;
-  try {
-    const parsed = JSON.parse(text) as unknown;
-    const rows = (Array.isArray(parsed) ? parsed : [parsed]) as Record<string, unknown>[];
-    return rows.map((row) => ({
-      pid: Number(row.ProcessId),
-      ppid: Number(row.ParentProcessId),
-      name: typeof row.Name === 'string' ? row.Name : '',
-      args: typeof row.CommandLine === 'string' ? row.CommandLine : '',
-    }));
-  } catch {
-    return null;
-  }
+  return text == null ? null : parseWindowsProcessList(text);
 }
 
 export function listProcesses(): Promise<ProcessEntry[] | null> {
@@ -128,7 +164,9 @@ export async function reapStaleMiners(configPath: string): Promise<number[]> {
   }
   const reaped: number[] = [];
   for (const miner of findStaleMiners(entries, configPath)) {
-    logger.warn(`Stopping stale CKB miner (PID ${miner.pid}) left over from a previous offckb run.`);
+    logger.warn(
+      `Stopping stale CKB miner (PID ${miner.pid}) for this devnet: it is not attached to a running offckb process.`,
+    );
     try {
       process.kill(miner.pid, 'SIGTERM');
       if (!(await waitForProcessExit(miner.pid, STOP_TIMEOUT_MS)) && isProcessAlive(miner.pid)) {

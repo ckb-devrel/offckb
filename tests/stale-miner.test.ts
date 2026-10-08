@@ -1,4 +1,11 @@
-import { findStaleMiners, isMinerCommandFor, ProcessEntry } from '../src/devnet/stale-miner';
+import {
+  findStaleMiners,
+  isMinerCommandFor,
+  minerArgs,
+  parsePosixProcessList,
+  parseWindowsProcessList,
+  ProcessEntry,
+} from '../src/devnet/stale-miner';
 
 const CONFIG = '/Users/dev/Library/Application Support/offckb-nodejs/devnet';
 const CKB = '/Users/dev/Library/Application Support/offckb-nodejs/bins/0.204.0/ckb';
@@ -14,9 +21,11 @@ describe('isMinerCommandFor', () => {
   });
 
   it('matches Windows quoted command lines', () => {
-    const config = 'C:\\Users\\dev\\AppData\\Local\\offckb-nodejs\\Data\\devnet';
-    expect(isMinerCommandFor(`"C:\\Program Files\\offckb\\ckb.exe" miner -C "${config}"`, config)).toBe(true);
-    expect(isMinerCommandFor(`C:\\offckb\\ckb.exe miner -C ${config}`, config)).toBe(true);
+    // Node quotes an argument only when it contains whitespace or quotes.
+    const spaced = 'C:\\Users\\Jane Doe\\AppData\\Local\\offckb-nodejs\\Data\\devnet';
+    expect(isMinerCommandFor(`"C:\\Program Files\\offckb\\ckb.exe" miner -C "${spaced}"`, spaced)).toBe(true);
+    const plain = 'C:\\Users\\dev\\AppData\\Local\\offckb-nodejs\\Data\\devnet';
+    expect(isMinerCommandFor(`C:\\offckb\\ckb.exe miner -C ${plain}`, plain)).toBe(true);
   });
 
   it('rejects other commands, other dirs and other executables', () => {
@@ -64,5 +73,67 @@ describe('findStaleMiners', () => {
       entry(402, 1, 'bash', `bash -c sleep 1000`),
     ];
     expect(findStaleMiners(entries, CONFIG, 999)).toEqual([]);
+  });
+});
+
+describe('minerArgs', () => {
+  it('is what the matcher recognizes, so the spawn site and the reaper cannot drift apart', () => {
+    expect(isMinerCommandFor([CKB, ...minerArgs(CONFIG)].join(' '), CONFIG)).toBe(true);
+    expect(isMinerCommandFor([CKB, ...minerArgs(CONFIG), '--extra'].join(' '), CONFIG)).toBe(false);
+  });
+});
+
+describe('parsePosixProcessList', () => {
+  it('joins the args and comm passes by PID, keeping spaces in both', () => {
+    const argsOut = [
+      '    1     0 /sbin/launchd',
+      `  812     1 ${CKB} miner -C ${CONFIG}`,
+      '  900   850 /usr/local/bin/node /usr/local/bin/offckb node',
+      '',
+    ].join('\n');
+    const commOut = ['    1 /sbin/launchd', `  812 ${CKB}`, '  900 /usr/local/bin/node', ''].join('\n');
+    expect(parsePosixProcessList(argsOut, commOut)).toEqual([
+      { pid: 1, ppid: 0, name: '/sbin/launchd', args: '/sbin/launchd' },
+      { pid: 812, ppid: 1, name: CKB, args: `${CKB} miner -C ${CONFIG}` },
+      { pid: 900, ppid: 850, name: '/usr/local/bin/node', args: '/usr/local/bin/node /usr/local/bin/offckb node' },
+    ]);
+    expect(findStaleMiners(parsePosixProcessList(argsOut, commOut), CONFIG, 999).map((e) => e.pid)).toEqual([812]);
+  });
+});
+
+describe('parseWindowsProcessList', () => {
+  const config = 'C:\\Users\\dev\\AppData\\Local\\offckb-nodejs\\Data\\devnet';
+
+  it('parses CIM JSON rows and finds a miner whose parent PID is gone', () => {
+    const json = JSON.stringify([
+      { ProcessId: 4, ParentProcessId: 0, Name: 'System', CommandLine: null },
+      {
+        ProcessId: 5120,
+        ParentProcessId: 4242,
+        Name: 'ckb.exe',
+        CommandLine: `"C:\\Program Files\\offckb\\ckb.exe" miner -C ${config}`,
+      },
+    ]);
+    const entries = parseWindowsProcessList(json)!;
+    expect(entries).toEqual([
+      { pid: 4, ppid: 0, name: 'System', args: '' },
+      {
+        pid: 5120,
+        ppid: 4242,
+        name: 'ckb.exe',
+        args: `"C:\\Program Files\\offckb\\ckb.exe" miner -C ${config}`,
+      },
+    ]);
+    expect(findStaleMiners(entries, config, 999).map((e) => e.pid)).toEqual([5120]);
+  });
+
+  it('accepts the bare object ConvertTo-Json emits for a single row', () => {
+    const json = JSON.stringify({ ProcessId: 7, ParentProcessId: 1, Name: 'ckb.exe', CommandLine: 'ckb.exe' });
+    expect(parseWindowsProcessList(json)).toEqual([{ pid: 7, ppid: 1, name: 'ckb.exe', args: 'ckb.exe' }]);
+  });
+
+  it('returns null for malformed output', () => {
+    expect(parseWindowsProcessList('not json')).toBeNull();
+    expect(parseWindowsProcessList('null')).toBeNull();
   });
 });
