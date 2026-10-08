@@ -153,4 +153,57 @@ describe('daemon locale and process probing', () => {
     const verified = await verifyDaemonIdentity(12345, metadata);
     expect(verified).toBe(false);
   });
+
+  it('verifies a daemon whose CLI path contains spaces (unquoted ps -o args= output)', async () => {
+    // Use a temporary absolute path with a space as the CLI entry so the
+    // live OFFCKB_CLI_PATH matches the command line we feed the probe.
+    const fs = require('fs') as typeof import('fs');
+    const path = require('path') as typeof import('path');
+    const os = require('os') as typeof import('os');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'offckb spaced-'));
+    const script = path.join(dir, 'index.js');
+    fs.writeFileSync(script, '');
+    process.env.OFFCKB_CLI_PATH = script;
+    const startedAt = new Date(2026, 7, 13, 12, 36, 26);
+
+    mockExecFile.mockImplementation((file: string, args: string[], options: any, callback?: any) => {
+      const cb = typeof options === 'function' ? options : callback;
+      if (file === 'ps') {
+        if (args.includes('args=')) {
+          // ps never quotes: the space in the script path is a bare space.
+          cb(null, `${process.execPath} ${script} node --daemon`, '');
+          return;
+        }
+        if (args.includes('lstart=')) {
+          cb(null, 'Wed Aug 13 12:36:26 2026', '');
+          return;
+        }
+      }
+      cb(new Error(`Unexpected command: ${file}`), '', '');
+    });
+
+    const metadata: PidMetadata = {
+      pid: 12345,
+      scriptPath: script,
+      startedAt: startedAt.toISOString(),
+    };
+    expect(await verifyDaemonIdentity(12345, metadata)).toBe(true);
+
+    // A foreign script under a sibling spaced directory must not match.
+    mockExecFile.mockImplementation((file: string, args: string[], options: any, callback?: any) => {
+      const cb = typeof options === 'function' ? options : callback;
+      if (file === 'ps' && args.includes('args=')) {
+        cb(null, `${process.execPath} ${script}-other node --daemon`, '');
+        return;
+      }
+      if (file === 'ps' && args.includes('lstart=')) {
+        cb(null, 'Wed Aug 13 12:36:26 2026', '');
+        return;
+      }
+      cb(new Error(`Unexpected command: ${file}`), '', '');
+    });
+    expect(await verifyDaemonIdentity(12345, metadata)).toBe(false);
+
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
 });
