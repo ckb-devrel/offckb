@@ -10,6 +10,8 @@ import {
   readLogTail,
   followLogFile,
   LogTarget,
+  isScriptDebugRecord,
+  SCRIPT_LOG_TARGET,
 } from '../src/devnet/log-file';
 import { defaultSettings, Settings } from '../src/cfg/setting';
 
@@ -28,6 +30,8 @@ const NODE_LINE =
   '2026-07-29 11:31:27.149 +00:00 main INFO ckb_bin::subcommand::run  ckb version: 0.207.0 (8f6cacf 2026-06-10)';
 const SCRIPT_LINE =
   '2026-07-29 11:40:01.500 +00:00 GlobalRt-7 DEBUG ckb-script  script group: 0xabcd DEBUG OUTPUT: hello world';
+const ISSUE_SCRIPT_LINE =
+  '2026-09-11 11:20:02.169 +00:00 GlobalRt-10 DEBUG ckb_script::verify  script group: Byte32(0xafa75b18ff86fe7e188169be16b3279833ceeb197b0d14abf23ff2b005199f8d) DEBUG OUTPUT: OFFCKB_DIAGNOSTIC_FIRST';
 const ERROR_LINE =
   '2026-07-29 11:31:38.636 +00:00 verify_blocks ERROR ckb_chain::verify  unverified_block_rx err: receiving on an empty and disconnected channel';
 
@@ -68,6 +72,27 @@ describe('parseCkbLogLine', () => {
   });
 });
 
+describe('isScriptDebugRecord', () => {
+  it('accepts legacy ckb-script target without requiring marker', () => {
+    expect(isScriptDebugRecord({ target: 'ckb-script', message: 'plain message' })).toBe(true);
+  });
+
+  it('accepts ckb_script root and ckb_script:: submodules when containing DEBUG OUTPUT:', () => {
+    expect(isScriptDebugRecord({ target: 'ckb_script', message: 'group 1 DEBUG OUTPUT: hello' })).toBe(true);
+    expect(isScriptDebugRecord({ target: 'ckb_script::verify', message: 'group 1 DEBUG OUTPUT: OFFCKB_DIAGNOSTIC_FIRST' })).toBe(true);
+  });
+
+  it('rejects ckb_script targets without DEBUG OUTPUT:', () => {
+    expect(isScriptDebugRecord({ target: 'ckb_script::verify', message: 'script verify success' })).toBe(false);
+    expect(isScriptDebugRecord({ target: 'ckb_script', message: 'script group initialized' })).toBe(false);
+  });
+
+  it('rejects non-script targets and targets with partial prefix match like ckb_script_other', () => {
+    expect(isScriptDebugRecord({ target: 'ckb_script_other', message: 'DEBUG OUTPUT: test' })).toBe(false);
+    expect(isScriptDebugRecord({ target: 'ckb_chain::verify', message: 'DEBUG OUTPUT: test' })).toBe(false);
+  });
+});
+
 describe('filterLinesByTarget', () => {
   it('keeps only lines from the given target plus their continuation lines', () => {
     const lines = [
@@ -86,6 +111,26 @@ describe('filterLinesByTarget', () => {
 
   it('drops leading unparsable lines when nothing matched before them', () => {
     expect(filterLinesByTarget(['garbage line', SCRIPT_LINE], 'ckb-script')).toEqual([SCRIPT_LINE]);
+  });
+
+  it('filters ckb_script::verify lines based on DEBUG OUTPUT marker and preserves continuation lines', () => {
+    const unverifiedLine =
+      '2026-09-11 11:20:01.000 +00:00 GlobalRt-10 DEBUG ckb_script::verify  regular verify without marker';
+    const lines = [
+      unverifiedLine,
+      '  rejected continuation line',
+      ISSUE_SCRIPT_LINE,
+      '  accepted contract multi-line output',
+      unverifiedLine,
+      '  rejected continuation after an accepted entry',
+      NODE_LINE,
+      '2026-09-11 11:20:03.000 +00:00 GlobalRt-10 DEBUG ckb_script_other  DEBUG OUTPUT: should reject',
+      '  rejected other continuation',
+    ];
+    expect(filterLinesByTarget(lines, SCRIPT_LOG_TARGET)).toEqual([
+      ISSUE_SCRIPT_LINE,
+      '  accepted contract multi-line output',
+    ]);
   });
 });
 
