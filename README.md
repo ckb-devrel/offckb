@@ -83,7 +83,7 @@ Commands:
   debug [options]                               Quickly debug transaction with tx-hash
   system-scripts [options]                      Print/Output system scripts of the CKB blockchain
   clean                                         Clean the devnet data, need to stop running the chain first
-  accounts                                      Print account list info
+  accounts                                      Print account list info (includes dev private keys by default)
   deposit [options] [toAddress] [amountInCKB]   Deposit CKB tokens to address, only devnet and testnet
   transfer [options] [toAddress] [amountInCKB]  Transfer CKB tokens to address, only devnet and testnet
   transfer-all [options] [toAddress]            Transfer All CKB tokens to address, only devnet and testnet
@@ -555,10 +555,10 @@ On a pure OffCKB devnet, OffCKB comes with 20 pre-funded accounts, each initiali
 
 ```sh
 offckb accounts
-offckb accounts --show-private-keys  # trusted local terminals only
+offckb accounts --hide-private-keys  # omit the dev private keys from the output
 ```
 
-On a Mainnet fork, `accounts` re-encodes the same dev lock scripts with the `ckb` address prefix. Once the Indexer is caught up it also reports each account's spendable pure-CKB balance; until then the field is omitted with a warning. Private keys are hidden by default so JSON and agent logs do not collect them.
+On a Mainnet fork, `accounts` re-encodes the same dev lock scripts with the `ckb` address prefix. Once the Indexer is caught up it also reports each account's spendable pure-CKB balance; until then the field is omitted with a warning. Dev private keys are printed by default — OffCKB is a local testing tool and these keys are publicly known devnet-only keys; pass `--hide-private-keys` when you do not want them in your terminal or JSON logs.
 
 - All private keys are stored in the `account/keys` file.
 - Detailed information for each account is recorded in `account/account.json`.

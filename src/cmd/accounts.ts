@@ -7,10 +7,16 @@ import { Network } from '../type/base';
 import { logger } from '../util/logger';
 
 export interface AccountsOptions {
+  /** @deprecated private keys are shown by default; kept so existing scripts keep working. */
   showPrivateKeys?: boolean;
+  hidePrivateKeys?: boolean;
 }
 
 export async function accounts(options: AccountsOptions = {}) {
+  // These are publicly known devnet-only keys, so a local testing tool shows
+  // them by default (fixes #520); an explicit --show-private-keys still wins
+  // over --hide-private-keys when both are passed.
+  const includePrivateKeys = options.showPrivateKeys || !options.hidePrivateKeys;
   const settings = readSettings();
   const fork = readForkState(settings.devnet.configPath);
   const isMainnetFork = fork?.source === 'mainnet';
@@ -54,7 +60,7 @@ export async function accounts(options: AccountsOptions = {}) {
         index,
         address,
         ...(spendableCkb == null ? {} : { spendableCkb }),
-        ...(options.showPrivateKeys ? { privkey: account.privkey } : {}),
+        ...(includePrivateKeys ? { privkey: account.privkey } : {}),
         pubkey: account.pubkey,
         lockArg: account.lockScript.args,
         lockScript: account.lockScript,
@@ -67,7 +73,7 @@ export async function accounts(options: AccountsOptions = {}) {
       `- "#": ${account.index}`,
       `address: ${account.address}`,
       ...('spendableCkb' in account ? [`spendable_ckb: ${account.spendableCkb}`] : []),
-      ...(options.showPrivateKeys ? [`privkey: ${account.privkey}`] : []),
+      ...(includePrivateKeys ? [`privkey: ${account.privkey}`] : []),
       `pubkey: ${account.pubkey}`,
       `lock_arg: ${account.lockArg}`,
       'lockScript:',
@@ -82,8 +88,8 @@ export async function accounts(options: AccountsOptions = {}) {
     logger.info(details);
   });
 
-  if (!options.showPrivateKeys) {
-    logger.info('Private keys are hidden by default. Use --show-private-keys only in a trusted local terminal.');
+  if (!includePrivateKeys) {
+    logger.info('Private keys are hidden via --hide-private-keys.');
   }
   logger.result({ command: 'accounts', context, forked: Boolean(fork), accounts: resolvedAccounts });
   return resolvedAccounts;

@@ -25,7 +25,7 @@ describe('accounts command', () => {
   it('uses ckt addresses and the genesis funding statement on a pure devnet', async () => {
     const result = await accounts();
     expect(result[0].address).toMatch(/^ckt1/);
-    expect(result[0].privkey).toBeUndefined();
+    expect(result[0].privkey).toMatch(/^0x[0-9a-f]{64}$/);
     expect(logger.info).toHaveBeenCalledWith(
       expect.arrayContaining([expect.stringContaining('funded with 42_000_000_00000000')]),
     );
@@ -41,8 +41,19 @@ describe('accounts command', () => {
     expect(logger.result).toHaveBeenCalledWith(expect.objectContaining({ context: 'DEVNET (fork of MAINNET)' }));
   });
 
-  it('reveals dev private keys only after an explicit option', async () => {
-    const result = await accounts({ showPrivateKeys: true });
-    expect(result[0].privkey).toMatch(/^0x[0-9a-f]{64}$/);
+  it('shows dev private keys by default and still accepts --show-private-keys', async () => {
+    const byDefault = await accounts();
+    expect(byDefault[0].privkey).toMatch(/^0x[0-9a-f]{64}$/);
+
+    const explicit = await accounts({ showPrivateKeys: true });
+    expect(explicit[0].privkey).toMatch(/^0x[0-9a-f]{64}$/);
+  });
+
+  it('hides dev private keys when --hide-private-keys is passed', async () => {
+    const result = await accounts({ hidePrivateKeys: true });
+    expect(result[0].privkey).toBeUndefined();
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.stringContaining('Private keys are hidden via --hide-private-keys.'),
+    );
   });
 });

@@ -282,8 +282,9 @@ program
   .action((options: { data?: boolean }) => clean(options));
 program
   .command('accounts')
-  .description('Print account list info')
-  .option('--show-private-keys', 'Include built-in dev private keys (hidden by default)')
+  .description('Print account list info (includes dev private keys by default)')
+  .option('--show-private-keys', 'Deprecated: dev private keys are shown by default')
+  .option('--hide-private-keys', 'Omit dev private keys from the output')
   .action(async (options) => {
     await accounts(options);
   });
