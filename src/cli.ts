@@ -283,7 +283,12 @@ program
 program
   .command('accounts')
   .description('Print account list info')
-  .option('--show-private-keys', 'Include built-in dev private keys (hidden by default)')
+  .addOption(new Option('--show-private-keys', 'Include built-in dev private keys (default, except on a Mainnet fork)'))
+  .addOption(
+    new Option('--hide-private-keys', 'Omit private keys, e.g. when output is captured in logs').conflicts(
+      'showPrivateKeys',
+    ),
+  )
   .action(async (options) => {
     await accounts(options);
   });

@@ -8,12 +8,23 @@ import { logger } from '../util/logger';
 
 export interface AccountsOptions {
   showPrivateKeys?: boolean;
+  hidePrivateKeys?: boolean;
+}
+
+// The built-in dev keys are public test keys (see account/keys), so print them by default
+// on a local devnet. A Mainnet fork re-encodes the same locks as real `ckb1` addresses, so
+// keep the keys behind an explicit --show-private-keys there.
+export function shouldShowPrivateKeys(options: AccountsOptions, isMainnetFork: boolean): boolean {
+  if (options.hidePrivateKeys) return false;
+  if (options.showPrivateKeys) return true;
+  return !isMainnetFork;
 }
 
 export async function accounts(options: AccountsOptions = {}) {
   const settings = readSettings();
   const fork = readForkState(settings.devnet.configPath);
   const isMainnetFork = fork?.source === 'mainnet';
+  const showPrivateKeys = shouldShowPrivateKeys(options, isMainnetFork);
   const client = isMainnetFork
     ? new ccc.ClientPublicMainnet({ url: settings.devnet.rpcUrl, fallbacks: [] })
     : new ccc.ClientPublicTestnet({ url: settings.devnet.rpcUrl, fallbacks: [] });
@@ -54,7 +65,7 @@ export async function accounts(options: AccountsOptions = {}) {
         index,
         address,
         ...(spendableCkb == null ? {} : { spendableCkb }),
-        ...(options.showPrivateKeys ? { privkey: account.privkey } : {}),
+        ...(showPrivateKeys ? { privkey: account.privkey } : {}),
         pubkey: account.pubkey,
         lockArg: account.lockScript.args,
         lockScript: account.lockScript,
@@ -67,7 +78,7 @@ export async function accounts(options: AccountsOptions = {}) {
       `- "#": ${account.index}`,
       `address: ${account.address}`,
       ...('spendableCkb' in account ? [`spendable_ckb: ${account.spendableCkb}`] : []),
-      ...(options.showPrivateKeys ? [`privkey: ${account.privkey}`] : []),
+      ...(showPrivateKeys ? [`privkey: ${account.privkey}`] : []),
       `pubkey: ${account.pubkey}`,
       `lock_arg: ${account.lockArg}`,
       'lockScript:',
@@ -82,8 +93,10 @@ export async function accounts(options: AccountsOptions = {}) {
     logger.info(details);
   });
 
-  if (!options.showPrivateKeys) {
-    logger.info('Private keys are hidden by default. Use --show-private-keys only in a trusted local terminal.');
+  if (!showPrivateKeys && isMainnetFork && !options.hidePrivateKeys) {
+    logger.info(
+      'Private keys are hidden by default on a Mainnet fork. Use --show-private-keys only in a trusted local terminal.',
+    );
   }
   logger.result({ command: 'accounts', context, forked: Boolean(fork), accounts: resolvedAccounts });
   return resolvedAccounts;
