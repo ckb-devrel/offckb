@@ -34,6 +34,7 @@ jest.mock('../src/devnet/fork', () => ({
 }));
 const mockReapStaleMiners = jest.fn().mockResolvedValue([]);
 jest.mock('../src/devnet/stale-miner', () => ({
+  ...jest.requireActual('../src/devnet/stale-miner'),
   reapStaleMiners: (...args: unknown[]) => mockReapStaleMiners(...args),
 }));
 jest.mock('../src/util/json-rpc', () => ({ callJsonRpc: (...args: unknown[]) => mockCallJsonRpc(...args) }));
@@ -56,6 +57,7 @@ jest.mock('../src/util/logger', () => ({
 }));
 
 import { nodeDevnet } from '../src/cmd/node';
+import { isMinerCommandFor } from '../src/devnet/stale-miner';
 
 class FakeChild extends EventEmitter {
   stdout = new EventEmitter();
@@ -177,5 +179,46 @@ describe('foreground devnet supervisor', () => {
     expect(miner.kill).toHaveBeenCalledWith('SIGTERM');
     expect(mockProxyStop).toHaveBeenCalled();
     expect(process.exitCode).toBe(3);
+  });
+
+  it('spawns the miner with exactly the command the stale-miner reaper recognizes', async () => {
+    await nodeDevnet({});
+    const [binary, args] = mockSpawn.mock.calls[1] as [string, string[]];
+    expect(isMinerCommandFor([binary, ...args].join(' '), '/tmp/offckb-devnet')).toBe(true);
+  });
+
+  it('stops every spawned child when startup throws after the miner started', async () => {
+    mockProxyStart.mockImplementationOnce(() => {
+      throw new Error('proxy failed');
+    });
+    const exitBefore = process.listeners('exit') as Listener[];
+    const sigtermBefore = process.listeners('SIGTERM') as Listener[];
+
+    await expect(nodeDevnet({})).rejects.toThrow('proxy failed');
+
+    expect(ckb.kill).toHaveBeenCalledWith('SIGTERM');
+    expect(miner.kill).toHaveBeenCalledWith('SIGTERM');
+    expect(process.listeners('exit')).toEqual(exitBefore);
+    expect(process.listeners('SIGTERM')).toEqual(sigtermBefore);
+  });
+
+  it('runs the shared shutdown on SIGTERM without --fiber, then exits with 143', async () => {
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+    const before = process.listeners('SIGTERM') as Listener[];
+    try {
+      await nodeDevnet({});
+      const added = (process.listeners('SIGTERM') as Listener[]).filter((listener) => !before.includes(listener));
+      expect(added).toHaveLength(1);
+
+      added[0]();
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(ckb.kill).toHaveBeenCalledWith('SIGTERM');
+      expect(miner.kill).toHaveBeenCalledWith('SIGTERM');
+      expect(mockProxyStop).toHaveBeenCalled();
+      expect(exitSpy).toHaveBeenCalledWith(143);
+    } finally {
+      exitSpy.mockRestore();
+    }
   });
 });

@@ -41,13 +41,9 @@ import { readRuntime } from '../fiber/runtime';
 import { enterGracefulShutdown } from '../util/shutdown';
 import { fiberDaemonPaths } from '../fiber/paths';
 import { assertNodeStopDoesNotOrphanFiber, FIBER_DAEMON_READY_TIMEOUT_MS } from '../fiber/daemon';
-import {
-  bindChildrenToProcessLifetime,
-  ChildLifetimeGuard,
-  LifetimeSignal,
-  signalExitCode,
-} from '../util/child-lifetime';
-import { reapStaleMiners } from '../devnet/stale-miner';
+import { bindChildrenToProcessLifetime, ChildLifetimeGuard } from '../util/child-lifetime';
+import { installSessionSignalHandlers, SessionSignalHandlers } from '../util/session-signals';
+import { minerArgs, reapStaleMiners } from '../devnet/stale-miner';
 
 export interface NodeProp {
   version?: string;
@@ -202,18 +198,24 @@ async function runNodeDevnet(
   await reapStaleMiners(devnetConfigPath);
 
   // From here on, the CKB node and miner are stopped whenever this process
-  // exits, including on SIGTERM/SIGHUP and crashes.
+  // exits (crash, process.exit), and SIGINT/SIGTERM/SIGHUP always end in an
+  // exit that runs that hook.
   const lifetime = bindChildrenToProcessLifetime();
+  const signals = installSessionSignalHandlers();
   try {
     return await superviseDevnet(
       { verbose, fiber, fnnVersion, fiberNodes, fnnBinaryPath },
       { ckbBinPath, devnetConfigPath, forkState, firstRunFlags },
       envLock,
       settings,
-      lifetime,
+      { lifetime, signals },
     );
   } catch (error) {
+    // Startup failed: whatever was spawned must not outlive this attempt,
+    // even if the failing path did not stop it itself.
+    lifetime.stopAll();
     lifetime.dispose();
+    signals.dispose();
     throw error;
   }
 }
@@ -233,7 +235,7 @@ async function superviseDevnet(
   },
   envLock: EnvLockHandle | null,
   settings: Settings,
-  lifetime: ChildLifetimeGuard,
+  { lifetime, signals }: { lifetime: ChildLifetimeGuard; signals: SessionSignalHandlers },
 ) {
   logger.info(`Launching CKB devnet Node...`);
   const runArgs = ['run', '-C', devnetConfigPath];
@@ -302,7 +304,7 @@ async function superviseDevnet(
 
   let minerProcess: ChildProcess;
   try {
-    minerProcess = spawn(ckbBinPath, ['miner', '-C', devnetConfigPath], { stdio: ['ignore', 'pipe', 'pipe'] });
+    minerProcess = spawn(ckbBinPath, minerArgs(devnetConfigPath), { stdio: ['ignore', 'pipe', 'pipe'] });
     lifetime.track(minerProcess);
   } catch (error) {
     ckbProcess.kill('SIGTERM');
@@ -364,13 +366,20 @@ async function superviseDevnet(
     };
     try {
       const fnn = await fnnPrep;
-      fiberEnv = await startFiberEnvironment({
-        fnnPath: fnn.fnnPath,
-        testnetConfigPath: fnn.testnetConfigPath,
-        chainScripts: resolveFiberChainScripts(),
-        nodeCount: fiberNodes,
-        settings,
-      });
+      // startFiberEnvironment owns the signals while it starts the FNNs: it
+      // stops them and exits, and our exit hook then stops CKB and the miner.
+      const endDelegation = signals.delegate();
+      try {
+        fiberEnv = await startFiberEnvironment({
+          fnnPath: fnn.fnnPath,
+          testnetConfigPath: fnn.testnetConfigPath,
+          chainScripts: resolveFiberChainScripts(),
+          nodeCount: fiberNodes,
+          settings,
+        });
+      } finally {
+        endDelegation();
+      }
     } catch (error) {
       stopStartedProcesses();
       throw error;
@@ -403,7 +412,7 @@ async function superviseDevnet(
   // failure and sets the exit code; the signal path reports its own code.
   type ShutdownTrigger =
     | { component: string; code: number | null; signal: NodeJS.Signals | null }
-    | { signal: LifetimeSignal };
+    | { signal: NodeJS.Signals };
   let shutdownPromise: Promise<void> | null = null;
   const runShutdownOnce = (trigger: ShutdownTrigger): Promise<void> => {
     if (shutdownPromise) return shutdownPromise;
@@ -423,6 +432,7 @@ async function superviseDevnet(
       envLock?.release();
       lifetime.dispose();
       if ('component' in trigger) {
+        signals.dispose();
         logger.error(
           `${trigger.component} exited unexpectedly (code=${trigger.code ?? 'null'}, signal=${trigger.signal ?? 'none'}).`,
         );
@@ -448,31 +458,11 @@ async function superviseDevnet(
     for (const node of fiberEnv.nodes) {
       node.process.once('exit', (code, signal) => stopService(`FNN node ${node.id}`, code, signal));
     }
-    installFiberSignalHandlers(runShutdownOnce);
   }
-}
-
-// With --fiber the process group contains FNNs whose runtime.json should not
-// outlive a clean shutdown. Stop the whole group on Ctrl+C/SIGTERM instead of
-// letting each process fend for itself. The cleanup itself is shared with the
-// component-exit path via runShutdownOnce; this only adds the exit code.
-function installFiberSignalHandlers(runShutdownOnce: (trigger: { signal: LifetimeSignal }) => Promise<void>) {
-  let handling = false;
-  const handler = (signal: LifetimeSignal) => {
-    if (handling) return;
-    handling = true;
-    // Set before the first log line: with piped output the reader may die
-    // with this same signal, and an EPIPE must not abort the shutdown.
-    enterGracefulShutdown();
-    void (async () => {
-      logger.info(`Received ${signal}, stopping the devnet and fiber nodes...`);
-      await runShutdownOnce({ signal });
-      process.exit(signalExitCode(signal));
-    })();
-  };
-  process.once('SIGINT', () => handler('SIGINT'));
-  process.once('SIGTERM', () => handler('SIGTERM'));
-  process.once('SIGHUP', () => handler('SIGHUP'));
+  // Ctrl+C/SIGTERM/SIGHUP stop the whole service through the same shared
+  // cleanup as a component exit (FNN runtime.json, daemon pid file, env lock),
+  // then exit with 128+n.
+  signals.setShutdown(fiberEnv ? 'the devnet and fiber nodes' : 'the devnet', (signal) => runShutdownOnce({ signal }));
 }
 
 // CKB < 0.205.0 rejects the Terminal RPC module during config deserialization

@@ -27,6 +27,7 @@ import {
 } from './runtime';
 import { closeFileDescriptors } from '../util/daemon';
 import { enterGracefulShutdown } from '../util/shutdown';
+import { LifetimeSignal, signalExitCode } from '../util/child-lifetime';
 
 export interface FnnProcessHandle {
   id: number;
@@ -326,7 +327,7 @@ export async function startFiberEnvironment(options: StartFiberEnvironmentOption
   // runtime record — OffCKB would refuse to touch those orphans.
   const handles: FnnProcessHandle[] = [];
   let signalCleanupStarted = false;
-  const onStartupSignal = (signal: 'SIGINT' | 'SIGTERM') => {
+  const onStartupSignal = (signal: LifetimeSignal) => {
     // Set before the first log line of the cleanup: with piped output the
     // reader may die with this same signal, and an EPIPE must not abort the
     // shutdown (see util/shutdown.ts).
@@ -338,16 +339,19 @@ export async function startFiberEnvironment(options: StartFiberEnvironmentOption
       // Same cleanup as the post-ready stop path: SIGTERM the children,
       // escalate to SIGKILL after the grace period, drop the runtime record.
       await stopFiberNodes(handles, settings);
-      process.exit(signal === 'SIGINT' ? 130 : 143);
+      process.exit(signalExitCode(signal));
     })();
   };
   const onSigint = () => onStartupSignal('SIGINT');
   const onSigterm = () => onStartupSignal('SIGTERM');
+  const onSighup = () => onStartupSignal('SIGHUP');
   process.once('SIGINT', onSigint);
   process.once('SIGTERM', onSigterm);
+  process.once('SIGHUP', onSighup);
   const removeStartupSignalHandlers = () => {
     process.removeListener('SIGINT', onSigint);
     process.removeListener('SIGTERM', onSigterm);
+    process.removeListener('SIGHUP', onSighup);
   };
 
   try {
