@@ -151,9 +151,10 @@ describe('config command and error handling', () => {
 
       expect(process.exitCode).toBe(1);
       const output = stderr.text();
-      expect(output).toContain('"ok":false');
-      expect(output).toContain('"code":"COMMAND_FAILED"');
-      expect(output).toContain(configPath);
+      const record = JSON.parse(output.trim());
+      expect(record.ok).toBe(false);
+      expect(record.code).toBe('COMMAND_FAILED');
+      expect(record.message).toContain(configPath);
       // Original corrupted content is preserved untouched
       expect(fs.readFileSync(configPath, 'utf8')).toBe(corruptContent);
     });
@@ -176,10 +177,11 @@ describe('config command and error handling', () => {
 
       expect(process.exitCode).toBe(1);
       const output = stderr.text();
-      expect(output).toContain('"ok":false');
-      expect(output).toContain('"code":"COMMAND_FAILED"');
-      expect(output).toContain(configPath);
-      expect(output).toContain('EACCES');
+      const record = JSON.parse(output.trim());
+      expect(record.ok).toBe(false);
+      expect(record.code).toBe('COMMAND_FAILED');
+      expect(record.message).toContain(configPath);
+      expect(record.message).toContain('EACCES');
       // Original content is preserved untouched
       const current = JSON.parse(fs.readFileSync(configPath, 'utf8'));
       expect(current.bins.defaultCKBVersion).toBe('0.200.0');
