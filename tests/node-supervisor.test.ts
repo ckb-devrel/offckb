@@ -32,6 +32,10 @@ jest.mock('../src/devnet/fork', () => ({
   readForkState: () => mockForkState,
   markForkFirstRunComplete: (...args: unknown[]) => mockMarkForkFirstRunComplete(...args),
 }));
+const mockReapStaleMiners = jest.fn().mockResolvedValue([]);
+jest.mock('../src/devnet/stale-miner', () => ({
+  reapStaleMiners: (...args: unknown[]) => mockReapStaleMiners(...args),
+}));
 jest.mock('../src/util/json-rpc', () => ({ callJsonRpc: (...args: unknown[]) => mockCallJsonRpc(...args) }));
 jest.mock('../src/devnet/readiness', () => ({
   checkNodeReadiness: jest.fn(),
@@ -57,11 +61,15 @@ class FakeChild extends EventEmitter {
   stdout = new EventEmitter();
   stderr = new EventEmitter();
   killed = false;
+  exitCode: number | null = null;
+  signalCode: NodeJS.Signals | null = null;
   kill = jest.fn((_signal?: NodeJS.Signals) => {
     this.killed = true;
     return true;
   });
 }
+
+type Listener = (...args: unknown[]) => void;
 
 describe('foreground devnet supervisor', () => {
   const originalExitCode = process.exitCode;
@@ -131,5 +139,43 @@ describe('foreground devnet supervisor', () => {
       mockSpawn.mock.invocationCallOrder[1],
     );
     expect(mockProxyStart).toHaveBeenCalled();
+  });
+
+  it('reaps stale miners for the devnet dir before launching CKB', async () => {
+    await nodeDevnet({});
+    expect(mockReapStaleMiners).toHaveBeenCalledWith('/tmp/offckb-devnet');
+    expect(mockReapStaleMiners.mock.invocationCallOrder[0]).toBeLessThan(mockSpawn.mock.invocationCallOrder[0]);
+  });
+
+  it('stops CKB and the miner when the offckb process exits without a graceful shutdown', async () => {
+    const before = process.listeners('exit') as Listener[];
+    await nodeDevnet({});
+    const added = (process.listeners('exit') as Listener[]).filter((listener) => !before.includes(listener));
+    expect(added).toHaveLength(1);
+
+    added[0](0);
+
+    expect(ckb.kill).toHaveBeenCalledWith('SIGTERM');
+    expect(miner.kill).toHaveBeenCalledWith('SIGTERM');
+    // A component exit runs the normal shutdown, which drops the exit hook.
+    miner.emit('exit', 1, null);
+    expect(process.listeners('exit')).not.toContain(added[0]);
+  });
+
+  it('stops the service when CKB already exited before the supervisor was attached', async () => {
+    mockSpawn.mockReset();
+    mockSpawn.mockReturnValueOnce(ckb).mockImplementationOnce(() => {
+      process.nextTick(() => miner.emit('spawn'));
+      return miner;
+    });
+    mockProxyStart.mockImplementationOnce(() => {
+      ckb.exitCode = 3;
+    });
+
+    await nodeDevnet({});
+
+    expect(miner.kill).toHaveBeenCalledWith('SIGTERM');
+    expect(mockProxyStop).toHaveBeenCalled();
+    expect(process.exitCode).toBe(3);
   });
 });
