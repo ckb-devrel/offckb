@@ -7,7 +7,8 @@ on:
       - '**/package.json'
 
 permissions:
-  contents: write
+  contents: read
+  id-token: write # npm trusted publishing (OIDC) + provenance
 
 jobs:
   canary:
@@ -23,7 +24,8 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20.x'
+          # Trusted publishing needs Node >= 22.14 and npm >= 11.5.1; Node 24 bundles npm 11.
+          node-version: '24.x'
           registry-url: 'https://registry.npmjs.org'
 
       - name: Install dependencies
@@ -45,8 +47,15 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Canary release to npm
+      - name: Ensure npm supports trusted publishing
         run: |
-          npm publish --access public --tag canary
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_AUTH_TOKEN }}
+          node -v
+          if [ "$(node -p "require('semver').gte('$(npm -v)', '11.5.1')")" != "true" ]; then
+            npm install -g npm@^11.5.1
+          fi
+          npm -v
+
+      # Authenticates via npm trusted publishing (GitHub OIDC); no npm token is used.
+      # Provenance is generated automatically.
+      - name: Canary release to npm
+        run: npm publish --access public --tag canary
