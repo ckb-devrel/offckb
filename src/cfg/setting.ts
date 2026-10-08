@@ -104,43 +104,87 @@ export const defaultSettings: Settings = {
   },
 };
 
-export function readSettings(): Settings {
+export interface ReadSettingsOptions {
+  strict?: boolean;
+}
+
+export function readSettings(options?: ReadSettingsOptions): Settings {
   try {
-    if (fs.existsSync(configPath)) {
-      const data = fs.readFileSync(configPath, 'utf8');
-      const parsed = JSON.parse(data);
-      validateSettings(parsed);
-      // Deep-clone defaults before merging to prevent mutation of the shared default
-      const settings = deepMerge(deepClone(defaultSettings), parsed) as Settings;
-      return upgradeFrozenBundledVersions(settings);
-    } else {
-      // Callers mutate the returned settings in place; never hand out the
-      // shared module-level defaults.
-      return deepClone(defaultSettings);
+    let data: string;
+    try {
+      data = fs.readFileSync(configPath, 'utf8');
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
+        // Callers mutate the returned settings in place; never hand out the
+        // shared module-level defaults.
+        return deepClone(defaultSettings);
+      }
+      throw err;
     }
+    const parsed = JSON.parse(data);
+    validateSettings(parsed);
+    // Deep-clone defaults before merging to prevent mutation of the shared default
+    const settings = deepMerge(deepClone(defaultSettings), parsed) as Settings;
+    return upgradeFrozenBundledVersions(settings);
   } catch (error) {
+    if (options?.strict) {
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to read settings from ${configPath}: ${reason}`);
+    }
     logger.error('Error reading settings:', error);
     return deepClone(defaultSettings);
   }
 }
 
+export function readSettingsStrict(): Settings {
+  return readSettings({ strict: true });
+}
+
 export function writeSettings(settings: Settings): void {
+  const dir = path.dirname(configPath);
+  // Don't persist the bundled ckb-tui version when it merely equals the
+  // shipped default: there is no CLI command that sets it, so an entry
+  // identical to the default is an artifact of dumping the merged settings,
+  // and writing it would freeze today's default into the user's config
+  // (readSettings would keep honoring it after a future bump). A version
+  // that differs from the default is a deliberate hand-edit and is kept.
+  const toWrite = deepClone(settings);
+  if (toWrite.tools?.ckbTui?.version === defaultSettings.tools.ckbTui.version) {
+    delete (toWrite.tools as Partial<typeof toWrite.tools>).ckbTui;
+  }
+  const content = JSON.stringify(toWrite, null, 2);
+
+  const tempPath = path.join(
+    dir,
+    `.settings.json.tmp.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}`,
+  );
+
   try {
-    fs.mkdirSync(path.dirname(configPath), { recursive: true });
-    // Don't persist the bundled ckb-tui version when it merely equals the
-    // shipped default: there is no CLI command that sets it, so an entry
-    // identical to the default is an artifact of dumping the merged settings,
-    // and writing it would freeze today's default into the user's config
-    // (readSettings would keep honoring it after a future bump). A version
-    // that differs from the default is a deliberate hand-edit and is kept.
-    const toWrite = deepClone(settings);
-    if (toWrite.tools?.ckbTui?.version === defaultSettings.tools.ckbTui.version) {
-      delete (toWrite.tools as Partial<typeof toWrite.tools>).ckbTui;
+    fs.mkdirSync(dir, { recursive: true });
+
+    let existingMode: number | undefined;
+    try {
+      existingMode = fs.statSync(configPath).mode & 0o777;
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') {
+        throw err;
+      }
+      // file does not exist yet; use default file mode
     }
-    fs.writeFileSync(configPath, JSON.stringify(toWrite, null, 2));
+
+    fs.writeFileSync(tempPath, content, { encoding: 'utf8', mode: existingMode, flag: 'wx' });
+    fs.renameSync(tempPath, configPath);
     logger.info('save new settings');
   } catch (error) {
-    logger.error('Error writing settings:', error);
+    try {
+      if (fs.existsSync(tempPath)) {
+        fs.unlinkSync(tempPath);
+      }
+    } catch {
+      // ignore temp cleanup error
+    }
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to write settings to ${configPath}: ${reason}`);
   }
 }
 
@@ -232,28 +276,48 @@ function deepMerge(target: any, source: any): any {
 }
 
 function validateSettings(raw: unknown): void {
-  if (!raw || typeof raw !== 'object') {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     throw new Error('Settings must be a JSON object');
   }
 
   const obj = raw as Record<string, unknown>;
 
-  if (obj.tools && typeof obj.tools === 'object') {
+  const checkObjectSection = (name: string, allowNullable = false) => {
+    if (obj[name] !== undefined) {
+      if (obj[name] === null && allowNullable) {
+        return;
+      }
+      if (typeof obj[name] !== 'object' || obj[name] === null || Array.isArray(obj[name])) {
+        throw new Error(`${name} must be an object`);
+      }
+    }
+  };
+
+  checkObjectSection('proxy', true);
+  checkObjectSection('bins', false);
+  checkObjectSection('devnet', false);
+  checkObjectSection('testnet', false);
+  checkObjectSection('mainnet', false);
+  checkObjectSection('tools', false);
+
+  if (obj.tools && typeof obj.tools === 'object' && !Array.isArray(obj.tools)) {
     const tools = obj.tools as Record<string, unknown>;
     if (tools.rootFolder !== undefined && typeof tools.rootFolder !== 'string') {
       throw new Error('tools.rootFolder must be a string path');
     }
-    if (tools.ckbTui && typeof tools.ckbTui === 'object') {
+    if (tools.ckbDebugger !== undefined) {
+      if (typeof tools.ckbDebugger !== 'object' || tools.ckbDebugger === null || Array.isArray(tools.ckbDebugger)) {
+        throw new Error('tools.ckbDebugger must be an object');
+      }
+    }
+    if (tools.ckbTui !== undefined) {
+      if (typeof tools.ckbTui !== 'object' || tools.ckbTui === null || Array.isArray(tools.ckbTui)) {
+        throw new Error('tools.ckbTui must be an object');
+      }
       const ckbTui = tools.ckbTui as Record<string, unknown>;
       if (ckbTui.version !== undefined && typeof ckbTui.version !== 'string') {
         throw new Error('tools.ckbTui.version must be a string');
       }
-    }
-  }
-
-  if (obj.proxy !== undefined && obj.proxy !== null) {
-    if (typeof obj.proxy !== 'object') {
-      throw new Error('proxy must be an object');
     }
   }
 }
