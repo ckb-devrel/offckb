@@ -375,14 +375,26 @@ export async function getProcessCommandLine(pid: number): Promise<string | null>
   return info.cmdline;
 }
 
+// Path rules for comparing process paths. `platform` is only passed by unit
+// tests that exercise another OS's command lines; by default the host's own
+// `path` module is used (not process.platform, which tests may override).
+type PathRules = { api: path.PlatformPath; native: boolean; caseInsensitive: boolean };
+
+function pathRules(platform?: NodeJS.Platform): PathRules {
+  if (platform == null) {
+    return { api: path, native: true, caseInsensitive: path.sep === '\\' };
+  }
+  const api = platform === 'win32' ? path.win32 : path.posix;
+  return { api, native: (platform === 'win32') === (path.sep === '\\'), caseInsensitive: platform === 'win32' };
+}
+
 // Resolve symlinks on both sides before comparing (nvm shims,
 // /usr/bin/node → /etc/alternatives, symlinked install prefixes). A path
 // that cannot be resolved still compares by its absolute form. Paths of
-// another platform (unit tests) are only resolved lexically.
-function normalizePathForCompare(candidate: string, platform: NodeJS.Platform = process.platform): string {
-  const pathApi = platform === 'win32' ? path.win32 : path.posix;
-  const resolved = pathApi.resolve(candidate);
-  if (platform !== process.platform) return resolved;
+// another OS (unit tests) are only resolved lexically.
+function normalizePathForCompare(candidate: string, rules: PathRules = pathRules()): string {
+  const resolved = rules.api.resolve(candidate);
+  if (!rules.native) return resolved;
   try {
     return fs.realpathSync(resolved);
   } catch {
@@ -391,19 +403,15 @@ function normalizePathForCompare(candidate: string, platform: NodeJS.Platform = 
 }
 
 // Windows file systems are case-insensitive.
-function samePath(a: string, b: string, platform: NodeJS.Platform): boolean {
-  return platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
+function samePath(a: string, b: string, rules: PathRules): boolean {
+  return rules.caseInsensitive ? a.toLowerCase() === b.toLowerCase() : a === b;
 }
 
-function executableLooksLikeNode(executable: string, platform: NodeJS.Platform = process.platform): boolean {
-  if (
-    platform === process.platform &&
-    samePath(normalizePathForCompare(executable), normalizePathForCompare(process.execPath), platform)
-  ) {
+function executableLooksLikeNode(executable: string, rules: PathRules = pathRules()): boolean {
+  if (rules.native && samePath(normalizePathForCompare(executable), normalizePathForCompare(process.execPath), rules)) {
     return true;
   }
-  const pathApi = platform === 'win32' ? path.win32 : path.posix;
-  return NODE_EXECUTABLE_NAMES.has(pathApi.basename(executable).toLowerCase());
+  return NODE_EXECUTABLE_NAMES.has(rules.api.basename(executable).toLowerCase());
 }
 
 // A piece of a flat command line, optionally wrapped in one pair of quotes
@@ -438,13 +446,10 @@ const MAX_COMMAND_LINE_SPLIT_POINTS = 64;
  * runtime and the script resolves to exactly `expectedScript` — the same
  * strict identity as for an exact argv, without guessing token boundaries.
  */
-export function commandLineRunsScript(
-  cmdline: string,
-  expectedScript: string,
-  platform: NodeJS.Platform = process.platform,
-): boolean {
+export function commandLineRunsScript(cmdline: string, expectedScript: string, platform?: NodeJS.Platform): boolean {
+  const rules = pathRules(platform);
   const text = cmdline.trim();
-  const expected = normalizePathForCompare(expectedScript, platform);
+  const expected = normalizePathForCompare(expectedScript, rules);
   const spaces: number[] = [];
   for (let i = 0; i < text.length && spaces.length < MAX_COMMAND_LINE_SPLIT_POINTS; i++) {
     if (text[i] === ' ') spaces.push(i);
@@ -452,11 +457,11 @@ export function commandLineRunsScript(
   const scriptEnds = [...spaces, text.length];
   for (const executableEnd of spaces) {
     const executable = unquoteCommandLinePiece(text.slice(0, executableEnd));
-    if (executable == null || !executableLooksLikeNode(executable, platform)) continue;
+    if (executable == null || !executableLooksLikeNode(executable, rules)) continue;
     for (const scriptEnd of scriptEnds) {
       if (scriptEnd <= executableEnd + 1) continue;
       const script = unquoteCommandLinePiece(text.slice(executableEnd + 1, scriptEnd));
-      if (script != null && samePath(normalizePathForCompare(script, platform), expected, platform)) return true;
+      if (script != null && samePath(normalizePathForCompare(script, rules), expected, rules)) return true;
     }
   }
   return false;
@@ -496,7 +501,7 @@ export async function verifyDaemonIdentity(pid: number, metadata: PidMetadata): 
     // Exact argv (Linux /proc): compare the first two arguments directly.
     if (info.argv.length < 2) return false;
     if (!executableLooksLikeNode(info.argv[0])) return false;
-    if (!samePath(normalizePathForCompare(info.argv[1]), normalizePathForCompare(cliEntry), process.platform)) {
+    if (!samePath(normalizePathForCompare(info.argv[1]), normalizePathForCompare(cliEntry), pathRules())) {
       return false;
     }
   } else if (info.cmdline == null || !commandLineRunsScript(info.cmdline, cliEntry)) {
