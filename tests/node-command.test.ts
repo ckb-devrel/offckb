@@ -14,6 +14,14 @@ const mockStatSync = jest.fn();
 const mockCloseSync = jest.fn();
 const mockWaitForNodeReady = jest.fn();
 
+// The stale-miner reaper lists real OS processes (PowerShell CIM on Windows,
+// which alone can take seconds); it has its own tests, so keep it out of
+// these command-flow unit tests.
+jest.mock('../src/devnet/stale-miner', () => ({
+  ...jest.requireActual('../src/devnet/stale-miner'),
+  reapStaleMiners: jest.fn().mockResolvedValue([]),
+}));
+
 jest.mock('child_process', () => ({
   ...jest.requireActual('child_process'),
   spawn: (...args: unknown[]) => mockSpawn(...args),
