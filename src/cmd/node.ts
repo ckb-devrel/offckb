@@ -16,7 +16,7 @@ import { Network } from '../type/base';
 import { logger } from '../util/logger';
 import { checkNodeReadiness, waitForNodeReady } from '../devnet/readiness';
 import { devnetTcpListenAddress, subscribeToNodeLogs, SubscriptionHandle } from '../devnet/log-subscription';
-import { SCRIPT_LOG_TARGET } from '../devnet/log-file';
+import { isScriptDebugRecord } from '../devnet/log-file';
 import {
   cleanupPidFile,
   closeFileDescriptors,
@@ -290,7 +290,7 @@ async function runNodeDevnet(
     logSubscription = subscribeToNodeLogs(
       tcpAddress,
       (entry) => {
-        if (entry.target === SCRIPT_LOG_TARGET) logger.info(['CKB-Script:', cleanChildOutput(entry.message)]);
+        if (isScriptDebugRecord(entry)) logger.info(['CKB-Script:', cleanChildOutput(entry.message)]);
       },
       (error) => logger.warn(`${error.message} Full logs remain available via: offckb logs -f`),
     );
