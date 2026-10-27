@@ -24,6 +24,9 @@ importers:
 
   .:
     dependencies:
+      '@biscuit-auth/biscuit-wasm':
+        specifier: 0.5.0
+        version: 0.5.0
       '@ckb-ccc/core':
         specifier: 1.14.0
         version: 1.14.0(typescript@5.8.2)(zod@3.25.76)
@@ -139,6 +142,9 @@ importers:
         version: 0.0.10
 
 packages:
+
+  '@biscuit-auth/biscuit-wasm@0.5.0':
+    resolution: {integrity: sha512-tMkjrfAHxlXVfqQ8se+pZdU6c6Suvt8HWgjRfxytoS3yzuCqPuUq0GvNP4ORfjJIslKb60WkzLoxlNZULrbqXA==}
 
   '@adraffy/ens-normalize@1.11.1':
     resolution: {integrity: sha512-nhCBV3quEgesuf7c7KYfperqSS14T8bYuvJ8PcLJp6znkZpFc0AuW4qBtr8eKVyPPe/8RSr7sglCWPU5eaxwKQ==}
@@ -3199,6 +3205,8 @@ packages:
     resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
 
 snapshots:
+
+  '@biscuit-auth/biscuit-wasm@0.5.0': {}
 
   '@adraffy/ens-normalize@1.11.1': {}
 

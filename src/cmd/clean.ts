@@ -44,6 +44,9 @@ export function clean(options?: CleanOptions) {
     assertFiberFullyStopped(settings);
 
     if (dataOnly) {
+      logger.warn(
+        'Resetting devnet: chain history and Fiber channel/payment stores will be deleted. Configs, accounts, identity keys, Biscuit keys and tokens are kept. This is not a restart.',
+      );
       // Only clean the chain data subdirectory
       const chainDataPath = settings.devnet.dataPath;
       if (isFolderExists(chainDataPath)) {
@@ -66,6 +69,9 @@ export function clean(options?: CleanOptions) {
         logger.info(`Fiber store cleaned: ${storeDir}`);
       }
     } else {
+      logger.warn(
+        'Resetting the whole devnet: chain history and the entire Fiber environment (including configs and keys) will be deleted. This is not a restart.',
+      );
       // Clean everything - the original behavior
       // this is the root folder of devnet, it contains config, data, debugFullTransactions, transactions, failed-transactions, contracts
       // and the whole fiber environment (configs, keys, stores, logs)

@@ -1,6 +1,16 @@
 import http from 'http';
 import https from 'https';
 
+export class JsonRpcError extends Error {
+  constructor(
+    message: string,
+    public readonly status?: number,
+    public readonly rpcCode?: number,
+  ) {
+    super(message);
+  }
+}
+
 // Minimal raw JSON-RPC caller. Unlike Request.send it never goes through the
 // configured proxy, which makes it safe for talking to the local devnet node.
 export async function callJsonRpc(
@@ -8,6 +18,7 @@ export async function callJsonRpc(
   method: string,
   params: unknown[],
   timeoutMs = 30000,
+  headers: Record<string, string> = {},
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): Promise<any> {
   const body = JSON.stringify({ id: 1, jsonrpc: '2.0', method, params });
@@ -24,6 +35,7 @@ export async function callJsonRpc(
         headers: {
           'content-type': 'application/json',
           'content-length': Buffer.byteLength(body),
+          ...headers,
         },
         timeout: timeoutMs,
       },
@@ -41,10 +53,20 @@ export async function callJsonRpc(
           }
         });
         res.on('end', () => {
+          if (res.statusCode === 401 || res.statusCode === 403) {
+            reject(new JsonRpcError(`JSON-RPC ${method}: authentication failed or permission denied`, res.statusCode));
+            return;
+          }
           try {
             const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
             if (parsed.error) {
-              reject(new Error(`JSON-RPC ${method} failed: ${JSON.stringify(parsed.error)}`));
+              reject(
+                new JsonRpcError(
+                  `JSON-RPC ${method} failed: ${JSON.stringify(parsed.error)}`,
+                  res.statusCode,
+                  parsed.error.code,
+                ),
+              );
               return;
             }
             resolve(parsed.result);

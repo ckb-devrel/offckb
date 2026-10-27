@@ -75,7 +75,7 @@ export async function fiberClean(options: FiberCleanOptions, settings: Settings 
         .filter((storeDir) => isFolderExists(storeDir));
       logger.warn(
         'This permanently deletes every FNN store (channels, payments and other node data). ' +
-          'Deleted data cannot be recovered. Node accounts, identity keys, passwords and logs are kept.',
+          'Deleted data cannot be recovered. Node accounts, identity keys, passwords, Biscuit keys, RPC tokens, configs and logs are kept. This is a data reset, not a restart.',
       );
       for (const store of stores) {
         logger.info(`  will delete: ${store}`);

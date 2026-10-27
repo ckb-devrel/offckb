@@ -54,7 +54,9 @@ export async function devnetConfig(options: DevnetConfigOptions = {}) {
       logger.info(
         `Applied ${parsedItems.length} setting(s): ${parsedItems.map((item) => `${item.key}=${item.value}`).join(', ')}`,
       );
-      logger.info('Restart devnet to apply changes: offckb clean -d && offckb node');
+      logger.info(
+        'Stop devnet (Ctrl+C or offckb node stop), then run offckb node to apply runtime config changes. Only reset with offckb clean -d for genesis/spec changes; reset deletes chain and Fiber channel/payment data.',
+      );
       return;
     }
 
@@ -69,7 +71,9 @@ export async function devnetConfig(options: DevnetConfigOptions = {}) {
 
     if (isSaved) {
       logger.success(`Devnet config updated at: ${configPath}`);
-      logger.info('Restart devnet to apply changes: offckb clean -d && offckb node');
+      logger.info(
+        'Stop devnet (Ctrl+C or offckb node stop), then run offckb node to apply runtime config changes. Only reset with offckb clean -d for genesis/spec changes; reset deletes chain and Fiber channel/payment data.',
+      );
       return;
     }
 

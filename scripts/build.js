@@ -14,6 +14,9 @@ try {
   // Step 2: Bundle with NCC
   console.log('🔗 Bundling with NCC...');
   execSync('ncc build dist/cli.js -o build --external cpu-features', { stdio: 'inherit' });
+  fs.cpSync('node_modules/@biscuit-auth/biscuit-wasm/module', 'build/biscuit', { recursive: true });
+  fs.writeFileSync('build/biscuit/package.json', JSON.stringify({ type: 'module' }));
+  fs.copyFileSync('node_modules/@biscuit-auth/biscuit-wasm/LICENSE', 'build/biscuit/LICENSE');
   console.log('✅ NCC bundling complete\n');
 
   // Step 3: Verify build output
