@@ -12,6 +12,12 @@ export interface ParsedSetItem {
   value: string;
 }
 
+const RESTART_GUIDANCE =
+  'Stop devnet (Ctrl+C or offckb node stop), then rerun offckb node with the same options (including --fiber if used) to apply runtime config changes. ' +
+  'Only reset with offckb clean -d for genesis/spec changes; reset deletes chain and Fiber channel/payment data. ' +
+  'If system-cell hashes changed, reconcile the retained Fiber contract references before starting Fiber; see docs/fiber-devnet.md. ' +
+  'fiber clean --data keeps configs; fiber clean deletes the Fiber environment, including configs and credentials.';
+
 export function parseSetItem(item: string): ParsedSetItem {
   const separator = item.indexOf('=');
   if (separator <= 0 || separator === item.length - 1) {
@@ -54,9 +60,7 @@ export async function devnetConfig(options: DevnetConfigOptions = {}) {
       logger.info(
         `Applied ${parsedItems.length} setting(s): ${parsedItems.map((item) => `${item.key}=${item.value}`).join(', ')}`,
       );
-      logger.info(
-        'Stop devnet (Ctrl+C or offckb node stop), then run offckb node to apply runtime config changes. Only reset with offckb clean -d for genesis/spec changes; reset deletes chain and Fiber channel/payment data.',
-      );
+      logger.info(RESTART_GUIDANCE);
       return;
     }
 
@@ -71,9 +75,7 @@ export async function devnetConfig(options: DevnetConfigOptions = {}) {
 
     if (isSaved) {
       logger.success(`Devnet config updated at: ${configPath}`);
-      logger.info(
-        'Stop devnet (Ctrl+C or offckb node stop), then run offckb node to apply runtime config changes. Only reset with offckb clean -d for genesis/spec changes; reset deletes chain and Fiber channel/payment data.',
-      );
+      logger.info(RESTART_GUIDANCE);
       return;
     }
 

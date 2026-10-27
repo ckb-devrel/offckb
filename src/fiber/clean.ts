@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as path from 'path';
 import { confirm } from '@inquirer/prompts';
 import { acquireEnvLock } from './env-lock';
 import { envLockPath, fiberDaemonPaths, fiberNodeIds, fiberNodePaths, fiberRootPath } from './paths';
@@ -8,6 +9,7 @@ import { isStoreLockHeld } from './store-lock';
 import { readSettings, Settings } from '../cfg/setting';
 import { isFolderExists } from '../util/fs';
 import { logger } from '../util/logger';
+import { readFiberManifest, resolveNodeFile } from './nodes-yml';
 
 export interface FiberCleanOptions {
   data?: boolean;
@@ -49,6 +51,40 @@ export function assertFiberFullyStopped(settings: Settings = readSettings()) {
   }
 }
 
+function realPathOrResolved(file: string): string {
+  try {
+    return fs.realpathSync(file);
+  } catch {
+    return path.resolve(file);
+  }
+}
+
+function containsPath(directory: string, file: string): boolean {
+  const relative = path.relative(directory, file);
+  return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+}
+
+/** Check every node against every deletion target before a data-only reset deletes anything. */
+export function assertFiberFilesRetained(targets: string[], settings: Settings = readSettings()) {
+  const manifest = readFiberManifest(settings);
+  for (const node of manifest?.nodes ?? []) {
+    for (const field of ['config_file', 'rpc_token_file'] as const) {
+      const file = resolveNodeFile(node[field], settings);
+      for (const target of targets) {
+        if (
+          containsPath(path.resolve(target), file) ||
+          containsPath(realPathOrResolved(target), realPathOrResolved(file))
+        ) {
+          throw new Error(
+            `Cannot reset data: Fiber node ${node.id} ${field} (${file}) is inside deletion target ${target}. ` +
+              'Move the file outside the data directories and update nodes.yml before retrying. No data was deleted.',
+          );
+        }
+      }
+    }
+  }
+}
+
 async function confirmOrAbort(message: string, yes?: boolean) {
   if (yes) return;
   const answer = await confirm({ message, default: false });
@@ -73,6 +109,7 @@ export async function fiberClean(options: FiberCleanOptions, settings: Settings 
       const stores = fiberNodeIds(settings)
         .map((id) => fiberNodePaths(id, settings).fiberStoreDir)
         .filter((storeDir) => isFolderExists(storeDir));
+      assertFiberFilesRetained(stores, settings);
       logger.warn(
         'This permanently deletes every FNN store (channels, payments and other node data). ' +
           'Deleted data cannot be recovered. Node accounts, identity keys, passwords, Biscuit keys, RPC tokens, configs and logs are kept. This is a data reset, not a restart.',
@@ -85,6 +122,7 @@ export async function fiberClean(options: FiberCleanOptions, settings: Settings 
       // The confirmation prompt can sit open for an arbitrary time; re-verify
       // nothing started in that window before deleting anything.
       assertFiberFullyStopped(settings);
+      assertFiberFilesRetained(stores, settings);
       removeRuntimeFileIfStale(settings);
       for (const store of stores) {
         fs.rmSync(store, { recursive: true, force: true });
@@ -96,9 +134,9 @@ export async function fiberClean(options: FiberCleanOptions, settings: Settings 
     }
 
     logger.warn(
-      'This deletes the whole fiber environment, including node configs, the CKB account keys, ' +
+      'This deletes the Fiber environment under its directory, including node configs, the CKB account keys, ' +
         'the Fiber network identity keys and passwords of every node. Restarting creates NEW node identities. ' +
-        'The downloaded FNN binary and the devnet CKB data are kept.',
+        'Files referenced outside this directory, the downloaded FNN binary and the devnet CKB data are kept.',
     );
     logger.info(`  will delete: ${root}`);
     await confirmOrAbort('Delete the whole fiber environment?', options.yes);

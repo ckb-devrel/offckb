@@ -395,10 +395,12 @@ If your terminal is non-interactive (no TTY, e.g. CI/remote pipeline), use `--se
 
 ```sh
 offckb node stop
-offckb node
+offckb node # reuse the original options, e.g. --fiber --daemon
 ```
 
-Ordinary runtime config changes do not require deleting data. Changes to the genesis/spec may require an explicit reset with `offckb clean -d`: this deletes chain history and Fiber channel/payment stores, while preserving configs and keys. `offckb clean` removes the whole environment, including Fiber keys.
+Restart with the same options used originally, including `--fiber` when applicable, so Fiber starts with CKB again. If Fiber was started separately with `fiber start`, stop it before CKB and restart it separately afterward.
+
+Ordinary runtime config changes do not require deleting data. Changes to the genesis/spec may require an explicit reset with `offckb clean -d`: this deletes chain history and Fiber channel/payment stores, while preserving configs and keys. If system-cell hashes changed, update the retained Fiber contract references before starting Fiber; see [recovery after genesis or contract changes](docs/fiber-devnet.md#修改创世或系统合约后的恢复). `offckb clean` removes the environment under the devnet directory, including Fiber keys; externally referenced files remain.
 
 1. (Advanced) Locate your Devnet config folder for manual edits:
 
@@ -421,7 +423,7 @@ Example result:
 Pay attention to the `devnet.configPath` and `devnet.dataPath`.
 
 1. `cd` into the `devnet.configPath` . Modify the config files as needed. See [Custom Devnet Setup](https://docs.nervos.org/docs/node/run-devnet-node#custom-devnet-setup) and [Configure CKB](https://github.com/nervosnetwork/ckb/blob/develop/docs/configure.md) for details.
-2. Stop and restart the local blockchain with `offckb node` to apply runtime changes.
+2. Stop and restart the local blockchain with `offckb node` and the original options (including `--fiber` if used) to apply runtime changes.
 3. Only when rebuilding the genesis/spec, explicitly reset with `offckb clean -d`; it deletes chain history and Fiber channel/payment stores while keeping the updated configs and keys.
 
 ### 7. Fork Mainnet/Testnet Into Your Devnet {#fork-devnet}
@@ -489,7 +491,7 @@ offckb fiber clean                # delete the whole fiber environment
 - One fiber environment per machine: the RPC/P2P ports are fixed per node id, so a second concurrent fiber environment fails its port check. Note the CKB side of the check is the chain's genesis hash, and every plain offckb devnet shares the same genesis — if you run several offckb environments on one machine (e.g. separate `XDG_DATA_HOME`), make sure `fiber start` attaches to the CKB you actually started for it; when in doubt, check `offckb fiber status` against the environment you mean to use.
 - Initialization also prepares independent Biscuit keys (`nodes/<id>/biscuit/private.key`, `public.key`) and a management `rpc-token` for each node. Authentication is off by default; to enable it, put the generated public key in `rpc.biscuit_public_key`. OffCKB automatically sends the node's token on internal RPC calls and reports authentication errors separately from stopped nodes. If you or an external tool replace the RPC public key, also supply a matching management token with node/peer permissions. These credentials do not grant channel/payment access.
 - `fiber status` includes `CUSTOM_CONFIG` (`yes`, `no`, `unknown`) compared with the node's initialization baseline `config.default.yml`. Running nodes use their startup snapshot until restarted; stopped/new nodes report pending config. Missing baselines do not overwrite user files. Runtime records contain public account information and credential paths, never private keys or token contents.
-- Stop/restart preserves chain and Fiber data. `fiber clean --data` resets only FNN stores and keeps configs, accounts, passwords, Biscuit keys and tokens. `fiber clean` deletes the complete Fiber environment. `clean --data` resets the chain and dependent FNN stores; `clean` deletes the entire devnet. None of the clean commands is a normal restart.
+- Stop/restart preserves chain and Fiber data. `fiber clean --data` resets only FNN stores and keeps configs, accounts, passwords, Biscuit keys and tokens. Both data-only clean commands refuse before deleting anything if a registered config/token file is inside a deletion target; relocate the file and update `nodes.yml` first. `fiber clean` deletes the Fiber directory; `clean --data` resets the chain and dependent FNN stores; `clean` deletes the devnet directory. Referenced files outside the directory being removed remain. None of the clean commands is a normal restart.
 
 To customize a node before its first launch, after CKB is running:
 

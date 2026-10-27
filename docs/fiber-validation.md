@@ -13,11 +13,13 @@
 - `pnpm install --frozen-lockfile`：通过；仅新增官方 Biscuit WASM 依赖，保留原有其他依赖锁定记录。
 - `pnpm typecheck`、`pnpm build`：通过。
 - `pnpm lint`：通过，保留 `src/node/install.ts` 的一个既有 `any` 警告。
-- Rebase 到 `develop`（`b444332`）后重新运行 `pnpm test:ci --runInBand --silent`：57 个测试套件通过，547 项通过，7 项按平台/原有条件跳过；覆盖率阈值通过。类型检查、lint、构建和锁定依赖安装也重新通过。
+- Rebase 到 `develop`（`b444332`）并修复清理边界的 review 意见后，重新运行 `pnpm test:ci --runInBand --silent`：57 个测试套件通过，559 项通过，7 项按平台/原有条件跳过；覆盖率阈值通过。类型检查、lint 和构建也重新通过。
 - `git diff --check`：通过。
 - 发行构建额外验证：运行 `build/index.js` 的隔离入口执行已存在环境的 `fiber init`，加载随包发布的 Biscuit WASM/ESM 文件成功；无需启用 Node 的实验性 WASM 模块参数。
 
 自动化重点包括：首次默认准备、显式准备、追加与编号上限、账户导入和随机账户、配置不覆盖、准备中断后复用密钥、FNN 加密密钥比对、启动前检查所有节点、Biscuit 签名和权限、凭证文件替换、HTTP 认证失败、运行信息快照、默认配置损坏及数据重置边界。Rebase 时新增检查：CKB 管理进程将信号交给 Fiber 后，初始化等待 FNN 程序下载期间收到 SIGTERM 也会退出，不吞掉信号。
+
+Review 修复新增 12 项回归，覆盖两个数据清理入口、自定义配置/token 指向其他节点 store 或 CKB data、目录链接、相似目录名前缀、确认期间编辑登记，以及完整清理后保留外部文件。隔离复现另外使用合法初始化后的配置和真实 Biscuit 凭证：三种原先会误删文件的情况现在均在删除前拒绝，文件保持可用；移出文件并更新登记后，可以正常重置并通过再次启动准备。
 
 ## 实际 CKB/FNN 流程
 
@@ -31,8 +33,9 @@
 - 停止并再次启动四节点环境：逐文件 SHA-256 核对配置、FNN 加密后的 CKB 密钥、密码、Fiber 身份、Biscuit 密钥及 token，均未改变。
 - 全新环境直接 `node --fiber --daemon --fnn-binary-path …`：无需先执行 `fiber init`，自动准备并启动默认两个节点。`node stop` 停止整套环境。
 - Rebase 后使用真实 CKB/FNN 重跑已有双节点环境的 `node --fiber --daemon`、`fiber status` 和 `node stop`，认证节点与默认节点均正常，停止后无测试 CKB、矿工或 FNN 进程残留。新基线已包含含空格 CLI 路径的进程识别修复（#533）；本次移除初次验证使用的进程标题引号包装，在含空格的任务路径下直接通过后台停止检查。
+- Review 修复后，在全新的隔离双节点环境中修改创世 message，执行 `clean --data` 并单独启动 CKB。旧配置按预期因 `fiber.scripts` 过期而拒绝启动；根据新链系统脚本信息仅更新合约引用后，两个真实 FNN 恢复运行，包括开启认证的节点。逐文件 SHA-256 核对 CKB 密钥、密码、Fiber 身份、Biscuit 密钥及 token 均未改变；除合约引用外的配置值也未改变。最后分别停止 Fiber 与 CKB。
 
 ## 未验证项与既有问题
 
 - 普通 FNN 的节点管理、自定义配置保留与 RPC 认证已验证。LSP 及其他扩展工具的端到端行为未验证，也不属于本次基础节点管理的交付前提；OffCKB 没有 LSP 或 `lsp-cli` 运行依赖，不能仅凭配置保留宣称特定扩展兼容。
-- 没有在 Windows/Linux 或 Node 20 上运行真实程序；自动化测试为本机结果，其他平台交由 PR CI。
+- 专门的 CKB/FNN 实程序联调仅在 macOS / Node 24 上运行。此前提交 `13ef0d9` 的仓库 CI 已在 Linux、Windows、macOS / Node 20 上通过自动化测试、构建及通用 CLI 集成检查；本轮修复的跨平台结果以 PR CI 为准。

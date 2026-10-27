@@ -85,9 +85,24 @@ nodes:
 | `clean --data`             | 重置 CKB 链及依赖它的 Fiber 运行数据；保留配置和密钥                  |
 | `clean`                    | 删除整套 devnet，含 Fiber 配置、密钥和数据                            |
 
+数据重置在删除前检查所有节点的 `config_file`、`rpc_token_file`，不允许它们位于任意待删除目录内，包括其他节点的 store；`clean --data` 还检查 CKB data 目录。发现冲突时指出节点、字段和目录，拒绝整个操作，不删除任何数据。用户需先移出文件并更新 `nodes.yml`，OffCKB 不自动移动或重新生成。全量清理只删除相应的 Fiber 或 devnet 目录，引用在目录外的文件仍保留。
+
 后台节点用 `node stop` / `fiber stop` 停止；前台用 Ctrl+C。`node --fiber --daemon` 由同一个管理进程启动，停止该管理进程会停止整套环境。清理前沿用进程身份和数据库锁检查。
 
+重启使用原来的启动选项，包括适用的 `--fiber`、`--daemon`。仅运行 `offckb node` 不会恢复由 `node --fiber` 启动的 Fiber。若原来由 `fiber start` 单独管理 Fiber，则先停止 Fiber 再停止 CKB，重启 CKB 后再执行 `fiber start`。
+
 CKB 配置编辑器不再把 `clean -d` 当作普通重启步骤。普通运行配置修改后停止并重新启动；修改创世链规格才需要明确的重置，并告知会丢失链和 Fiber 数据。Fiber 数据重置清理 OffCKB 管理的 `fiber/store`；扩展功能自行配置的其他存储不在该操作的清理范围内，不把密钥目录当作数据库删除。
+
+### 修改创世或系统合约后的恢复
+
+修改 `specs/dev.toml` 或其中的系统合约可能改变系统 Cell 的交易哈希、索引或脚本哈希。数据重置仍保留完整配置，所以其中的旧 `fiber.scripts` 可能被启动校验拒绝。这时应更新合约引用，保留其余自定义配置和密钥：
+
+1. 备份 `nodes.yml`、各节点完整配置和密钥，停止 CKB 和全部 FNN，明确接受链历史与通道、支付数据丢失后执行 `offckb clean --data`。
+2. 用原有 CKB 选项启动 `offckb node`，暂不加 `--fiber`。执行 `offckb system-scripts`，取得新链的 `funding_lock`、`commitment_lock`、`auth` 及使用中的 UDT 合约信息。
+3. 按 FNN 配置格式，手动更新每个已登记配置中 `fiber.scripts` 的 `FundingLock`、`CommitmentLock`：对应合约的 `code_hash`、`hash_type` 和 `cell_deps`，两者均包含 `auth` 的 code cell dep。交易哈希和索引使用新输出，FNN 的 `out_point.index` 使用带 `0x` 前缀的十六进制字符串。若 UDT 合约引用也变化，同步更新 `ckb.udt_whitelist` 中受影响条目的脚本哈希和依赖；保留账户、认证设置和其他自定义字段。
+4. 执行 `offckb fiber start`（按需加 `--daemon`），重新检查所有节点后启动。之后可继续用原来的组合命令重启。
+
+`fiber init` 不会改写已有配置，`fiber clean --data` 也保留配置，不能用来修复过期引用。`fiber clean` 会删除整个 Fiber 目录及其中的配置、身份和凭证，不适用于上述保留配置与密钥的恢复方式。链重置后旧通道和支付数据不会恢复。
 
 ## 验证与交付
 
