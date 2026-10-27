@@ -146,9 +146,10 @@ it('skips reserved directories when appending and rejects id overflow without mu
 it('resumes a failed provision with exactly the saved random key', async () => {
   const settings = fixture();
   await initializeFiberEnvironment({}, chain, settings);
+  const tokenFile = resolveNodeFile(newNodeEntry(3).rpc_token_file, settings);
   const rename = fs.renameSync;
   const spy = jest.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
-    if (String(to).endsWith('nodes/3/rpc-token')) throw new Error('simulated disk full');
+    if (String(to) === tokenFile) throw new Error('simulated disk full');
     return rename(from, to);
   });
   await expect(initializeFiberEnvironment({ add: true, randomAccount: true }, chain, settings)).rejects.toThrow(
@@ -201,6 +202,8 @@ it('validates every node before spawning any process', async () => {
   await expect(startFiberEnvironment({ chainScripts: chain, settings })).rejects.toThrow('password');
   fs.writeFileSync(passwordFile, password);
   fs.mkdirSync(fiberNodePaths(2, settings).fiberStoreDir, { recursive: true });
-  await expect(startFiberEnvironment({ chainScripts: chain, settings })).rejects.toThrow('fiber/sk');
+  await expect(startFiberEnvironment({ chainScripts: chain, settings })).rejects.toThrow(
+    fiberNodePaths(2, settings).fiberSkFile,
+  );
   expect(spawn).not.toHaveBeenCalled();
 });
