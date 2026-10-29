@@ -19,7 +19,7 @@ The probe demonstrates exact argument forwarding and one JSON result. An uniniti
 
 `link` stores a canonical package path. It does not copy or install dependencies. The package author/user prepares its runtime first. `unlink` removes the registration and keeps the package, data and cache. A foreground lease prevents concurrent runs of the same plugin and unlink/relink while it is running.
 
-Registrations default to `<offckb data directory>/plugins`. `OFFCKB_PLUGIN_HOME` selects an isolated registry/data/cache directory, useful for development. It does not change core settings or select another devnet. A broken registry does not block core commands or core help; `plugin list` reports the registry error without overwriting it. Invalid and incompatible packages remain removable. Future core command collisions are reported as `shadowed`, with the core command taking priority.
+Registrations default to `<offckb data directory>/plugins`. `OFFCKB_PLUGIN_HOME` selects an isolated registry/data/cache directory, useful for development. It does not change core settings or select another devnet. Discovery probes `registry.json` even for core commands; an absent registry is not created. A broken registry does not block core commands or core help; `plugin list` reports the registry error without overwriting it. Invalid and incompatible packages remain removable. Future core command collisions are reported as `shadowed`, with the core command taking priority.
 
 ## Package declaration
 
@@ -49,12 +49,13 @@ On execution, `OFFCKB_PLUGIN_CONTEXT` points to a temporary JSON file:
 - `cli.node` and `cli.entry`: the current Node/CLI paths, not a PATH lookup.
 - `plugin.command`, `plugin.dataPath`, `plugin.cachePath`: persistent, plugin-specific storage.
 - `devnet.rpcUrl`, `proxyUrl`, `kind`, `genesisHash`, `addressPrefix`, `systemScriptsFile`, `systemScriptsVersion: 1`.
+- Optional `devnet.diagnostic: { code: "LIST_HASHES_FAILED", message: string }` when local metadata export fails. Consumers must tolerate additive fields in API version 1.
 
 The scripts file contains a `devnet` record using the existing `system-scripts` entry shape. It and the context are removed after the child closes, including failures and handled signals. Data/cache remain. No account keys or complete settings object are copied. RPC URLs can contain credentials; plugins must avoid dumping the context or raw URLs to logs.
 
-Chain metadata comes from the configured managed CKB binary's local `list-hashes` output, with a three-second limit and no shell interpolation. A missing config/binary yields `kind: "unknown"`, null chain identity and no scripts file. A custom fork marker without a recognized public genesis also yields `unknown`. Plugins needing a known chain must reject these cases, and must verify the RPC genesis against the context before interpreting addresses/scripts. A custom `node --binary-path` with no matching managed binary is not yet supported by the context exporter.
+Chain metadata comes from the configured managed CKB binary's local `list-hashes` output, with a three-second limit and no shell interpolation. A missing config/binary yields `kind: "unknown"`, null chain identity and no scripts file. Timeout, nonzero exit or invalid output yields the same unknown identity plus the diagnostic above; raw subprocess errors/stderr are excluded. Chain-independent plugins can continue. Invalid core settings or inability to write the context still fails the invocation. A custom fork marker without a recognized public genesis also yields `unknown`. Plugins needing a known chain must reject these cases, and must verify the RPC genesis against the context before interpreting addresses/scripts. A custom `node --binary-path` with no matching managed binary is not yet supported by the context exporter.
 
-Standalone `offckb my-tool --help` / `-h` is delegated without exporting context or reading core settings. Tools should handle that request before reading `OFFCKB_PLUGIN_CONTEXT`.
+Standalone `offckb my-tool --help` / `-h` is delegated without exporting context or reading core settings. Tools should handle that request before reading `OFFCKB_PLUGIN_CONTEXT`. With additional arguments, normal context preparation still runs; the host does not guess whether a help-looking token is an option value or literal plugin argument.
 
 Core `--json` must precede the plugin command:
 
@@ -71,6 +72,8 @@ After delegation, the child owns stdout, including its single JSON success resul
 ## Explorer experiment
 
 The example adapter uses `wildanrhmn/ckb-devnet-explorer` at commit `477af4400a716353d140fc1a5b8fee8175f74fed` (0.2.0), verified unchanged on 2026-10-29. It is **an unpublished, repository-only experiment**, using pinned private source imports. Formal upstream entry points and a release maintainer are still needed before distribution.
+
+The [formal-distribution gate](plugin-system-proposal.md#explorer-正式分发门禁) requires either released upstream APIs covered by semver or exclusive use of its public CLI with a pinned version and contract tests. A formal plugin PR retaining source replacements, private imports, tsx export-map inspection or the **PROTOTYPE-ONLY** `OFFCKB_EXPLORER_SOURCE` override must not merge. A successful local experiment does not clear this gate.
 
 Prepare a source checkout at that revision:
 
@@ -102,10 +105,10 @@ pnpm build
 node scripts/plugin-smoke.mjs /path/to/ckb
 ```
 
-The opt-in smoke test uses the production ncc bundle, random local ports, temporary settings and a copied devnet. It checks exact argv, single JSON result, offline help, the real Explorer page/API, current RPC/project context, refusal to unlink a running plugin, signal cleanup, CKB remaining alive, chain reset/restart and rejection of an unknown fork marker. It redirects `os.homedir()` only inside its test workers before loading the bundle; it does not change HOME or user settings. Downloaded binaries, source and runtime dependencies are not shipped.
+The opt-in smoke test uses the production ncc bundle, random local ports, temporary settings and a copied devnet. It checks exact argv, single JSON result, offline help, continued probe execution after a real `list-hashes` failure, the real Explorer page/API, current RPC/project context, refusal to unlink a running plugin, signal cleanup, CKB remaining alive, chain reset/restart and rejection of an unknown fork marker. It redirects `os.homedir()` only inside its test workers before loading the bundle; it does not change HOME or user settings. Downloaded binaries, source and runtime dependencies are not shipped.
 
 The second-tool paper review uses existing `src/cmd/status.ts`: ckb-tui would consume `proxyUrl`, retain TTY checks and forward native `-r`/optional `-t` arguments from a Node adapter. The current context lacks the optional TCP log address, so the minimal adapter could use RPC-only mode; adding that address or requiring full log panels needs a later explicit protocol decision. Native TTY/job-control behavior still requires testing. Existing `status` stays in core.
 
-POSIX plugin processes use an invocation-owned group. SIGINT/SIGTERM/SIGHUP are forwarded; a three-second shutdown limit and final group cleanup prevent owned descendants from remaining after the tool exits. The host never signals a saved PID. Windows uses `taskkill /T /F`, so graceful cleanup differs and needs native Windows verification. Plugins must not detach their own unmanaged daemons.
+POSIX plugin processes use an invocation-owned group. SIGINT/SIGTERM/SIGHUP are forwarded; a three-second shutdown limit and final group cleanup prevent owned descendants from remaining after the tool exits. The host never signals a saved PID. Windows immediately uses `taskkill /T /F` without a graceful period. The signal test skips Windows; passing its ordinary spawn tests does not verify this branch. Native Windows interrupt, process-tree cleanup and exit-status validation remain open for Phase 1. Plugins must not detach their own unmanaged daemons.
 
 SIGKILL, host crashes or power loss can leave `registry.lock`, `<command>.running`, or temporary context directories. This stage fails closed on those locks: verify the owner/tool has stopped before removing the named stale file, then retry. Automatic crash recovery, full runtime identity management, concurrent instances and background services are deferred. Registry locks are short-lived and registration writes use atomic rename; tool source itself remains mutable because this is explicit local linking.

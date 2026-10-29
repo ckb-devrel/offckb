@@ -174,4 +174,34 @@ describe('CLI error output', () => {
     expect(mockRunPlugin).toHaveBeenCalledWith('probe', ['--json'], false);
     expect(jsonMode.value).toBe(false);
   });
+
+  it('refreshes plugin commands across runCli calls without duplicate help entries or stale arguments', async () => {
+    mockListPlugins.mockReturnValue([
+      { command: 'probe', state: 'available', directory: '/unused' },
+      { command: 'other-tool', state: 'available', directory: '/unused' },
+    ]);
+    const { runCli } = loadCli();
+    await runCli(['node', 'offckb', 'probe', 'first']);
+    await runCli(['node', 'offckb', 'probe', 'second']);
+    expect(mockRunPlugin.mock.calls).toEqual([
+      ['probe', ['first'], false],
+      ['probe', ['second'], false],
+    ]);
+
+    let help = '';
+    const stdout = jest.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+      help += String(chunk);
+      return true;
+    });
+    try {
+      await runCli(['node', 'offckb', '--help']);
+    } finally {
+      stdout.mockRestore();
+    }
+    for (const command of ['probe', 'other-tool', 'plugin', 'balance']) {
+      expect(help.match(new RegExp(`^\\s+${command}(?:\\s|$)`, 'gm'))).toHaveLength(1);
+    }
+    expect(mockRunPlugin).toHaveBeenCalledTimes(2);
+    expect(mockFailure).not.toHaveBeenCalled();
+  });
 });

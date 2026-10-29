@@ -156,6 +156,19 @@ try {
   assert.match(invoke(['context-probe', '--help']), /Usage/);
   console.log('PASS: production bundle, exact argv, single JSON result, offline help');
 
+  const validConfig = fs.readFileSync(config, 'utf8');
+  try {
+    fs.writeFileSync(config, 'invalid = [');
+    const unavailable = JSON.parse(invoke(['--json', 'context-probe']));
+    assert.equal(unavailable.kind, 'unknown');
+    assert.equal(unavailable.diagnosticCode, 'LIST_HASHES_FAILED');
+    assert.equal(fs.existsSync(path.join(home, 'context-probe.running')), false);
+    assert.deepEqual(fs.readdirSync(path.join(home, 'tmp')), []);
+  } finally {
+    fs.writeFileSync(config, validConfig);
+  }
+  console.log('PASS: failed local list-hashes does not block a chain-independent plugin, clean context');
+
   invoke(['--json', 'plugin', 'link', path.join(project, 'examples/plugins/explorer')]);
   for (let cycle = 0; cycle < 2; cycle++) {
     const node = start(['--json', 'node']);

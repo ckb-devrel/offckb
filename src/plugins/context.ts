@@ -22,6 +22,7 @@ export interface PluginContext {
     addressPrefix: 'ckb' | 'ckt' | null;
     systemScriptsFile: string | null;
     systemScriptsVersion: 1;
+    diagnostic?: { code: 'LIST_HASHES_FAILED'; message: string };
   };
 }
 
@@ -41,17 +42,28 @@ export function createPluginContext(plugin: PluginManifest, json: boolean): { fi
   try {
     const settings = readSettings({ strict: true });
     // No installation, node startup or RPC request. An uninitialized chain stays unknown.
-    const scripts =
+    let scripts: ReturnType<typeof resolveDevnetSystemScriptsFromListHashes> = null;
+    let diagnostic: PluginContext['devnet']['diagnostic'];
+    if (
       isFile(path.join(settings.devnet.configPath, 'ckb.toml')) &&
       isFile(getCKBBinaryPath(settings.bins.defaultCKBVersion))
-        ? resolveDevnetSystemScriptsFromListHashes(
-            execFileSync(
-              getCKBBinaryPath(settings.bins.defaultCKBVersion),
-              ['list-hashes', '-C', settings.devnet.configPath],
-              { encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'pipe'] },
-            ),
-          )
-        : null;
+    ) {
+      try {
+        scripts = resolveDevnetSystemScriptsFromListHashes(
+          execFileSync(
+            getCKBBinaryPath(settings.bins.defaultCKBVersion),
+            ['list-hashes', '-C', settings.devnet.configPath],
+            { encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'pipe'] },
+          ),
+        );
+      } catch {
+        // Chain-independent tools can still run. Do not expose raw stderr or settings in the snapshot.
+        diagnostic = {
+          code: 'LIST_HASHES_FAILED',
+          message: 'Local chain metadata is unavailable; check the devnet config and managed CKB binary.',
+        };
+      }
+    }
     const systemScriptsFile = scripts ? path.join(directory, 'system-scripts.json') : null;
     if (systemScriptsFile)
       fs.writeFileSync(systemScriptsFile, JSON.stringify({ devnet: scripts!.scripts }), { mode: 0o600 });
@@ -80,6 +92,7 @@ export function createPluginContext(plugin: PluginManifest, json: boolean): { fi
         addressPrefix: !scripts ? null : scripts.forkedFrom === 'mainnet' ? 'ckb' : 'ckt',
         systemScriptsFile,
         systemScriptsVersion: 1,
+        ...(diagnostic ? { diagnostic } : {}),
       },
     };
     const file = path.join(directory, 'context.json');

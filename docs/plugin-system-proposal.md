@@ -109,6 +109,7 @@ offckb plugin remove explorer
 
 - `apiVersion`、offckb 版本、当前工作目录、插件专属数据及缓存目录。
 - 当前 devnet 的 RPC URL、proxy URL、链类型、genesis hash、实际地址前缀。
+- 本地 `list-hashes` 失败时，链身份和脚本降级为未知，并附可选的 `devnet.diagnostic`（固定错误码及脱敏说明）；不需要链的工具仍可运行，需要链的工具自行拒绝未知状态。
 - 本次生成的系统脚本 JSON 文件路径；沿用现有导出格式，明确记录格式版本。
 - 当前 CLI 的 Node 和入口文件绝对路径，作为必要时调用核心命令的备用方式。
 - 输出格式；结构化输出模式必须由适配器遵守，不能直接混入上游的人类日志。
@@ -141,7 +142,7 @@ offckb plugin remove explorer
 
 ## Explorer：适合接入，但需要明确适配
 
-固定调研版本：[`477af4400a716353d140fc1a5b8fee8175f74fed`](https://github.com/wildanrhmn/ckb-devnet-explorer/tree/477af4400a716353d140fc1a5b8fee8175f74fed)，包内版本为 `0.2.0`。以下是源码检查结果，尚未运行端到端验证。
+固定调研版本：[`477af4400a716353d140fc1a5b8fee8175f74fed`](https://github.com/wildanrhmn/ckb-devnet-explorer/tree/477af4400a716353d140fc1a5b8fee8175f74fed)，包内版本为 `0.2.0`。以下保留初始源码检查结果；当前本地实验的端到端验证及局限见[插件指南](plugins.md)。
 
 | 上游现状 | 接入处理 |
 | --- | --- |
@@ -156,11 +157,20 @@ offckb plugin remove explorer
 
 依据：[README](https://github.com/wildanrhmn/ckb-devnet-explorer/blob/477af4400a716353d140fc1a5b8fee8175f74fed/README.md)、[package.json](https://github.com/wildanrhmn/ckb-devnet-explorer/blob/477af4400a716353d140fc1a5b8fee8175f74fed/package.json)、[CLI](https://github.com/wildanrhmn/ckb-devnet-explorer/blob/477af4400a716353d140fc1a5b8fee8175f74fed/src/cli.ts)、[scripts.ts](https://github.com/wildanrhmn/ckb-devnet-explorer/blob/477af4400a716353d140fc1a5b8fee8175f74fed/src/scripts.ts)、[server.ts](https://github.com/wildanrhmn/ckb-devnet-explorer/blob/477af4400a716353d140fc1a5b8fee8175f74fed/src/server.ts)、[explorer.ts](https://github.com/wildanrhmn/ckb-devnet-explorer/blob/477af4400a716353d140fc1a5b8fee8175f74fed/src/explorer.ts)。Node 未指定 host 时的行为见 [Node net 文档](https://nodejs.org/api/net.html#serverlistenport-host-backlog-callback)。
 
-推荐优先向上游贡献两个小入口：系统脚本文件输入、显式 host；上游仍可保留原 CLI 的默认行为。offckb 的独立适配包负责协议转换和就绪检查。若上游不接受，则需要维护明确版本的适配分支，不能承诺现有仓库不改代码就完整符合协议，也不宜长期依赖其私有 TS 源文件路径。
+推荐优先向上游贡献两个小入口：系统脚本文件输入、显式 host；上游仍可保留原 CLI 的默认行为。offckb 的独立适配包负责协议转换和就绪检查。不能承诺现有仓库不改代码就完整符合协议；临时适配分支只用于实验，不能以明确了维护者或固定了 commit 为由继续依赖私有 TS 路径正式分发。
 
-建议职责分配为：offckb 侧维护协议及适配包，Explorer 上游维护业务及 UI。具体维护者尚未确定，也没有获得上游承诺。Phase 1 的命令协议原型先使用最小假插件，不等待上游；本地 Explorer 实验可使用明确标注的临时适配分支。Phase 1 结束时检查上游入口是否可用：若不可用，只有在明确适配分支维护者及维护成本后才推进正式分发，否则保留实验结果、暂缓 Explorer 插件发布。
+建议职责分配为：offckb 侧维护协议及适配包，Explorer 上游维护业务及 UI。具体维护者尚未确定，也没有获得上游承诺。Phase 1 的命令协议原型先使用最小假插件，不等待上游；本地 Explorer 实验可使用明确标注的临时适配分支。正式分发还必须满足下节门槛，否则保留实验结果、暂缓插件发布。
 
 此外，上游缓存只在 tip 回退时清除，脚本名也在启动时加载。清链或换链后统一重启 Explorer，避免把“tip 没回退”误认为链未变化。支持普通 devnet 的首版也应验证这一场景。
+
+### Explorer 正式分发门禁
+
+这是将 Explorer 实验升级为正式插件的相关 PR 的合并前置条件，不阻断仓库内 Phase 1 协议实验。正式分发必须先确定维护者，并完成以下二选一：
+
+1. 上游合并并发布显式 host、系统脚本文件输入及受 semver 约束的 `startServer` 等公开入口；适配包通过正常包解析使用这些入口。
+2. 适配包只调用上游公开 CLI，固定发布版本，并以契约测试覆盖参数、loopback 监听、脚本输入、输出及退出清理。若公开 CLI 尚不能满足这些行为，仍不能毕业。
+
+毕业时删除源码 magic-string replace、私有 `src/*.ts` import、对 tsx export map 内部形状的解析，以及 `OFFCKB_EXPLORER_SOURCE` 实验路径覆盖。不将 `.prototype`、准备脚本或这些私有接入方式包装为正式发布方案。固定 commit 和通过本地冒烟测试不能代替公开兼容契约；保留上述依赖的正式分发 PR 不应合并。
 
 ## 分阶段落地
 
@@ -175,20 +185,22 @@ offckb plugin remove explorer
 
 Sentinel 使用 `kimi-coding/kimi-for-coding` 做了只读评审，认为选型及分期合理，提出 M1–M4 等问题。评审核对了本地源码，未独立复核 dsh 和 Explorer 外部仓库；这些意见是协作材料，不构成人类验收或接受的 Context。
 
-- **M1，输出所有权：** 已补适配器拥有结果、父进程抑制兜底及标志边界；仍需命令原型证明。
+- **M1，输出所有权：** 已补适配器拥有结果、父进程抑制兜底及标志边界；命令回归测试及生产 ncc 包冒烟已验证这些边界。
 - **M2，升级撞名：** 已补核心优先、插件 `shadowed` 及保留移除能力。
 - **M3，Windows npm：** 采纳必须验证的风险，纠正“npm.cmd 绝对路径 + shell:false 即可”的修法；当前 npm JS 入口解析及跨平台实测仍未完成。
-- **M4，维护归属：** 已提出职责及 Phase 1 结束时的分发决策点；具体维护者未定，不能视为已关闭。
+- **M4，维护归属：** 已提出职责及正式分发门禁；具体维护者与公开兼容契约未定，不能视为已关闭。
 - **S1/S2，复杂度：** 保留支撑“运行中不可移除”的最小互斥，通用运行状态机推迟；完整性复用 npm lockfile，不另建清单。
 - **第二工具与验证次序：** Phase 2 前以 `ckb-tui` 走查；按命令协议、Explorer 上下文往返、安装器跨平台的顺序验证。
 
 ## 实施时的验收点与未决项
 
-- 不安装插件时，核心启动不加载插件代码，也不额外访问 registry 或 RPC；新增一个合规插件不用修改核心命令源码。
+- 未登记插件时，核心启动不加载插件代码，也不为插件创建 registry 或发起 RPC；命令发现允许只读探测 `registry.json` 是否存在。新增一个合规插件不用修改核心命令源码。
 - 在打包后的 CLI、带空格的路径、macOS/Linux/Windows 验证命令发现、argv、cwd、Node 版本检查、信号退出及清理。
 - 损坏声明、重复命令、升级后核心撞名、路径越界、并发安装/移除、安装中断和运行中移除都能明确处理；旧版本仍可使用，核心帮助和移除命令仍可运行。
 - 自定义 RPC 端口、多个项目、空 deployment、错误 JSON、端口占用、RPC 离线、indexer 缺失/落后、清链重启和 `--json` 输出均有覆盖。
 - Node 20 仍能使用 offckb 核心；Explorer 明确拒绝不满足 engines 的运行环境。普通 devnet 通过后，再单独验证 mainnet/testnet fork，不能依据 HTTP 能打开就宣布支持。
 - 未决：确认适配包维护者、上游入口及分发方式；验证当前 npm JS 入口的可靠发现、禁用安装脚本后的交付形态、最小运行互斥和 Windows 进程清理；以 `ckb-tui` 检验协议适用性。以上事项尚未因文档修订而获得验证。
+
+侧聊审查补充：本地元数据失败已改为降级，重复 `runCli()` 的命令刷新有回归测试。Phase 2 再评估失效租约恢复与自定义 binary 的 RPC 链身份探测：仅有持久 PID 的存活检查不能证明进程身份或子进程组已退出，不能直接据此删除互斥记录，更不能向该 PID 发信号。当前人工确认后清理的限制保留。现有 Windows CI 的普通子进程测试通过，但信号测试跳过了 Windows；真实 `taskkill /T /F`、父命令退出、后代清理及中断状态的专项验证仍是 Phase 1 未闭环项，不能用三平台 CI 全绿代替。本文不构成阶段签收。
 
 以上保留整体设计与后续验收标准，不表示它们已经全部通过。第一阶段实现采用显式本地 link/list/unlink；registry 安装、后台服务与正式 Explorer 分发仍未交付。实现及验证方式见[插件指南](plugins.md)。

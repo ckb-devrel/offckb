@@ -12,6 +12,7 @@ if (process.argv.slice(2).includes('--help')) {
     cwd: context.cwd,
     output: context.output,
     kind: context.devnet.kind,
+    diagnosticCode: context.devnet.diagnostic?.code,
     cliEntry: context.cli.entry,
   };
   console.log(JSON.stringify(result));

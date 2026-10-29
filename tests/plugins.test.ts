@@ -9,6 +9,7 @@ import { registerPluginManagement } from '../src/plugins/cli';
 
 const mockRunPlugin = jest.fn().mockResolvedValue(undefined);
 const mockResolveScripts = jest.fn();
+const mockExecFileSync = jest.fn();
 const mockSettings = {
   devnet: { configPath: '', rpcUrl: 'http://127.0.0.1:18114', rpcProxyPort: 38114 },
   bins: { defaultCKBVersion: 'test' },
@@ -22,7 +23,7 @@ jest.mock('../src/cfg/setting', () => ({
 jest.mock('../src/scripts/private', () => ({ resolveDevnetSystemScriptsFromListHashes: () => mockResolveScripts() }));
 jest.mock('child_process', () => ({
   ...jest.requireActual('child_process'),
-  execFileSync: jest.fn(() => 'test hashes'),
+  execFileSync: (...args: unknown[]) => mockExecFileSync(...args),
 }));
 jest.mock('../src/util/daemon', () => ({ resolveCliEntry: () => '/current/offckb.js' }));
 jest.mock('../src/plugins/run', () => ({ runPlugin: (...args: unknown[]) => mockRunPlugin(...args) }));
@@ -52,6 +53,7 @@ beforeEach(() => {
   mockSettings.devnet.configPath = path.join(directory, 'chain');
   mockBinary = path.join(directory, 'ckb');
   mockResolveScripts.mockReset();
+  mockExecFileSync.mockReset().mockReturnValue('test hashes');
   mockRunPlugin.mockClear();
 });
 afterEach(() => {
@@ -143,6 +145,7 @@ it('exports current chain metadata without keys and removes per-run files', () =
   expect(JSON.parse(fs.readFileSync(value.devnet.systemScriptsFile, 'utf8')).devnet.example).toBeDefined();
   expect(value).not.toHaveProperty('settings');
   expect(value).not.toHaveProperty('accounts');
+  expect(value.devnet).not.toHaveProperty('diagnostic');
   run.dispose();
   expect(fs.existsSync(run.file)).toBe(false);
   expect(fs.existsSync(value.devnet.systemScriptsFile)).toBe(false);
@@ -156,8 +159,40 @@ it('represents an uninitialized chain as unknown and does not run CKB', () => {
     systemScriptsFile: null,
   });
   expect(mockResolveScripts).not.toHaveBeenCalled();
+  expect(mockExecFileSync).not.toHaveBeenCalled();
   run.dispose();
 });
+
+it.each(['timeout', 'nonzero exit', 'invalid output'])(
+  'keeps the context usable with unknown chain identity after list-hashes %s',
+  (failure) => {
+    fs.mkdirSync(mockSettings.devnet.configPath);
+    fs.writeFileSync(path.join(mockSettings.devnet.configPath, 'ckb.toml'), '');
+    fs.writeFileSync(mockBinary, '');
+    const fail = () => {
+      throw Object.assign(new Error('private stderr: rpc://user:secret@host'), {
+        code: failure === 'timeout' ? 'ETIMEDOUT' : undefined,
+        status: failure === 'nonzero exit' ? 1 : null,
+      });
+    };
+    if (failure === 'invalid output') mockResolveScripts.mockImplementationOnce(fail);
+    else mockExecFileSync.mockImplementationOnce(fail);
+    const run = createPluginContext(readPluginManifest(makePlugin()), false);
+    const value = JSON.parse(fs.readFileSync(run.file, 'utf8'));
+    expect(value.devnet).toMatchObject({
+      rpcUrl: mockSettings.devnet.rpcUrl,
+      kind: 'unknown',
+      genesisHash: null,
+      addressPrefix: null,
+      systemScriptsFile: null,
+      diagnostic: { code: 'LIST_HASHES_FAILED', message: expect.any(String) },
+    });
+    expect(JSON.stringify(value)).not.toContain('secret');
+    expect(fs.readdirSync(path.dirname(run.file))).toEqual(['context.json']);
+    run.dispose();
+    expect(fs.existsSync(run.file)).toBe(false);
+  },
+);
 
 it('lets Commander parse only the core prefix and keeps plugin arguments opaque', async () => {
   linkPlugin(makePlugin(), new Set());

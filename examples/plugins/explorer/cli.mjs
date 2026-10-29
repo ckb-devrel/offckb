@@ -36,6 +36,7 @@ try {
   const port = Number(values.port);
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('--port must be an integer from 0 to 65535');
   const projects = (values.project ?? [context.cwd]).map((directory) => path.resolve(context.cwd, directory));
+  // PROTOTYPE-ONLY: remove this override together with private source imports before formal distribution.
   const source = path.resolve(
     process.env.OFFCKB_EXPLORER_SOURCE || fileURLToPath(new URL('../../../.prototype/explorer', import.meta.url)),
   );
