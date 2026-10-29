@@ -7,12 +7,15 @@ import {
   verifyDaemonIdentity,
 } from '../util/daemon';
 import { readSettings, Settings } from '../cfg/setting';
-import { fiberAccountIndex, fiberDaemonPaths, fiberP2pAddr, fiberRpcUrl } from './paths';
-import { readNodesYml } from './nodes-yml';
-import { fiberNodeAccount, fiberPublicKeyFromSecret, readFiberNodeSecretKey } from './accounts';
+import { fiberDaemonPaths, fiberP2pAddr, fiberRpcUrl } from './paths';
+import { readNodesYml, resolveNodeFile } from './nodes-yml';
+import { resolveFundingAccount, fiberPublicKeyFromSecret, readFiberNodeSecretKey } from './accounts';
 import { readRuntime, FiberRuntime } from './runtime';
-import { fnnNodeInfo, FnnNodeInfo } from './rpc';
+import { fnnNodeInfo } from './rpc';
 import { logger } from '../util/logger';
+import { customConfig, CustomConfig, readNodeConfig } from './config-gen';
+import { isMapping } from './files';
+import { FiberAuthError } from './auth';
 
 export type FiberNodeStatus = 'starting' | 'running' | 'stopped' | 'unknown' | 'conflict';
 export type OffckbManaged = 'yes' | 'no' | 'unknown';
@@ -23,7 +26,11 @@ export interface FiberNodeStatusEntry {
   offckb: OffckbManaged;
   rpcUrl: string;
   p2pAddr: string;
-  accountIndex: number;
+  accountIndex?: number;
+  fundingAddress?: string;
+  customConfig: CustomConfig;
+  configFile?: string;
+  tokenFile?: string;
   reasons: string[];
   version?: string;
   commitHash?: string;
@@ -107,79 +114,91 @@ export async function collectFiberStatus(settings: Settings = readSettings()): P
     nodes: [],
   };
 
-  const entries = readNodesYml(settings);
-  if (entries == null) return report;
-
   const runtime = readRuntime(settings);
   const offckb = await resolveOffckbManaged(runtime, settings);
-  const managerStarting = runtime != null && offckb !== 'no' && runtime.status === 'starting';
-
-  // Probe every node concurrently: a stopped node costs the full 2s timeout,
-  // and a sequential loop would block `fiber status` for 2s per down node.
-  const infos = await Promise.all(
-    entries.map((entry) => fnnNodeInfo(fiberRpcUrl(entry.id), 2000).catch(() => null as FnnNodeInfo | null)),
-  );
-
-  for (const [index, entry] of entries.entries()) {
-    const statusEntry: FiberNodeStatusEntry = {
-      id: entry.id,
-      status: 'unknown',
-      offckb,
-      rpcUrl: fiberRpcUrl(entry.id),
-      p2pAddr: fiberP2pAddr(entry.id),
-      accountIndex: fiberAccountIndex(entry.id),
-      reasons: [],
-    };
-    report.nodes.push(statusEntry);
-
-    const info: FnnNodeInfo | null = infos[index];
-
-    if (info == null) {
-      statusEntry.status = managerStarting ? 'starting' : 'stopped';
-      continue;
-    }
-
-    statusEntry.version = info.version;
-    statusEntry.commitHash = info.commit_hash;
-    statusEntry.chainHash = info.chain_hash;
-    statusEntry.pubkey = typeof info.pubkey === 'string' ? info.pubkey : undefined;
-
-    const secret = readFiberNodeSecretKey(entry.id, settings);
-    if (secret == null) {
-      statusEntry.status = 'unknown';
-      statusEntry.reasons.push('cannot read the node identity key (fiber/sk); node may not have started yet');
-      continue;
-    }
-    const expectedPubkey = fiberPublicKeyFromSecret(secret);
-    const account = fiberNodeAccount(entry.id);
-
-    let conflict = false;
-    if (typeof info.pubkey !== 'string' || info.pubkey.length === 0) {
-      statusEntry.reasons.push('node_info did not return a node public key');
-    } else if (info.pubkey.toLowerCase() !== expectedPubkey) {
-      conflict = true;
-      statusEntry.reasons.push(
-        `node public key mismatch: expected ${expectedPubkey} (from fiber/sk), got ${info.pubkey}`,
-      );
-    }
-    if (!info.default_funding_lock_script) {
-      statusEntry.reasons.push('node_info did not return default_funding_lock_script');
-    } else if (!lockMatches(info.default_funding_lock_script, account.lockScript)) {
-      conflict = true;
-      statusEntry.reasons.push(
-        `CKB account mismatch: expected account #${statusEntry.accountIndex} (lock args ${account.lockScript.args}), ` +
-          `got ${JSON.stringify(info.default_funding_lock_script)}`,
-      );
-    }
-
-    if (conflict) {
-      statusEntry.status = 'conflict';
-    } else if (statusEntry.reasons.length > 0) {
-      statusEntry.status = 'unknown';
-    } else {
-      statusEntry.status = 'running';
-    }
+  const active = runtime != null && offckb !== 'no' ? runtime : null;
+  // A live manager's snapshot wins even if files were edited or damaged.
+  let entries: ReturnType<typeof readNodesYml> = null;
+  let registryError: string | undefined;
+  try {
+    entries = readNodesYml(settings);
+  } catch (error) {
+    if (!active) throw error;
+    registryError = (error as Error).message;
   }
+  const ids = [
+    ...new Set([...(active?.nodes.map((node) => node.id) ?? []), ...(entries?.map((node) => node.id) ?? [])]),
+  ].sort((a, b) => a - b);
+  await Promise.all(
+    ids.map(async (id) => {
+      const running = active?.nodes.find((node) => node.id === id);
+      const entry = entries?.find((node) => node.id === id);
+      const statusEntry: FiberNodeStatusEntry = {
+        id,
+        status: 'unknown',
+        offckb: running ? offckb : 'no',
+        rpcUrl: running?.rpcUrl ?? fiberRpcUrl(id),
+        p2pAddr: fiberP2pAddr(id),
+        accountIndex: running
+          ? running.accountIndex
+          : entry?.account.type === 'builtin'
+            ? entry.account.index
+            : undefined,
+        fundingAddress: running?.fundingAddress,
+        customConfig: running?.customConfig ?? (entry ? customConfig(entry, settings) : 'unknown'),
+        configFile: running?.configFile ?? (entry ? resolveNodeFile(entry.config_file, settings) : undefined),
+        tokenFile: running?.tokenFile ?? (entry ? resolveNodeFile(entry.rpc_token_file, settings) : undefined),
+        reasons: [],
+      };
+      report.nodes.push(statusEntry);
+      if (!running)
+        statusEntry.reasons.push('configuration has not taken effect; it will be used on the next successful start');
+      if (registryError) statusEntry.reasons.push(registryError);
+      if (statusEntry.customConfig === 'unknown')
+        statusEntry.reasons.push('cannot determine custom config: default config is missing or invalid');
+      let expectedLock = running?.fundingLock;
+      let auth = running?.authEnabled ? { tokenFile: running.tokenFile! } : undefined;
+      try {
+        if (!running && entry) {
+          const account = resolveFundingAccount(entry.account);
+          expectedLock = account.lockScript;
+          statusEntry.fundingAddress = account.address;
+          if (!entry.initialized) {
+            statusEntry.status = 'stopped';
+            return;
+          }
+          const config = readNodeConfig(entry, settings);
+          auth =
+            isMapping(config.rpc) && config.rpc.biscuit_public_key ? { tokenFile: statusEntry.tokenFile! } : undefined;
+        }
+        const info = await fnnNodeInfo(statusEntry.rpcUrl, 2000, auth);
+        statusEntry.version = info.version;
+        statusEntry.commitHash = info.commit_hash;
+        statusEntry.chainHash = info.chain_hash;
+        statusEntry.pubkey = info.pubkey;
+        const secret = readFiberNodeSecretKey(id, settings);
+        if (!secret) {
+          statusEntry.reasons.push('cannot read the node identity key (fiber/sk)');
+          return;
+        }
+        const expectedPubkey = fiberPublicKeyFromSecret(secret);
+        if (typeof info.pubkey !== 'string' || info.pubkey.toLowerCase() !== expectedPubkey) {
+          statusEntry.status = 'conflict';
+          statusEntry.reasons.push('node public key does not match fiber/sk');
+        } else if (!expectedLock || !lockMatches(info.default_funding_lock_script, expectedLock)) {
+          statusEntry.status = 'conflict';
+          statusEntry.reasons.push('CKB funding lock does not match the saved account binding');
+        } else statusEntry.status = 'running';
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (error instanceof FiberAuthError) statusEntry.reasons.push(error.message);
+        else if (code === 'ECONNREFUSED' || /timed out/.test((error as Error).message)) {
+          statusEntry.status = running && active?.status === 'starting' ? 'starting' : 'stopped';
+        } else statusEntry.reasons.push((error as Error).message);
+      }
+    }),
+  );
+  report.nodes.sort((a, b) => a.id - b.id);
 
   return report;
 }
@@ -206,19 +225,20 @@ export function printFiberStatus(report: FiberStatusReport) {
     return;
   }
 
-  const header = ['NODE', 'STATUS', 'OFFCKB', 'RPC', 'P2P', 'ACCOUNT', 'VERSION', 'COMMIT'];
-  const widths = [6, 9, 8, 26, 26, 9, 12, 10];
+  const header = ['NODE', 'STATUS', 'OFFCKB', 'CUSTOM_CONFIG', 'RPC', 'P2P', 'ACCOUNT', 'VERSION', 'COMMIT'];
+  const widths = [6, 9, 8, 15, 26, 26, 9, 12, 10];
   logger.info(header.map((cell, i) => pad(cell, widths[i])).join(' '));
   for (const node of report.nodes) {
     const row = [
       pad(String(node.id), widths[0]),
       pad(node.status, widths[1]),
       pad(node.offckb, widths[2]),
-      pad(node.rpcUrl, widths[3]),
-      pad(node.p2pAddr, widths[4]),
-      pad(String(node.accountIndex), widths[5]),
-      pad(node.version ?? '-', widths[6]),
-      pad(node.commitHash ? node.commitHash.slice(0, 7) : '-', widths[7]),
+      pad(node.customConfig, widths[3]),
+      pad(node.rpcUrl, widths[4]),
+      pad(node.p2pAddr, widths[5]),
+      pad(node.accountIndex == null ? 'random' : String(node.accountIndex), widths[6]),
+      pad(node.version ?? '-', widths[7]),
+      pad(node.commitHash ? node.commitHash.slice(0, 7) : '-', widths[8]),
     ].join(' ');
     logger.info(row);
     for (const reason of node.reasons) {
@@ -240,6 +260,10 @@ export async function fiberStatus(settings: Settings = readSettings()) {
       rpcUrl: node.rpcUrl,
       p2pAddr: node.p2pAddr,
       accountIndex: node.accountIndex,
+      fundingAddress: node.fundingAddress,
+      customConfig: node.customConfig,
+      configFile: node.configFile,
+      rpcTokenFile: node.tokenFile,
       version: node.version,
       commitHash: node.commitHash,
       chainHash: node.chainHash,

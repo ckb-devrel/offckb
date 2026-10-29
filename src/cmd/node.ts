@@ -33,7 +33,6 @@ import {
 } from '../util/daemon';
 import { assertPlainDevnet } from '../fiber/ckb-env';
 import { acquireEnvLock, EnvLockHandle } from '../fiber/env-lock';
-import { resolveFnnBinary, ResolvedFnn } from '../fiber/install';
 import { resolveFiberChainScripts } from '../fiber/scripts';
 import { FiberEnvironment, startFiberEnvironment, stopFiberNodes } from '../fiber/manager';
 import { printFiberSummary } from './fiber';
@@ -269,16 +268,6 @@ async function superviseDevnet(
     ckbExited = true;
   });
 
-  // With --fiber, FNN selection/download starts as soon as CKB begins to
-  // start, so it overlaps with the devnet readiness wait below.
-  let fnnPrep: Promise<ResolvedFnn> | null = null;
-  if (fiber) {
-    fnnPrep = resolveFnnBinary({ version: fnnVersion, binaryPath: fnnBinaryPath }, settings);
-    fnnPrep.catch(() => {
-      // surfaced when awaited after the CKB environment is ready
-    });
-  }
-
   const timeoutMs = forkState ? FORK_NODE_READY_TIMEOUT_MS : NODE_READY_TIMEOUT_MS;
   const readiness = await waitForNodeReady(settings.devnet.rpcUrl, timeoutMs, () => !ckbExited);
   if (!readiness.ready) {
@@ -352,11 +341,10 @@ async function superviseDevnet(
     logger.info('Follow the full node log with: offckb logs -f');
   }
 
-  // The CKB environment is up. With --fiber, wait for the FNN binary
-  // preparation (started above, concurrent with CKB startup) and run the
-  // shared Fiber startup flow. Any failure stops everything started here.
+  // The CKB environment is up. With --fiber, reuse the saved environment
+  // or initialize a fresh one through the shared Fiber startup flow. Any failure stops everything started here.
   let fiberEnv: FiberEnvironment | null = null;
-  if (fiber && fnnPrep) {
+  if (fiber) {
     const stopStartedProcesses = () => {
       logSubscription?.close();
       if (!ckbProcess.killed) ckbProcess.kill('SIGTERM');
@@ -365,14 +353,13 @@ async function superviseDevnet(
       envLock?.release();
     };
     try {
-      const fnn = await fnnPrep;
-      // startFiberEnvironment owns the signals while it starts the FNNs: it
-      // stops them and exits, and our exit hook then stops CKB and the miner.
+      // startFiberEnvironment owns signals throughout preparation and FNN
+      // startup; its exit then triggers cleanup of CKB and the miner.
       const endDelegation = signals.delegate();
       try {
         fiberEnv = await startFiberEnvironment({
-          fnnPath: fnn.fnnPath,
-          testnetConfigPath: fnn.testnetConfigPath,
+          version: fnnVersion,
+          binaryPath: fnnBinaryPath,
           chainScripts: resolveFiberChainScripts(),
           nodeCount: fiberNodes,
           settings,

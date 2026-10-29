@@ -5,12 +5,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { defaultSettings, Settings } from '../src/cfg/setting';
 import * as daemonUtil from '../src/util/daemon';
-import {
-  isProcessAlive,
-  PidMetadata,
-  verifyDaemonIdentity,
-  writePidFile,
-} from '../src/util/daemon';
+import { isProcessAlive, PidMetadata, verifyDaemonIdentity, writePidFile } from '../src/util/daemon';
 import { isStoreLockHeld } from '../src/fiber/store-lock';
 import { assertFiberFullyStopped } from '../src/fiber/clean';
 import { startFiberEnvironment, stopFiberNodes, FnnProcessHandle } from '../src/fiber/manager';
@@ -18,7 +13,9 @@ import { fiberDaemonPaths, fiberNodePaths, fiberRootPath, runtimeJsonPath } from
 import { writeRuntime, isRuntimeStale, FiberRuntime } from '../src/fiber/runtime';
 import { assertNodeStopDoesNotOrphanFiber, startFiberDaemon, stopFiber } from '../src/fiber/daemon';
 import { fiberClean } from '../src/fiber/clean';
+import * as fiberInstall from '../src/fiber/install';
 import { FiberChainScripts } from '../src/fiber/scripts';
+import { installSessionSignalHandlers } from '../src/util/session-signals';
 
 /**
  * Safety-property tests for the fiber lifecycle layer: daemon identity
@@ -34,6 +31,7 @@ const tempRoots: string[] = [];
 const children: ChildProcess[] = [];
 
 afterEach(async () => {
+  jest.restoreAllMocks();
   while (children.length) {
     const child = children.pop() as ChildProcess;
     if (child.exitCode == null && child.signalCode == null) {
@@ -273,9 +271,7 @@ describe('assertNodeStopDoesNotOrphanFiber', () => {
   it('permits the stop when the fiber manager is the CKB daemon being stopped (node --fiber --daemon)', () => {
     const settings = makeSettings(tempRoot());
     writeRuntime(liveRuntime(process.pid), settings);
-    expect(() =>
-      assertNodeStopDoesNotOrphanFiber({ ckbDaemonPid: process.pid }, settings),
-    ).not.toThrow();
+    expect(() => assertNodeStopDoesNotOrphanFiber({ ckbDaemonPid: process.pid }, settings)).not.toThrow();
   });
 
   it('permits the stop with --force even while a foreground fiber manager is live', () => {
@@ -350,10 +346,7 @@ describe('stopFiber', () => {
 
   it('discards a stale runtime record whose manager is dead, signaling nothing', async () => {
     const settings = makeSettings(tempRoot());
-    writeRuntime(
-      { managerPid: 99999999, startedAt: new Date().toISOString(), status: 'running', nodes: [] },
-      settings,
-    );
+    writeRuntime({ managerPid: 99999999, startedAt: new Date().toISOString(), status: 'running', nodes: [] }, settings);
     await stopFiber(settings);
     expect(fs.existsSync(runtimeJsonPath(settings))).toBe(false);
   });
@@ -546,10 +539,7 @@ describe('stopFiberNodes', () => {
 
   it('keeps a runtime record owned by another manager', async () => {
     const settings = makeSettings(tempRoot());
-    writeRuntime(
-      { managerPid: 99999999, startedAt: new Date().toISOString(), status: 'running', nodes: [] },
-      settings,
-    );
+    writeRuntime({ managerPid: 99999999, startedAt: new Date().toISOString(), status: 'running', nodes: [] }, settings);
     await stopFiberNodes([], settings, 100);
     expect(fs.existsSync(runtimeJsonPath(settings))).toBe(true);
   });
@@ -600,8 +590,44 @@ describe('startFiberEnvironment signal handling', () => {
     const settings = makeSettings(root);
     const testnetConfigPath = path.join(root, 'testnet-config.yml');
     fs.writeFileSync(testnetConfigPath, 'fiber:\n  tlc_expiry_delta: 86400000\n');
+    jest.spyOn(fiberInstall, 'resolveFnnBinary').mockImplementation(async (options) => ({
+      fnnPath: options.binaryPath!,
+      testnetConfigPath,
+      version: null,
+      source: 'binary-path',
+    }));
     return { settings, testnetConfigPath };
   }
+
+  it('handles a delegated SIGTERM while initialization is waiting for the FNN binary', async () => {
+    const { settings } = fiberFixture();
+    let cancelDownload!: (error: Error) => void;
+    jest.mocked(fiberInstall.resolveFnnBinary).mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          cancelDownload = reject;
+        }),
+    );
+    const before = process.listeners('SIGTERM');
+    const session = installSessionSignalHandlers();
+    const endDelegation = session.delegate();
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+    const started = startFiberEnvironment({ binaryPath: process.execPath, chainScripts, nodeCount: 1, settings });
+    try {
+      expect(cancelDownload).toBeDefined();
+      process.emit('SIGTERM');
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(exitSpy).toHaveBeenCalledWith(143);
+      expect(fs.existsSync(runtimeJsonPath(settings))).toBe(false);
+    } finally {
+      cancelDownload(new Error('download cancelled'));
+      await expect(started).rejects.toThrow('download cancelled');
+      endDelegation();
+      session.dispose();
+      exitSpy.mockRestore();
+    }
+    expect(process.listeners('SIGTERM')).toEqual(before);
+  });
 
   it('removes its startup signal handlers after a failed start', async () => {
     const { settings, testnetConfigPath } = fiberFixture();
@@ -611,8 +637,7 @@ describe('startFiberEnvironment signal handling', () => {
     // -d), driving the startup down the failure path.
     await expect(
       startFiberEnvironment({
-        fnnPath: process.execPath,
-        testnetConfigPath,
+        binaryPath: process.execPath,
         chainScripts,
         nodeCount: 1,
         settings,
@@ -630,12 +655,14 @@ describe('startFiberEnvironment signal handling', () => {
       // A stub FNN that stays alive but never serves RPC, so startup parks in
       // the readiness wait — the window the signal must cover.
       const stubFnn = path.join(tempRoot(), 'fnn-stub.sh');
-      fs.writeFileSync(stubFnn, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} -e "setInterval(() => {}, 1000)"\n`);
+      fs.writeFileSync(
+        stubFnn,
+        `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} -e "setInterval(() => {}, 1000)"\n`,
+      );
       fs.chmodSync(stubFnn, 0o755);
 
       const started = startFiberEnvironment({
-        fnnPath: stubFnn,
-        testnetConfigPath,
+        binaryPath: stubFnn,
         chainScripts,
         nodeCount: 1,
         settings,

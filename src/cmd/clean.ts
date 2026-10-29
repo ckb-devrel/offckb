@@ -4,7 +4,7 @@ import { readSettings } from '../cfg/setting';
 import { logger } from '../util/logger';
 import { isProcessAlive, nodeDaemonPaths, readPidFile } from '../util/daemon';
 import { acquireEnvLock } from '../fiber/env-lock';
-import { assertFiberFullyStopped } from '../fiber/clean';
+import { assertFiberFilesRetained, assertFiberFullyStopped } from '../fiber/clean';
 import { fiberNodeIds, fiberNodePaths } from '../fiber/paths';
 import { removeRuntimeFileIfStale } from '../fiber/runtime';
 
@@ -44,8 +44,13 @@ export function clean(options?: CleanOptions) {
     assertFiberFullyStopped(settings);
 
     if (dataOnly) {
-      // Only clean the chain data subdirectory
       const chainDataPath = settings.devnet.dataPath;
+      const stores = fiberStoreDirs(settings);
+      assertFiberFilesRetained([chainDataPath, ...stores], settings);
+      logger.warn(
+        'Resetting devnet: chain history and Fiber channel/payment stores will be deleted. Configs, accounts, identity keys, Biscuit keys and tokens are kept. This is not a restart.',
+      );
+      // Only clean the chain data subdirectory
       if (isFolderExists(chainDataPath)) {
         try {
           fs.rmSync(chainDataPath, { recursive: true });
@@ -61,11 +66,14 @@ export function clean(options?: CleanOptions) {
       // onto the reset chain and are removed too; node configs, keys and
       // passwords are kept.
       removeRuntimeFileIfStale(settings);
-      for (const storeDir of fiberStoreDirs(settings)) {
+      for (const storeDir of stores) {
         fs.rmSync(storeDir, { recursive: true, force: true });
         logger.info(`Fiber store cleaned: ${storeDir}`);
       }
     } else {
+      logger.warn(
+        'Resetting the whole devnet: chain history and the Fiber environment under the devnet directory (including configs and keys) will be deleted. Files referenced outside the devnet directory will not be deleted. This is not a restart.',
+      );
       // Clean everything - the original behavior
       // this is the root folder of devnet, it contains config, data, debugFullTransactions, transactions, failed-transactions, contracts
       // and the whole fiber environment (configs, keys, stores, logs)

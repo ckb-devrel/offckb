@@ -73,6 +73,7 @@ Options:
 Commands:
   node [CKB-Version]                            Use the CKB to start devnet
   node stop                                     Stop the running CKB devnet daemon
+  fiber init [FNN-Version]                      Prepare Fiber configs and keys without starting FNN (optional)
   fiber start [FNN-Version]                     Start Fiber (FNN) nodes on the running devnet CKB
   fiber stop                                    Stop the daemon-managed fiber nodes
   fiber status                                  Show the status of the local CKB and all fiber nodes
@@ -390,12 +391,16 @@ offckb devnet config --set ckb.rpc.enable_deprecated_rpc=true --set miner.client
 
 If your terminal is non-interactive (no TTY, e.g. CI/remote pipeline), use `--set` mode directly instead of the full-screen editor.
 
-1. Save changes and restart devnet:
+1. Save changes and restart devnet. Stop a foreground node with Ctrl+C, or stop a daemon with:
 
 ```sh
-offckb clean -d
-offckb node
+offckb node stop
+offckb node # reuse the original options, e.g. --fiber --daemon
 ```
+
+Restart with the same options used originally, including `--fiber` when applicable, so Fiber starts with CKB again. If Fiber was started separately with `fiber start`, stop it before CKB and restart it separately afterward.
+
+Ordinary runtime config changes do not require deleting data. Changes to the genesis/spec may require an explicit reset with `offckb clean -d`: this deletes chain history and Fiber channel/payment stores, while preserving configs and keys. If system-cell hashes changed, update the retained Fiber contract references before starting Fiber; see [recovery after genesis or contract changes](docs/fiber-devnet.md#修改创世或系统合约后的恢复). `offckb clean` removes the environment under the devnet directory, including Fiber keys; externally referenced files remain.
 
 1. (Advanced) Locate your Devnet config folder for manual edits:
 
@@ -418,8 +423,8 @@ Example result:
 Pay attention to the `devnet.configPath` and `devnet.dataPath`.
 
 1. `cd` into the `devnet.configPath` . Modify the config files as needed. See [Custom Devnet Setup](https://docs.nervos.org/docs/node/run-devnet-node#custom-devnet-setup) and [Configure CKB](https://github.com/nervosnetwork/ckb/blob/develop/docs/configure.md) for details.
-2. After modifications, run `offckb clean -d` to remove the chain data if needed while keeping the updated config files.
-3. Restart local blockchain by running `offckb node`
+2. Stop and restart the local blockchain with `offckb node` and the original options (including `--fiber` if used) to apply runtime changes.
+3. Only when rebuilding the genesis/spec, explicitly reset with `offckb clean -d`; it deletes chain history and Fiber channel/payment stores while keeping the updated configs and keys.
 
 ### 7. Fork Mainnet/Testnet Into Your Devnet {#fork-devnet}
 
@@ -459,7 +464,7 @@ OffCKB can start and manage a local [Fiber](https://github.com/nervosnetwork/fib
 # Start CKB, miner, RPC proxy and 2 FNN nodes in one command
 offckb node --fiber
 
-# Or start only the FNN nodes on an already-running devnet
+# Or start only the FNN nodes on an already-running devnet (auto-initializes on first use)
 offckb node
 offckb fiber start
 
@@ -477,12 +482,30 @@ offckb fiber clean                # delete the whole fiber environment
 ```
 
 - Only the plain local devnet is supported: no mainnet/testnet, and no forked devnet (a `fork.json` present in the devnet directory rejects Fiber startup).
+- OffCKB manages FNN processes, configuration, accounts and management RPC. It does not depend on LSP or `lsp-cli`; extension features are optional and must be supported by the selected FNN executable.
 - A devnet created by an offckb version without Fiber support does not have the Fiber contracts in its genesis. `fiber start` / `node --fiber` on such a devnet refuse with migration guidance: rebuild with `offckb clean` (which deletes the local chain data) and start again; a plain `offckb node` keeps working on the old devnet unchanged.
-- Node `N` uses built-in CKB account `N+2` (accounts 3-18 are reserved for Fiber), RPC port `21713+N` and P2P port `8343+N`. Up to 16 nodes: `offckb fiber start --nodes 4`.
-- `offckb fiber start [FNN-Version]` downloads a tested FNN release (currently `0.9.0`). Downloaded tarballs are verified against SHA-256 digests pinned in offckb before installation. Use `--binary-path <fnn>` (or `--fnn-binary-path <fnn>` with `node --fiber`) to run a locally built FNN.
-- Every FNN writes its stdout/stderr to `devnet/fiber/nodes/<id>/fnn.log`, never to your terminal. Per-node FNN config overrides live in `devnet/fiber/nodes.yml` (regenerated `config.yml` files do not keep hand edits). Fields owned by offckb — chain, scripts, listening/bootnode addresses, store path, CKB RPC/UDT wiring, services — are managed and cannot be overridden there.
-- Startup verifies that the devnet spec, the running CKB and every FNN agree on the same chain (genesis hash), and checks each node's identity key, CKB account and available balance before reporting ready.
+- New node `N` defaults to built-in CKB account `N+2`, RPC port `21713+N` and P2P port `8343+N`. The account binding is saved, not recalculated on restart. Up to 16 nodes: first start with `offckb fiber start --nodes 4`, or prepare them without starting with `offckb fiber init --nodes 4`. Append a node with `offckb fiber init --add`; optionally choose `--account-index 12` or `--random-account` (unfunded).
+- First initialization downloads a tested FNN release (currently `0.9.0`), unless a version or `--binary-path <fnn>` is supplied (`--fnn-binary-path` with `node --fiber`). Downloads are verified against pinned SHA-256 digests. The absolute program and template paths are saved in `fiber/nodes.yml`; subsequent starts reuse that program without downloading or upgrading. Startup selection flags must agree with an existing environment. Use `fiber init --add` or `fiber init --nodes N` to prepare additional nodes.
+- Every FNN writes stdout/stderr to `devnet/fiber/nodes/<id>/fnn.log`. Each node has a persistent full `config.yml`, generated once by initialization and never overwritten by startup. `nodes.yml` records its `config_file`, funding `account`, and `rpc_token_file`; relative paths resolve from `nodes.yml`. Keep the local chain/scripts, fixed ports, node store location and required `fiber`/`rpc`/`ckb` services and `info`/`peer` RPC modules. Other services and modules may be added. The old `nodes[].config` format is unsupported; there is no legacy environment migration.
+- Startup checks every registered config and key before creating FNN processes, then verifies chain, network identity and funding lock. Zero-balance accounts can start and wait for external funding; initialization does not pre-fund random accounts. Shared funding locks are permitted with a warning about Cell contention. Missing files or changed account bindings fail explicitly instead of generating replacement keys.
 - One fiber environment per machine: the RPC/P2P ports are fixed per node id, so a second concurrent fiber environment fails its port check. Note the CKB side of the check is the chain's genesis hash, and every plain offckb devnet shares the same genesis — if you run several offckb environments on one machine (e.g. separate `XDG_DATA_HOME`), make sure `fiber start` attaches to the CKB you actually started for it; when in doubt, check `offckb fiber status` against the environment you mean to use.
+- Initialization also prepares independent Biscuit keys (`nodes/<id>/biscuit/private.key`, `public.key`) and a management `rpc-token` for each node. Authentication is off by default; to enable it, put the generated public key in `rpc.biscuit_public_key`. OffCKB automatically sends the node's token on internal RPC calls and reports authentication errors separately from stopped nodes. If you or an external tool replace the RPC public key, also supply a matching management token with node/peer permissions. These credentials do not grant channel/payment access.
+- `fiber status` includes `CUSTOM_CONFIG` (`yes`, `no`, `unknown`) compared with the node's initialization baseline `config.default.yml`. Running nodes use their startup snapshot until restarted; stopped/new nodes report pending config. Missing baselines do not overwrite user files. Runtime records contain public account information and credential paths, never private keys or token contents.
+- Stop/restart preserves chain and Fiber data. `fiber clean --data` resets only FNN stores and keeps configs, accounts, passwords, Biscuit keys and tokens. Both data-only clean commands refuse before deleting anything if a registered config/token file is inside a deletion target; relocate the file and update `nodes.yml` first. `fiber clean` deletes the Fiber directory; `clean --data` resets the chain and dependent FNN stores; `clean` deletes the devnet directory. Referenced files outside the directory being removed remain. None of the clean commands is a normal restart.
+
+To customize a node before its first launch, after CKB is running:
+
+```sh
+offckb fiber init --nodes 3 --binary-path /absolute/path/to/fnn
+# Edit the printed node config for features supported by your FNN executable.
+offckb fiber start --daemon
+# After editing config: stop and start Fiber to apply changes.
+offckb fiber stop
+offckb fiber start --daemon
+```
+
+The complete lifecycle and configuration contract is in [Fiber devnet design](docs/fiber-devnet.md).
+
 - UDT channels: the FNN config whitelists the devnet sUDT and xUDT issued by built-in account 19, so issue test UDTs from that account (`offckb udt issue ... --privkey-file` with account 19's key) to the node accounts before opening UDT channels. A few things that differ from plain CKB channels:
   - `offckb udt issue <amount>` takes the amount in the token's base unit (no 10^8 conversion): `3000` issues 0.00003 sUDT at 8 decimals, so issue generously before funding a channel.
   - Both sides of a UDT channel must hold the UDT. The accepting node needs its own UDT cells — otherwise `accept_channel` fails with "can not find enough UDT owner cells" — so issue the UDT to both node accounts first.

@@ -1,5 +1,6 @@
 import * as net from 'net';
-import { callJsonRpc } from '../util/json-rpc';
+import { callJsonRpc, JsonRpcError } from '../util/json-rpc';
+import { FiberAuthError, FiberRpcAuth, readRpcToken } from './auth';
 
 export interface FnnNodeInfo {
   version: string;
@@ -22,16 +23,45 @@ export interface FnnPeerInfo {
   address: string;
 }
 
-export async function fnnNodeInfo(rpcUrl: string, timeoutMs = 3000): Promise<FnnNodeInfo> {
-  return (await callJsonRpc(rpcUrl, 'node_info', [], timeoutMs)) as FnnNodeInfo;
+async function fiberRpc(
+  rpcUrl: string,
+  method: string,
+  params: unknown[],
+  timeout: number,
+  auth?: FiberRpcAuth,
+): Promise<unknown> {
+  const token = readRpcToken(auth);
+  try {
+    return await callJsonRpc(rpcUrl, method, params, timeout, token ? { Authorization: `Bearer ${token}` } : {});
+  } catch (error) {
+    if (
+      (error instanceof JsonRpcError && (error.status === 401 || error.status === 403)) ||
+      /unauthorized|permission denied|biscuit|authentication/i.test((error as Error).message)
+    ) {
+      throw new FiberAuthError(
+        `Fiber RPC authentication failed or permission denied at ${rpcUrl}; check ${auth?.tokenFile ?? 'the configured token'}.`,
+      );
+    }
+    if (token && error instanceof Error) error.message = error.message.split(token).join('[redacted]');
+    throw error;
+  }
 }
-
-export async function fnnConnectPeer(rpcUrl: string, address: string, save = true, timeoutMs = 10000): Promise<void> {
-  await callJsonRpc(rpcUrl, 'connect_peer', [{ address, save }], timeoutMs);
+export async function fnnNodeInfo(rpcUrl: string, timeoutMs = 3000, auth?: FiberRpcAuth): Promise<FnnNodeInfo> {
+  const result = await fiberRpc(rpcUrl, 'node_info', [], timeoutMs, auth);
+  if (!result || typeof result !== 'object') throw new JsonRpcError(`Invalid node_info response from ${rpcUrl}`);
+  return result as FnnNodeInfo;
 }
-
-export async function fnnListPeers(rpcUrl: string, timeoutMs = 3000): Promise<FnnPeerInfo[]> {
-  const result = (await callJsonRpc(rpcUrl, 'list_peers', [], timeoutMs)) as { peers?: FnnPeerInfo[] };
+export async function fnnConnectPeer(
+  rpcUrl: string,
+  address: string,
+  save = true,
+  timeoutMs = 10000,
+  auth?: FiberRpcAuth,
+): Promise<void> {
+  await fiberRpc(rpcUrl, 'connect_peer', [{ address, save }], timeoutMs, auth);
+}
+export async function fnnListPeers(rpcUrl: string, timeoutMs = 3000, auth?: FiberRpcAuth): Promise<FnnPeerInfo[]> {
+  const result = (await fiberRpc(rpcUrl, 'list_peers', [], timeoutMs, auth)) as { peers?: FnnPeerInfo[] };
   return result?.peers ?? [];
 }
 
