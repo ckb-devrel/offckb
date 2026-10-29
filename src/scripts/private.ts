@@ -80,6 +80,10 @@ export function resolveDevnetSystemScripts(): DevnetSystemScripts | null {
     return null;
   }
 
+  return resolveDevnetSystemScriptsFromListHashes(listHashesString);
+}
+
+export function resolveDevnetSystemScriptsFromListHashes(listHashesString: string): DevnetSystemScripts | null {
   const listHashes = toml.parse(listHashesString) as unknown as ListHashes;
   const chainSpecHashes: SpecHashes | null = Object.values(listHashes)[0];
   if (chainSpecHashes == null) {

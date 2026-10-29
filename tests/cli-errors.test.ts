@@ -1,6 +1,15 @@
 const mockBalanceOf = jest.fn();
 const mockLogsCommand = jest.fn();
+const mockListPlugins = jest.fn();
+const mockRunPlugin = jest.fn();
 const jsonMode = { value: false };
+
+jest.mock('../src/plugins/store', () => ({
+  listPlugins: (...args: unknown[]) => mockListPlugins(...args),
+  linkPlugin: jest.fn(),
+  unlinkPlugin: jest.fn(),
+}));
+jest.mock('../src/plugins/run', () => ({ runPlugin: (...args: unknown[]) => mockRunPlugin(...args) }));
 
 jest.mock('../src/cmd/node', () => ({ startNode: jest.fn(), stopNode: jest.fn() }));
 jest.mock('../src/cmd/accounts', () => ({ accounts: jest.fn() }));
@@ -75,6 +84,8 @@ function captureStderr() {
 describe('CLI error output', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockListPlugins.mockReturnValue([]);
+    mockRunPlugin.mockResolvedValue(undefined);
     jsonMode.value = false;
     process.exitCode = undefined;
   });
@@ -144,5 +155,23 @@ describe('CLI error output', () => {
     await runCli(['node', 'offckb', 'balance', 'ckt1qaddress']);
 
     expect(mockBalanceOf).toHaveBeenCalledWith('ckt1qaddress', expect.anything());
+  });
+
+  it('does not append a core JSON result after delegating to a plugin', async () => {
+    mockListPlugins.mockReturnValue([{ command: 'probe', state: 'available', directory: '/unused' }]);
+    const { runCli } = loadCli();
+    await runCli(['node', 'offckb', '--json', 'probe', '--', '--json', '--json', '--path', 'a b']);
+    expect(mockRunPlugin).toHaveBeenCalledWith('probe', ['--json', '--json', '--path', 'a b'], true);
+    const { logger } = require('../src/util/logger');
+    expect(logger.result).not.toHaveBeenCalled();
+    expect(mockFailure).not.toHaveBeenCalled();
+  });
+
+  it('does not promote --json from the plugin argument suffix', async () => {
+    mockListPlugins.mockReturnValue([{ command: 'probe', state: 'available', directory: '/unused' }]);
+    const { runCli } = loadCli();
+    await runCli(['node', 'offckb', 'probe', '--json']);
+    expect(mockRunPlugin).toHaveBeenCalledWith('probe', ['--json'], false);
+    expect(jsonMode.value).toBe(false);
   });
 });

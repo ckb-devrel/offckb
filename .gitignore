@@ -15,3 +15,6 @@ coverage/
 
 # Sisyphus plans and sessions
 .sisyphus/
+
+# Local upstream sources for the experimental Explorer adapter
+.prototype/
