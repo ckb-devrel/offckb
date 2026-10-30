@@ -14,7 +14,11 @@ try {
 
   // Step 2: Bundle with NCC
   console.log('🔗 Bundling with NCC...');
-  execSync('ncc build dist/cli.js -o build --external cpu-features', { stdio: 'inherit' });
+  fs.rmSync('build', { recursive: true, force: true });
+  execSync(
+    'ncc build dist/cli.js -o build --external cpu-features --external @anthropic-ai/sandbox-runtime',
+    { stdio: 'inherit' },
+  );
   // Ship the official runtime once, without its unused entry point, types or snippets.
   const biscuitSource = 'node_modules/@biscuit-auth/biscuit-wasm/module';
   const biscuitModule = new WebAssembly.Module(fs.readFileSync(path.join(biscuitSource, 'biscuit_bg.wasm')));

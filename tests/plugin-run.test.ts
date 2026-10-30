@@ -10,6 +10,20 @@ jest.mock('../src/plugins/context', () => ({
   createPluginContext: (...args: unknown[]) => mockCreateContext(...args),
 }));
 jest.mock('../src/util/shutdown', () => ({ enterGracefulShutdown: jest.fn() }));
+jest.mock('../src/plugins/sandbox', () => ({
+  assertSandboxSupported: jest.fn(),
+  preparePluginSandbox: async (
+    plugin: { entry: string },
+    file: string | undefined,
+    _read: string[],
+    args: string[],
+  ) => {
+    const env = { ...process.env };
+    delete env.OFFCKB_PLUGIN_CONTEXT;
+    if (file) env.OFFCKB_PLUGIN_CONTEXT = file;
+    return { command: process.execPath, args: [plugin.entry, ...args], env, dispose: jest.fn() };
+  },
+}));
 
 let root: string;
 let originalHome: string | undefined;
@@ -122,6 +136,7 @@ posixIt.each(['success', 'throw', 'error event'])(
     const before = process.listeners('SIGTERM');
     const running = runPlugin('runner', [], false);
     const completion = fallback === 'error event' ? expect(running).rejects.toBe(failure) : running;
+    await Promise.resolve();
     const handler = process.listeners('SIGTERM').find((listener) => !before.includes(listener))!;
     expect(() => handler('SIGTERM')).not.toThrow();
     expect(dispose).not.toHaveBeenCalled(); // Cleanup still waits for termination or a child error.

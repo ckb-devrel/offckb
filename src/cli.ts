@@ -36,7 +36,7 @@ import { logger } from './util/logger';
 import { installBrokenPipeHandlers } from './util/shutdown';
 import { Network } from './type/base';
 import { status } from './cmd/status';
-import { registerPluginManagement } from './plugins/cli';
+import { coreCommandIndex, registerPluginManagement } from './plugins/cli';
 
 const version = require('../package.json').version;
 const description = require('../package.json').description;
@@ -493,7 +493,7 @@ function configureCommanderErrors(command: Command) {
 export async function runCli(argv: string[] = process.argv): Promise<void> {
   installBrokenPipeHandlers();
   try {
-    const commandIndex = argv.findIndex((arg, index) => index >= 2 && !arg.startsWith('-'));
+    const commandIndex = coreCommandIndex(program, argv);
     if (argv.slice(2, commandIndex === -1 ? argv.length : commandIndex).includes('--json')) logger.setJsonMode(true);
     // Determine the plugin boundary before the legacy global flag normalization.
     // Only core arguments may participate in --json promotion.

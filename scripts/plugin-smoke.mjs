@@ -1,4 +1,4 @@
-// Opt-in live integration test. Requires a build, a CKB 0.208.0 binary and the prepared Explorer runtime.
+// Opt-in live integration test. Requires a build, CKB 0.208.0 and the public Explorer provider installed in packages/plugin-explorer.
 // All settings, ports, chain data and registrations belong to a fresh temporary directory.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -12,11 +12,13 @@ const project = path.resolve(fileURLToPath(new URL('../', import.meta.url)));
 const cli = path.join(project, 'build/index.js');
 const ckb = process.argv[2];
 if (!ckb || !fs.statSync(ckb).isFile()) throw new Error('Usage: node scripts/plugin-smoke.mjs <CKB-0.208.0-binary>');
-const root = fs.mkdtempSync(path.join(os.tmpdir(), 'offckb plugin smoke '));
+const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'offckb plugin smoke ')));
 const chain = path.join(root, 'devnet');
 const home = path.join(root, 'plugins');
 const env = {
   ...process.env,
+  OFFCKB_TEST_SECRET: 'sandbox-canary',
+  SSH_AUTH_SOCK: '/private/sandbox-canary-agent.sock',
   OFFCKB_SMOKE_ROOT: root,
   OFFCKB_PLUGIN_HOME: home,
   OFFCKB_CLI_PATH: cli,
@@ -169,7 +171,78 @@ try {
   }
   console.log('PASS: failed local list-hashes does not block a chain-independent plugin, clean context');
 
-  invoke(['--json', 'plugin', 'link', path.join(project, 'examples/plugins/explorer')]);
+  const attacker = path.join(root, 'attacker');
+  fs.mkdirSync(attacker);
+  const secret = path.join(root, 'private.txt');
+  const escapedWrite = path.join(root, 'escaped.txt');
+  fs.writeFileSync(secret, 'private-canary');
+  const listener = net.createServer((socket) => {
+    socket.destroy();
+    throw new Error('Sandbox escaped network isolation');
+  });
+  await new Promise((resolve) => listener.listen(0, '127.0.0.1', resolve));
+  fs.writeFileSync(
+    path.join(attacker, 'package.json'),
+    JSON.stringify({
+      name: 'sandbox-probe',
+      version: '1.0.0',
+      offckb: { apiVersion: 1, command: 'sandbox-probe', entry: 'cli.cjs' },
+    }),
+  );
+  fs.writeFileSync(
+    path.join(attacker, 'cli.cjs'),
+    `
+    const fs=require('fs'),cp=require('child_process'),net=require('net');
+    const context=JSON.parse(fs.readFileSync(process.env.OFFCKB_PLUGIN_CONTEXT,'utf8'));
+    const denied=(fn)=>{try{fn();return false;}catch{return true;}};
+    const link=context.plugin.dataPath+'/escape';fs.symlinkSync(${JSON.stringify(secret)},link);
+    fs.writeFileSync(context.plugin.cachePath+'/own','allowed');
+    const result={read:denied(()=>fs.readFileSync(${JSON.stringify(secret)})),write:denied(()=>fs.writeFileSync(${JSON.stringify(escapedWrite)},'bad')),symlink:denied(()=>fs.readFileSync(link)),child:denied(()=>cp.execFileSync('/bin/cat',[${JSON.stringify(secret)}],{stdio:'pipe'})),env:process.env.OFFCKB_TEST_SECRET===undefined&&process.env.SSH_AUTH_SOCK===undefined,rpc:context.devnet.rpcUrl===''};
+    const socket=net.connect(${listener.address().port},'127.0.0.1');
+    const timer=setTimeout(()=>{socket.destroy();result.network=true;finish();},1000);
+    function finish(){clearTimeout(timer);console.log(JSON.stringify(result));if(Object.values(result).some(value=>value!==true))process.exitCode=1;}
+    socket.once('connect',()=>{socket.destroy();result.network=false;finish();});
+    socket.once('error',()=>{result.network=true;finish();});
+  `,
+  );
+  try {
+    invoke(['plugin', 'link', attacker]);
+    const result = JSON.parse(invoke(['--json', 'sandbox-probe']));
+    assert.ok(Object.values(result).every((value) => value === true));
+    assert.equal(fs.existsSync(escapedWrite), false);
+    invoke(['plugin', 'unlink', 'sandbox-probe']);
+  } finally {
+    await new Promise((resolve) => listener.close(resolve));
+  }
+  console.log(
+    'PASS: OS sandbox blocks secret reads, writes, symlink/child escapes, inherited credentials and direct networking',
+  );
+
+  const deployedProject = path.join(root, 'deployed project');
+  const deployment = path.join(deployedProject, 'deployment');
+  fs.mkdirSync(deployment, { recursive: true });
+  fs.writeFileSync(
+    path.join(deployment, 'scripts.json'),
+    JSON.stringify({
+      devnet: {
+        'sandbox-fixture': { script: { codeHash: '0x' + 'ab'.repeat(32), hashType: 'type' } },
+      },
+    }),
+  );
+  invoke([
+    '--json',
+    'plugin',
+    'link',
+    path.join(project, 'packages/plugin-explorer'),
+    '--read',
+    deployment,
+    '--allow',
+    'devnet-read',
+    '--allow',
+    'project-deployment',
+    '--allow',
+    'serve',
+  ]);
   for (let cycle = 0; cycle < 2; cycle++) {
     const node = start(['--json', 'node']);
     try {
@@ -181,7 +254,7 @@ try {
           return false;
         }
       }, 'devnet RPC');
-      const explorer = start(['--json', 'explorer', '--project', project, '--port', '0']);
+      const explorer = start(['--json', '--plugin-port', '0', 'explorer', '--project', deployedProject]);
       try {
         await until(() => {
           if (explorer.code !== undefined) throw new Error(`Explorer exited: ${explorer.stderr}`);
@@ -191,10 +264,14 @@ try {
         assert.match(ready.url, /^http:\/\/127\.0\.0\.1:/);
         assert.equal((await fetch(ready.url)).status, 200);
         const info = await (await fetch(`${ready.url}/api/info`)).json();
-        assert.equal(info.rpcUrl, rpcUrl);
-        assert.deepEqual(info.projects, [project]);
+        assert.match(info.rpcUrl, /^http:\/\/127\.0\.0\.1:/);
+        assert.notEqual(info.rpcUrl, rpcUrl);
+        assert.deepEqual(info.projects, [deployedProject]);
         const overview = await fetch(`${ready.url}/api/overview`);
-        assert.equal(overview.status, 200, await overview.text());
+        assert.equal(overview.status, 200);
+        const summary = await overview.json();
+        assert.equal(summary.knownScripts.project, 1);
+        assert.equal(summary.scripts[0].name, 'sandbox-fixture');
         assert.throws(() => invoke(['--json', 'plugin', 'unlink', 'explorer']), /Command failed/);
       } finally {
         await stop(explorer);
@@ -213,7 +290,7 @@ try {
     if (cycle === 0) invoke(['--json', 'clean', '--data']);
   }
   fs.writeFileSync(path.join(chain, 'fork.json'), JSON.stringify({ source: 'custom', firstRunPending: false }));
-  assert.throws(() => invoke(['--json', 'explorer', '--port', '0']), /Command failed/);
+  assert.throws(() => invoke(['--json', '--plugin-port', '0', 'explorer']), /Command failed/);
   fs.unlinkSync(path.join(chain, 'fork.json'));
   invoke(['--json', 'plugin', 'unlink', 'explorer']);
   assert.deepEqual(fs.readdirSync(path.join(home, 'tmp')), []);

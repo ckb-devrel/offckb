@@ -1,0 +1,29 @@
+{
+  "name": "@offckb/plugin-explorer",
+  "version": "0.1.0",
+  "description": "Devnet Explorer through offckb's restricted plugin interface",
+  "license": "MIT",
+  "type": "module",
+  "files": [
+    "cli.mjs",
+    "README.md"
+  ],
+  "engines": {
+    "node": "^22.21.0 || >=24.5.0"
+  },
+  "dependencies": {
+    "ckb-devnet-explorer": "0.3.0"
+  },
+  "offckb": {
+    "apiVersion": 1,
+    "command": "explorer",
+    "entry": "cli.mjs",
+    "description": "Browse the current devnet in the sandbox",
+    "permissions": [
+      "devnet-read",
+      "project-deployment",
+      "serve"
+    ]
+  },
+  "private": true
+}

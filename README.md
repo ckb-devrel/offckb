@@ -608,7 +608,7 @@ npm install -g @offckb/cli
 
 ## Experimental local plugins
 
-Local tool packages can be explicitly linked with `offckb plugin link <directory>`, inspected with `offckb plugin list`, and run as `offckb <plugin-command>`. The host supplies devnet context and owns foreground cleanup. See the [plugin guide](docs/plugins.md) for the context probe, experimental Devnet Explorer adapter, and current limits. Registry installation and background plugins are not implemented yet.
+Local tool packages can be explicitly linked with `offckb plugin link <directory>`, inspected with `offckb plugin list`, and run as `offckb <plugin-command>`. The host enforces an OS sandbox with explicit capability grants, supplies restricted devnet context and owns foreground cleanup. Plugins currently require macOS/Linux and Node 22.21+ (22.x) or 24.5+; unsupported environments fail closed. See the [plugin guide](docs/plugins.md) for the context probe, public-CLI Explorer adapter (awaiting upstream release), and security limits. Registry installation and background plugins are not implemented yet.
 
 ## Contributing
 

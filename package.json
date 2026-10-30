@@ -94,6 +94,7 @@
     "winston": "^3.17.0"
   },
   "optionalDependencies": {
+    "@anthropic-ai/sandbox-runtime": "0.0.81",
     "cpu-features": "^0.0.10"
   }
 }

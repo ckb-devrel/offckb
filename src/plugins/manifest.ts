@@ -2,6 +2,9 @@ import fs from 'fs';
 import path from 'path';
 import semver from 'semver';
 
+export const PLUGIN_PERMISSIONS = ['devnet-read', 'project-deployment', 'serve'] as const;
+export type PluginPermission = (typeof PLUGIN_PERMISSIONS)[number];
+
 export interface PluginManifest {
   directory: string;
   name: string;
@@ -10,6 +13,7 @@ export interface PluginManifest {
   description: string;
   entry: string;
   node?: string;
+  permissions: PluginPermission[];
 }
 
 export function isPluginCommand(value: unknown): value is string {
@@ -48,6 +52,13 @@ export function readPluginManifest(directory: string): PluginManifest {
   if (node !== undefined && (typeof node !== 'string' || !semver.validRange(node))) {
     throw new Error('Invalid plugin engines.node range');
   }
+  const permissions = declaration.permissions ?? [];
+  if (
+    !Array.isArray(permissions) ||
+    permissions.some((permission) => !PLUGIN_PERMISSIONS.includes(permission)) ||
+    new Set(permissions).size !== permissions.length
+  )
+    throw new Error(`offckb.permissions must contain only: ${PLUGIN_PERMISSIONS.join(', ')}`);
   return {
     directory: root,
     name: pkg.name,
@@ -55,6 +66,7 @@ export function readPluginManifest(directory: string): PluginManifest {
     command: declaration.command,
     entry,
     description: typeof declaration.description === 'string' ? declaration.description : pkg.name,
+    permissions: [...permissions].sort(),
     ...(typeof node === 'string' ? { node } : {}),
   };
 }

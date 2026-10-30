@@ -119,6 +119,36 @@ it('preserves a corrupt registry instead of overwriting it', () => {
   expect(fs.readFileSync(file, 'utf8')).toBe('{broken');
 });
 
+it('requires explicit capability grants and refuses permission changes until relinked', () => {
+  const root = makePlugin('probe', { offckb: { permissions: ['devnet-read'] } });
+  expect(() => linkPlugin(root, new Set())).toThrow('--allow devnet-read');
+  expect(() => linkPlugin(root, new Set(), { allow: ['devnet-read', 'serve'] })).toThrow('Only permissions declared');
+  linkPlugin(root, new Set(), { allow: ['devnet-read'], read: [directory] });
+  expect(listPlugins(new Set())[0]).toMatchObject({
+    state: 'available',
+    permissions: ['devnet-read'],
+    readPaths: [fs.realpathSync(directory)],
+  });
+  const manifest = path.join(root, 'package.json');
+  const pkg = JSON.parse(fs.readFileSync(manifest, 'utf8'));
+  pkg.offckb.permissions.push('serve');
+  fs.writeFileSync(manifest, JSON.stringify(pkg));
+  expect(listPlugins(new Set())[0].state).toBe('invalid');
+  expect(() => acquirePlugin('probe')).toThrow('explicit grants');
+  linkPlugin(root, new Set(), { allow: ['devnet-read', 'serve'] });
+  expect(listPlugins(new Set())[0].state).toBe('available');
+});
+
+it('reads legacy links without silently granting capabilities or rewriting the registry', () => {
+  const root = makePlugin();
+  fs.mkdirSync(process.env.OFFCKB_PLUGIN_HOME!);
+  const file = path.join(process.env.OFFCKB_PLUGIN_HOME!, 'registry.json');
+  const content = JSON.stringify({ apiVersion: 1, plugins: { probe: fs.realpathSync(root) } });
+  fs.writeFileSync(file, content);
+  expect(listPlugins(new Set())[0]).toMatchObject({ state: 'available', permissions: [], readPaths: [] });
+  expect(fs.readFileSync(file, 'utf8')).toBe(content);
+});
+
 it('exports current chain metadata without keys and removes per-run files', () => {
   fs.mkdirSync(mockSettings.devnet.configPath);
   fs.writeFileSync(path.join(mockSettings.devnet.configPath, 'ckb.toml'), '');
@@ -149,6 +179,16 @@ it('exports current chain metadata without keys and removes per-run files', () =
   run.dispose();
   expect(fs.existsSync(run.file)).toBe(false);
   expect(fs.existsSync(value.devnet.systemScriptsFile)).toBe(false);
+});
+
+it('refuses persistent storage symlinks instead of granting their targets on the next invocation', () => {
+  if (process.platform === 'win32') return;
+  const plugin = readPluginManifest(makePlugin());
+  const home = process.env.OFFCKB_PLUGIN_HOME!;
+  fs.mkdirSync(path.join(home, 'data'), { recursive: true });
+  fs.symlinkSync(directory, path.join(home, 'data', plugin.command));
+  expect(() => createPluginContext(plugin, false)).toThrow(/storage must be a real directory/);
+  expect(fs.readdirSync(path.join(home, 'tmp'))).toEqual([]);
 });
 
 it('represents an uninitialized chain as unknown and does not run CKB', () => {
@@ -213,7 +253,12 @@ it('lets Commander parse only the core prefix and keeps plugin arguments opaque'
   ]);
   await program.parseAsync(invocation.argv);
   expect(invocation.delegated()).toBe(true);
-  expect(mockRunPlugin).toHaveBeenCalledWith('probe', ['--json', '--json', '--project', 'a b', '--', 'tail'], true);
+  expect(mockRunPlugin).toHaveBeenCalledWith(
+    'probe',
+    ['--json', '--json', '--project', 'a b', '--', 'tail'],
+    true,
+    7070,
+  );
 });
 
 it('does not interpret a plugin --json as the core output format and delegates help', async () => {
@@ -223,7 +268,7 @@ it('does not interpret a plugin --json as the core output format and delegates h
   for (const args of [['--json'], ['--help']]) {
     const invocation = plugins.prepare(['node', 'offckb', 'probe', ...args]);
     await program.parseAsync(invocation.argv);
-    expect(mockRunPlugin).toHaveBeenLastCalledWith('probe', args, false);
+    expect(mockRunPlugin).toHaveBeenLastCalledWith('probe', args, false, 7070);
   }
 });
 
@@ -236,4 +281,16 @@ it('keeps core commands usable with a corrupt registry', async () => {
   const plugins = registerPluginManagement(program);
   await program.parseAsync(plugins.prepare(['node', 'offckb', 'node']).argv);
   expect(action).toHaveBeenCalled();
+});
+
+it('does not carry capability grants into a later link in the same CLI process', async () => {
+  const first = makePlugin('first', { offckb: { permissions: ['devnet-read'] } });
+  const second = makePlugin('second', { offckb: { permissions: ['devnet-read'] } });
+  const program = new Command();
+  const plugins = registerPluginManagement(program);
+  await program.parseAsync(plugins.prepare(['node', 'offckb', 'plugin', 'link', first, '--allow', 'devnet-read']).argv);
+  await expect(program.parseAsync(plugins.prepare(['node', 'offckb', 'plugin', 'link', second]).argv)).rejects.toThrow(
+    /explicit grants/,
+  );
+  expect(listPlugins(new Set()).map((plugin) => plugin.command)).toEqual(['first']);
 });

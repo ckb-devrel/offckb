@@ -8,6 +8,7 @@ import {
 import { enterGracefulShutdown } from '../util/shutdown';
 import { createPluginContext } from './context';
 import { acquirePlugin } from './store';
+import { assertSandboxSupported, preparePluginSandbox } from './sandbox';
 
 function signalChild(child: ChildProcess, signal: NodeJS.Signals): void {
   if (!child.pid) return;
@@ -28,9 +29,11 @@ function signalChild(child: ChildProcess, signal: NodeJS.Signals): void {
   }
 }
 
-export async function runPlugin(command: string, args: string[], json: boolean): Promise<void> {
+export async function runPlugin(command: string, args: string[], json: boolean, port = 7070): Promise<void> {
+  assertSandboxSupported();
   const lease = acquirePlugin(command);
   let context: ReturnType<typeof createPluginContext> | undefined;
+  let sandbox: Awaited<ReturnType<typeof preparePluginSandbox>> | undefined;
   const guard = bindChildrenToProcessLifetime();
   const listeners: Array<[LifetimeSignal, () => void]> = [];
   let child: ChildProcess | undefined;
@@ -43,13 +46,11 @@ export async function runPlugin(command: string, args: string[], json: boolean):
     // Help is delegated without reading settings, exporting scripts or requiring a chain.
     const helpOnly = args.length === 1 && (args[0] === '--help' || args[0] === '-h');
     if (!helpOnly) context = createPluginContext(lease.plugin, json);
-    const env = { ...process.env };
-    delete env.OFFCKB_PLUGIN_CONTEXT;
-    if (context) env.OFFCKB_PLUGIN_CONTEXT = context.file;
-    child = spawn(process.execPath, [lease.plugin.entry, ...args], {
+    sandbox = await preparePluginSandbox(lease.plugin, context?.file, lease.readPaths, args, port);
+    child = spawn(sandbox.command, sandbox.args, {
       stdio: 'inherit',
       cwd: process.cwd(),
-      env,
+      env: sandbox.env,
       shell: false,
       detached: process.platform !== 'win32',
     });
@@ -88,9 +89,13 @@ export async function runPlugin(command: string, args: string[], json: boolean):
     guard.stopAll();
     guard.dispose();
     try {
-      context?.dispose();
+      sandbox?.dispose();
     } finally {
-      lease.release();
+      try {
+        context?.dispose();
+      } finally {
+        lease.release();
+      }
     }
   }
 }

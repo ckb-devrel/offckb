@@ -161,7 +161,7 @@ describe('CLI error output', () => {
     mockListPlugins.mockReturnValue([{ command: 'probe', state: 'available', directory: '/unused' }]);
     const { runCli } = loadCli();
     await runCli(['node', 'offckb', '--json', 'probe', '--', '--json', '--json', '--path', 'a b']);
-    expect(mockRunPlugin).toHaveBeenCalledWith('probe', ['--json', '--json', '--path', 'a b'], true);
+    expect(mockRunPlugin).toHaveBeenCalledWith('probe', ['--json', '--json', '--path', 'a b'], true, 7070);
     const { logger } = require('../src/util/logger');
     expect(logger.result).not.toHaveBeenCalled();
     expect(mockFailure).not.toHaveBeenCalled();
@@ -171,7 +171,7 @@ describe('CLI error output', () => {
     mockListPlugins.mockReturnValue([{ command: 'probe', state: 'available', directory: '/unused' }]);
     const { runCli } = loadCli();
     await runCli(['node', 'offckb', 'probe', '--json']);
-    expect(mockRunPlugin).toHaveBeenCalledWith('probe', ['--json'], false);
+    expect(mockRunPlugin).toHaveBeenCalledWith('probe', ['--json'], false, 7070);
     expect(jsonMode.value).toBe(false);
   });
 
@@ -184,8 +184,8 @@ describe('CLI error output', () => {
     await runCli(['node', 'offckb', 'probe', 'first']);
     await runCli(['node', 'offckb', 'probe', 'second']);
     expect(mockRunPlugin.mock.calls).toEqual([
-      ['probe', ['first'], false],
-      ['probe', ['second'], false],
+      ['probe', ['first'], false, 7070],
+      ['probe', ['second'], false, 7070],
     ]);
 
     let help = '';
@@ -203,5 +203,14 @@ describe('CLI error output', () => {
     }
     expect(mockRunPlugin).toHaveBeenCalledTimes(2);
     expect(mockFailure).not.toHaveBeenCalled();
+  });
+
+  it('parses a valued core option before the plugin boundary and resets it between invocations', async () => {
+    mockListPlugins.mockReturnValue([{ command: 'probe', state: 'available', directory: '/unused' }]);
+    const { runCli } = loadCli();
+    await runCli(['node', 'offckb', '--plugin-port', '0', '--json', 'probe', '--plugin-port', '123']);
+    expect(mockRunPlugin).toHaveBeenLastCalledWith('probe', ['--plugin-port', '123'], true, 0);
+    await runCli(['node', 'offckb', 'probe']);
+    expect(mockRunPlugin).toHaveBeenLastCalledWith('probe', [], false, 7070);
   });
 });

@@ -14,6 +14,7 @@ export interface PluginContext {
   output: 'json' | 'text';
   cli: { node: string; entry: string | null };
   plugin: { command: string; dataPath: string; cachePath: string };
+  sandbox?: { backend: 'os'; permissions: PluginManifest['permissions']; http?: { socket: string; url: string } };
   devnet: {
     rpcUrl: string;
     proxyUrl: string;
@@ -71,6 +72,11 @@ export function createPluginContext(plugin: PluginManifest, json: boolean): { fi
     const cache = path.join(pluginHome(), 'cache', plugin.command);
     fs.mkdirSync(data, { recursive: true, mode: 0o700 });
     fs.mkdirSync(cache, { recursive: true, mode: 0o700 });
+    // A tool may leave symlinks in its storage. Never turn one into a new host grant.
+    for (const storage of [data, cache]) {
+      if (fs.lstatSync(storage).isSymbolicLink() || !fs.lstatSync(storage).isDirectory())
+        throw new Error('Plugin storage must be a real directory, not a symlink');
+    }
     const context: PluginContext = {
       apiVersion: 1,
       offckbVersion: require('../../package.json').version,
