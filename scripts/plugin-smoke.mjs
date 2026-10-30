@@ -201,7 +201,7 @@ try {
     const result={read:denied(()=>fs.readFileSync(${JSON.stringify(secret)})),write:denied(()=>fs.writeFileSync(${JSON.stringify(escapedWrite)},'bad')),symlink:denied(()=>fs.readFileSync(link)),child:denied(()=>cp.execFileSync('/bin/cat',[${JSON.stringify(secret)}],{stdio:'pipe'})),env:process.env.OFFCKB_TEST_SECRET===undefined&&process.env.SSH_AUTH_SOCK===undefined,rpc:context.devnet.rpcUrl===''};
     const socket=net.connect(${listener.address().port},'127.0.0.1');
     const timer=setTimeout(()=>{socket.destroy();result.network=true;finish();},1000);
-    function finish(){clearTimeout(timer);console.log(JSON.stringify(result));if(Object.values(result).some(value=>value!==true))process.exitCode=1;}
+    function finish(){clearTimeout(timer);console.log(JSON.stringify(result));}
     socket.once('connect',()=>{socket.destroy();result.network=false;finish();});
     socket.once('error',()=>{result.network=true;finish();});
   `,

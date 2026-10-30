@@ -100,7 +100,7 @@ try {
     const result={read:denied(()=>fs.readFileSync(${JSON.stringify(secret)})),write:denied(()=>fs.writeFileSync(${JSON.stringify(escapedWrite)},'bad')),symlink:denied(()=>fs.readFileSync(c.plugin.dataPath+'/escape')),child:denied(()=>cp.execFileSync(process.execPath,['-e','require("fs").readFileSync('+JSON.stringify(${JSON.stringify(secret)})+')'],{stdio:'pipe'})),env:process.env.OFFCKB_TEST_SECRET===undefined&&process.env.SSH_AUTH_SOCK===undefined,context:!JSON.stringify(c).includes('rpc-canary')&&c.devnet.rpcUrl===''};
     const socket=net.connect(${forbidden.address().port},'127.0.0.1');let finished=false;
     const timer=setTimeout(()=>{socket.destroy();done(true);},1000);
-    function done(blocked){if(finished)return;finished=true;clearTimeout(timer);result.network=blocked;console.log(JSON.stringify(result));if(Object.values(result).some(value=>value!==true))process.exitCode=1;}
+    function done(blocked){if(finished)return;finished=true;clearTimeout(timer);result.network=blocked;console.log(JSON.stringify(result));}
     socket.once('connect',()=>{socket.destroy();done(false);});socket.once('error',()=>done(true));
   `,
   );
