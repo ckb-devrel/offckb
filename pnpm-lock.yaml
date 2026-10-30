@@ -13,6 +13,16 @@ overrides:
   brace-expansion@<1.1.21: 1.1.21
   brace-expansion@>=4.0.0 <5.0.12: 5.0.12
 
+packageExtensionsChecksum: sha256-UxbzwzEYdCyYfQrzlOS2vSdBi/DU3m6WV596zrZlpO4=
+
+patchedDependencies:
+  tr46@0.0.3:
+    hash: 590c3747afb00f7a520333c468e2cd15da5f896533777a88f94bbce8cd755aac
+    path: patches/tr46@0.0.3.patch
+  whatwg-url@5.0.0:
+    hash: d3c34002a8c3a046735554ca0e151137b2b4d443668f131ed6e883c0128a6d3f
+    path: patches/whatwg-url@5.0.0.patch
+
 importers:
 
   .:
@@ -5452,7 +5462,7 @@ snapshots:
 
   node-fetch@2.7.0:
     dependencies:
-      whatwg-url: 5.0.0
+      whatwg-url: 5.0.0(patch_hash=d3c34002a8c3a046735554ca0e151137b2b4d443668f131ed6e883c0128a6d3f)
 
   node-int64@0.4.0: {}
 
@@ -5797,7 +5807,9 @@ snapshots:
     dependencies:
       is-number: 7.0.0
 
-  tr46@0.0.3: {}
+  tr46@0.0.3(patch_hash=590c3747afb00f7a520333c468e2cd15da5f896533777a88f94bbce8cd755aac):
+    dependencies:
+      punycode: 2.3.1
 
   tree-kill@1.2.2: {}
 
@@ -5949,9 +5961,10 @@ snapshots:
 
   webidl-conversions@3.0.1: {}
 
-  whatwg-url@5.0.0:
+  whatwg-url@5.0.0(patch_hash=d3c34002a8c3a046735554ca0e151137b2b4d443668f131ed6e883c0128a6d3f):
     dependencies:
-      tr46: 0.0.3
+      punycode: 2.3.1
+      tr46: 0.0.3(patch_hash=590c3747afb00f7a520333c468e2cd15da5f896533777a88f94bbce8cd755aac)
       webidl-conversions: 3.0.1
 
   which@2.0.2:
