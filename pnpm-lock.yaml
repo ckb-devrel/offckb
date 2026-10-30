@@ -149,6 +149,9 @@ importers:
 
 packages:
 
+  zod@3.25.76:
+    resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
+
   '@adraffy/ens-normalize@1.11.1':
     resolution: {integrity: sha512-nhCBV3quEgesuf7c7KYfperqSS14T8bYuvJ8PcLJp6znkZpFc0AuW4qBtr8eKVyPPe/8RSr7sglCWPU5eaxwKQ==}
 
@@ -2942,6 +2945,9 @@ packages:
     engines: {node: '>=18'}
 
 snapshots:
+
+  zod@3.25.76:
+    optional: true
 
   '@adraffy/ens-normalize@1.11.1': {}
 

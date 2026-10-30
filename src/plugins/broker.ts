@@ -20,6 +20,9 @@ const READ_METHODS = new Set([
   'get_epoch_by_number',
   'get_fee_rate_statistics',
   'estimate_fee_rate',
+  'get_block_economic_state',
+  'tx_pool_info',
+  'get_raw_tx_pool',
 ]);
 
 async function listen(server: net.Server, port: number): Promise<number> {
@@ -61,12 +64,13 @@ export async function createReadRpcBroker(source: string): Promise<{ url: string
         chunks.push(bytes);
       }
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      const calls = Array.isArray(body) ? body : [body];
       if (
-        !body ||
-        Array.isArray(body) ||
-        body.jsonrpc !== '2.0' ||
-        !READ_METHODS.has(body.method) ||
-        !Array.isArray(body.params)
+        calls.length === 0 ||
+        calls.length > 200 ||
+        calls.some(
+          (call) => !call || call.jsonrpc !== '2.0' || !READ_METHODS.has(call.method) || !Array.isArray(call.params),
+        )
       ) {
         res
           .writeHead(403, { 'Content-Type': 'application/json' })
@@ -78,7 +82,11 @@ export async function createReadRpcBroker(source: string): Promise<{ url: string
         redirect: 'error',
         signal: AbortSignal.timeout(5000),
         headers: { 'Content-Type': 'application/json', ...(authorization ? { Authorization: authorization } : {}) },
-        body: JSON.stringify({ jsonrpc: '2.0', id: body.id ?? null, method: body.method, params: body.params }),
+        body: JSON.stringify(
+          Array.isArray(body)
+            ? calls.map((call) => ({ jsonrpc: '2.0', id: call.id ?? null, method: call.method, params: call.params }))
+            : { jsonrpc: '2.0', id: body.id ?? null, method: body.method, params: body.params },
+        ),
       });
       const result: Buffer[] = [];
       let responseSize = 0;

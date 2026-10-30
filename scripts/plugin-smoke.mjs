@@ -267,7 +267,7 @@ try {
         assert.match(info.rpcUrl, /^http:\/\/127\.0\.0\.1:/);
         assert.notEqual(info.rpcUrl, rpcUrl);
         assert.deepEqual(info.projects, [deployedProject]);
-        const overview = await fetch(`${ready.url}/api/overview`);
+        const overview = await fetch(`${ready.url}/api/home`);
         assert.equal(overview.status, 200);
         const summary = await overview.json();
         assert.equal(summary.knownScripts.project, 1);

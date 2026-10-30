@@ -28,7 +28,19 @@ it('only forwards read RPC calls and keeps upstream credentials inside the host'
     expect((await call('get_tip_block_number')).status).toBe(200);
     expect((await call('send_transaction')).status).toBe(403);
     expect((await fetch(broker.url)).status).toBe(405);
-    expect(seen).toHaveLength(1);
+    const read = { jsonrpc: '2.0', id: 2, method: 'get_block_by_number', params: ['0x0'] };
+    const batch = (calls: unknown[]) =>
+      fetch(broker.url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(calls),
+      });
+    expect((await batch([read, { ...read, method: 'send_transaction' }])).status).toBe(403);
+    expect((await batch([])).status).toBe(403);
+    expect((await batch(Array(201).fill(read))).status).toBe(403);
+    expect(seen).toHaveLength(1); // Mixed/oversized batches must forward no partial calls.
+    expect((await batch([read, read])).status).toBe(200);
+    expect(seen).toHaveLength(2);
     expect(seen[0].authorization).toBe(`Basic ${Buffer.from('user:secret').toString('base64')}`);
   } finally {
     broker.close();

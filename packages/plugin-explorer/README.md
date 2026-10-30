@@ -20,7 +20,7 @@ To reproduce pre-release integration tests, use the upstream PR commit as a norm
 
 ```sh
 git clone https://github.com/RetricSu/ckb-devnet-explorer.git .prototype/explorer-public-cli
-git -C .prototype/explorer-public-cli checkout fecb659
+git -C .prototype/explorer-public-cli checkout a6c65b2
 npm pack ./.prototype/explorer-public-cli --ignore-scripts --pack-destination .prototype
 npm install --prefix packages/plugin-explorer --no-save --package-lock=false \
   --omit=dev --ignore-scripts ./.prototype/ckb-devnet-explorer-0.3.0.tgz
