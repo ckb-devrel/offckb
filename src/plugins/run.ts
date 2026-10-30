@@ -19,8 +19,12 @@ function signalChild(child: ChildProcess, signal: NodeJS.Signals): void {
       process.kill(-child.pid, signal);
     }
   } catch (error) {
-    if (process.platform === 'win32' && child.exitCode == null && child.signalCode == null) child.kill('SIGKILL');
-    if ((error as NodeJS.ErrnoException).code !== 'ESRCH' && process.platform !== 'win32') throw error;
+    if ((error as NodeJS.ErrnoException).code === 'ESRCH' || child.exitCode != null || child.signalCode != null) return;
+    try {
+      child.kill(process.platform === 'win32' ? 'SIGKILL' : signal);
+    } catch {
+      // Best effort: a failed signal must not bypass context cleanup or lease release.
+    }
   }
 }
 
@@ -66,7 +70,8 @@ export async function runPlugin(command: string, args: string[], json: boolean):
       process.on(signal, listener);
     }
     const result = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
-      child!.once('error', reject);
+      // kill() can emit another error during the final cleanup attempt.
+      child!.on('error', reject);
       child!.once('close', (code, signal) => resolve({ code, signal }));
     });
     process.exitCode = requestedSignal

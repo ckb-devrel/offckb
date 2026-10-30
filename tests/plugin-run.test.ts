@@ -1,6 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import childProcess from 'child_process';
 import { runPlugin } from '../src/plugins/run';
 import { linkPlugin, unlinkPlugin } from '../src/plugins/store';
 
@@ -98,6 +99,44 @@ it('preserves nonzero exit codes and cleans up after context preparation fails',
   await expect(runPlugin('runner', [], false)).rejects.toThrow('bad settings');
   expect(() => unlinkPlugin('runner')).not.toThrow();
 });
+
+const posixIt = process.platform === 'win32' ? it.skip : it;
+posixIt.each(['success', 'throw', 'error event'])(
+  'keeps shutdown and cleanup usable after a group signal fails and the child fallback reports %s',
+  async (fallback) => {
+    const child = new childProcess.ChildProcess();
+    Object.assign(child, { pid: 123456 }); // No real process is created or signaled.
+    jest.spyOn(childProcess, 'spawn').mockReturnValue(child);
+    jest.spyOn(process, 'kill').mockImplementation(() => {
+      throw Object.assign(new Error('group signaling denied'), { code: 'EPERM' });
+    });
+    const failure = Object.assign(new Error('child signaling denied'), { code: 'EPERM' });
+    const kill = jest.spyOn(child, 'kill').mockImplementation(() => {
+      if (fallback === 'throw') throw failure;
+      if (fallback === 'error event') {
+        child.emit('error', failure);
+        return false;
+      }
+      return true;
+    });
+    const before = process.listeners('SIGTERM');
+    const running = runPlugin('runner', [], false);
+    const completion = fallback === 'error event' ? expect(running).rejects.toBe(failure) : running;
+    const handler = process.listeners('SIGTERM').find((listener) => !before.includes(listener))!;
+    expect(() => handler('SIGTERM')).not.toThrow();
+    expect(dispose).not.toHaveBeenCalled(); // Cleanup still waits for termination or a child error.
+    if (fallback !== 'error event') {
+      child.exitCode = 0;
+      child.emit('close', 0, null);
+    }
+    await completion;
+    expect(kill).toHaveBeenCalledWith('SIGTERM');
+    expect(dispose).toHaveBeenCalledTimes(1);
+    expect(fs.existsSync(contextFile)).toBe(false);
+    expect(process.listeners('SIGTERM')).toEqual(before);
+    expect(() => unlinkPlugin('runner')).not.toThrow();
+  },
+);
 
 it('forwards a captured shutdown signal to its owned process group and waits for cleanup', async () => {
   if (process.platform === 'win32') return; // Signal and taskkill behavior needs a Windows host.

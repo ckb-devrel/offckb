@@ -88,7 +88,7 @@ node build/index.js node --daemon
 node build/index.js explorer --project /path/to/deployed-project --port 7070
 ```
 
-The preparation script copies source into ignored `.prototype/explorer`; it does not edit the checkout supplied by the user. The local copy adds an explicit server host and moves the upstream startup message to stderr. The adapter reads system scripts from the host snapshot, merges `deployment/scripts.json` from selected projects, and never invokes `offckb` from PATH. It loads tsx's declared ESM entry, matching upstream's ESM loader.
+The preparation script requires a Git checkout at the pinned commit with no changes reported by `git status`, including untracked files. Source archives, different revisions and dirty checkouts are rejected before copying or writing a marker. It copies source into ignored `.prototype/explorer`; it does not edit the checkout supplied by the user. The local copy adds an explicit server host and moves the upstream startup message to stderr. The adapter reads system scripts from the host snapshot, merges `deployment/scripts.json` from selected projects, and never invokes `offckb` from PATH. It loads tsx's declared ESM entry, matching upstream's ESM loader.
 
 Node 22+ and an initialized ordinary devnet are required. Forks and unknown chain identities are rejected before listening. RPC genesis must match the supplied scripts context; missing/lagging built-in indexer is reported separately. The web server binds `127.0.0.1` and defaults to 7070; `--port 0` selects a free port. `--project` is repeatable and defaults to invocation cwd. There is no arbitrary `--rpc` override or automatic browser launch.
 
