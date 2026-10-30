@@ -70,7 +70,6 @@ export async function preparePluginSandbox(
     if (process.platform === 'linux') read.push(path.join(runtimeDirectory, 'vendor/seccomp'));
     const write = [root];
     const allowedDomains: string[] = [];
-    const sockets: string[] = [];
     if (context) {
       context.plugin.dataPath = fs.realpathSync(context.plugin.dataPath);
       context.plugin.cachePath = fs.realpathSync(context.plugin.cachePath);
@@ -100,11 +99,15 @@ export async function preparePluginSandbox(
         allowedDomains.push(new URL(rpc.url).host);
       }
       if (plugin.permissions.includes('serve')) {
-        const socket = path.join(root, 'http.sock');
-        const http = await createHttpBridge(socket, port);
+        const http = await createHttpBridge(port);
         cleanup.push(http.close);
-        context.sandbox.http = { socket, url: http.url };
-        sockets.push(socket);
+        context.sandbox.http = {
+          transport: 'proxy-connect-v1',
+          endpoint: http.endpoint,
+          token: http.token,
+          url: http.url,
+        };
+        allowedDomains.push(http.endpoint);
       }
       fs.writeFileSync(contextFile!, JSON.stringify(context), { mode: 0o600 });
     }
@@ -123,7 +126,8 @@ export async function preparePluginSandbox(
           allowedDomains,
           deniedDomains: [],
           strictAllowlist: true,
-          allowUnixSockets: sockets,
+          allowUnixSockets: [],
+          allowAllUnixSockets: false,
           allowLocalBinding: false,
         },
         allowAppleEvents: false,

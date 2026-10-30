@@ -14,7 +14,11 @@ export interface PluginContext {
   output: 'json' | 'text';
   cli: { node: string; entry: string | null };
   plugin: { command: string; dataPath: string; cachePath: string };
-  sandbox?: { backend: 'os'; permissions: PluginManifest['permissions']; http?: { socket: string; url: string } };
+  sandbox?: {
+    backend: 'os';
+    permissions: PluginManifest['permissions'];
+    http?: { transport: 'proxy-connect-v1'; endpoint: string; token: string; url: string };
+  };
   devnet: {
     rpcUrl: string;
     proxyUrl: string;

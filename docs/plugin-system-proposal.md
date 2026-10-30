@@ -59,7 +59,7 @@
 - 无 `devnet-read` 授权时 RPC 字段为空；有授权时只暴露宿主只读网关，原始 URL 和认证留在宿主。
 - 链元数据由托管 CKB 本地 `list-hashes` 提供，限时三秒；缺失或失败降级为 `unknown`，必要时附脱敏诊断。需要链身份的插件自行决定是否拒绝，并验证 RPC genesis。
 - `project-deployment` 授予调用项目 deployment 的只读访问；额外路径用 `--read` 显式授权。路径字符串本身不授予访问权。
-- `serve` 允许插件通过指定 Unix socket 主动提供 HTTP 连接，由宿主监听 loopback 并设置响应安全头。宿主不规定第三方应用的启动参数或内部服务 API。
+- `serve` 允许插件通过受限代理向宿主建立带随机令牌认证的反向 HTTP 连接（Unix socket 限制保持开启），由宿主监听 loopback 并设置响应安全头。宿主不规定第三方应用的启动参数或内部服务 API。
 - 沙箱进程 cwd 是插件包目录，项目相对路径按 context.cwd 解释。Node/CLI 路径只是信息，不代表能够绕过权限调用核心。
 
 所有参数以 argv 数组传递，不拼 shell 命令。核心 `--json` 和 `--plugin-port` 必须位于插件命令之前；命令之后的 token 属于插件，仅消费紧随命令名的第一个 `--`。现有核心命令的标志兼容逻辑保持原有行为。

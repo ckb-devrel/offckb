@@ -1,5 +1,6 @@
 import http from 'http';
 import net from 'net';
+import { randomBytes, timingSafeEqual } from 'crypto';
 
 const READ_METHODS = new Set([
   'get_block',
@@ -121,10 +122,17 @@ export async function createReadRpcBroker(source: string): Promise<{ url: string
 }
 
 /**
- * The plugin connects out to this private socket and serves HTTP on that connection.
- * The host never follows a plugin-writable socket pathname to another local service.
+ * The plugin reaches this endpoint through the restricted egress proxy, authenticates,
+ * then serves HTTP in the reverse direction. No plugin-selected destination is dialled.
  */
-export async function createHttpBridge(socketPath: string, port: number): Promise<{ url: string; close: () => void }> {
+export async function createHttpBridge(port: number): Promise<{
+  endpoint: string;
+  token: string;
+  url: string;
+  close: () => void;
+}> {
+  const token = randomBytes(32).toString('hex');
+  const hello = Buffer.from(`offckb-http/1 ${token}\n`);
   const sockets = new Set<net.Socket>();
   const idle: net.Socket[] = [];
   const waiters: Array<(socket?: net.Socket) => void> = [];
@@ -140,9 +148,22 @@ export async function createHttpBridge(socketPath: string, port: number): Promis
       const i = idle.indexOf(socket);
       if (i >= 0) idle.splice(i, 1);
     });
-    const waiter = waiters.shift();
-    if (waiter) waiter(socket);
-    else idle.push(socket);
+    socket.setTimeout(3000, () => socket.destroy());
+    let received = Buffer.alloc(0);
+    const authenticate = (chunk: Buffer) => {
+      received = Buffer.concat([received, chunk]);
+      if (received.length > hello.length) return socket.destroy();
+      if (!received.includes(10)) return;
+      if (received.length !== hello.length || !timingSafeEqual(received, hello)) return socket.destroy();
+      socket.removeListener('data', authenticate);
+      socket.setTimeout(0);
+      socket.pause();
+      socket.write('OK\n');
+      const waiter = waiters.shift();
+      if (waiter) waiter(socket);
+      else idle.push(socket);
+    };
+    socket.on('data', authenticate);
   });
   const take = () =>
     new Promise<net.Socket>((resolve, reject) => {
@@ -199,6 +220,7 @@ export async function createHttpBridge(socketPath: string, port: number): Promis
         res.end('Plugin HTTP service is unavailable');
       });
       req.on('aborted', () => upstream.destroy());
+      socket.resume();
       req.pipe(upstream);
     } catch {
       if (!res.headersSent) res.writeHead(503);
@@ -215,14 +237,8 @@ export async function createHttpBridge(socketPath: string, port: number): Promis
     bridge.close();
   };
   try {
-    await new Promise<void>((resolve, reject) => {
-      bridge.once('error', reject);
-      bridge.listen(socketPath, () => {
-        bridge.removeListener('error', reject);
-        resolve();
-      });
-    });
-    return { url: `http://127.0.0.1:${await listen(server, port)}`, close };
+    const bridgePort = await listen(bridge, 0);
+    return { endpoint: `127.0.0.1:${bridgePort}`, token, url: `http://127.0.0.1:${await listen(server, port)}`, close };
   } catch (error) {
     close();
     throw error;

@@ -175,13 +175,40 @@ try {
     const fs=require('fs'),http=require('http'),net=require('net');
     const c=JSON.parse(fs.readFileSync(process.env.OFFCKB_PLUGIN_CONTEXT,'utf8'));
     const server=http.createServer((req,res)=>{res.setHeader('Content-Type','text/plain');res.setHeader('Content-Security-Policy','default-src *');res.end('generic plugin fixture');});
+    const unixBlocked=new Promise(resolve=>{const socket=net.connect(__dirname+'/u');socket.once('error',()=>resolve(true));socket.once('connect',()=>{socket.destroy();resolve(false);});});
     let ready=false;
-    function connect(){const socket=net.connect(c.sandbox.http.socket);socket.once('connect',()=>{server.emit('connection',socket);if(!ready){ready=true;console.log(JSON.stringify({url:c.sandbox.http.url,rpc:c.devnet.rpcUrl}));}});socket.on('error',()=>socket.destroy());socket.once('close',()=>setTimeout(connect,20));}
+    function connect(){
+      const proxy=new URL(process.env.HTTP_PROXY||process.env.http_proxy);
+      const auth=Buffer.from(decodeURIComponent(proxy.username)+':'+decodeURIComponent(proxy.password)).toString('base64');
+      const request=http.request({hostname:proxy.hostname,port:proxy.port,method:'CONNECT',path:c.sandbox.http.endpoint,headers:{Host:c.sandbox.http.endpoint,'Proxy-Authorization':'Basic '+auth},agent:false});
+      request.once('connect',(response,socket,head)=>{
+        if(response.statusCode!==200||head.length){socket.destroy();return;}
+        socket.on('error',()=>socket.destroy());socket.once('close',()=>setTimeout(connect,20));
+        let ack=Buffer.alloc(0);
+        const authenticate=data=>{
+          ack=Buffer.concat([ack,data]);const end=ack.indexOf(10);
+          if(end<0){if(ack.length>3)socket.destroy();return;}
+          if(end!==2||ack.subarray(0,3).toString()!=='OK\\n'){socket.destroy();return;}
+          socket.removeListener('data',authenticate);socket.pause();server.emit('connection',socket);
+          if(ack.length>3)socket.unshift(ack.subarray(3));socket.resume();
+          if(!ready){ready=true;unixBlocked.then(blocked=>console.log(JSON.stringify({url:c.sandbox.http.url,rpc:c.devnet.rpcUrl,unixBlocked:blocked})));}
+        };
+        socket.on('data',authenticate);
+        socket.write('offckb-http/1 '+c.sandbox.http.token+'\\n');
+      });
+      request.once('error',error=>{console.error(error.message);setTimeout(connect,100);});request.end();
+    }
     connect();connect();
   `,
     ['serve'],
   );
   await invoke(['plugin', 'link', web, '--allow', 'serve']);
+  let unixConnections = 0;
+  const unixCanary = net.createServer((socket) => {
+    unixConnections++;
+    socket.destroy();
+  });
+  await new Promise((resolve) => unixCanary.listen(path.join(web, 'u'), resolve));
   const serving = start(['--json', '--plugin-port', '0', 'web-fixture']);
   try {
     const deadline = Date.now() + 15000;
@@ -193,11 +220,14 @@ try {
     const ready = JSON.parse(serving.stdout);
     assert.match(ready.url, /^http:\/\/127\.0\.0\.1:/);
     assert.equal(ready.rpc, ''); // Serving does not imply a devnet-read grant.
+    assert.equal(ready.unixBlocked, true);
+    assert.equal(unixConnections, 0); // HTTP serving must not open unrelated Unix IPC.
     const response = await fetch(ready.url, { signal: AbortSignal.timeout(5000) });
     assert.equal(await response.text(), 'generic plugin fixture');
     assert.ok(response.headers.get('Content-Security-Policy').includes("connect-src 'self'"));
     assert.match((await invoke(['plugin', 'unlink', 'web-fixture'], 1)).stderr, /running/);
   } finally {
+    unixCanary.close();
     serving.child.kill('SIGTERM');
     const timer = setTimeout(() => serving.child.kill('SIGKILL'), 10000);
     try {

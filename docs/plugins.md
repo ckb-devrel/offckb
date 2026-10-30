@@ -6,7 +6,7 @@ Plugins are independent npm-shaped packages with a static declaration and a preb
 
 This runner currently supports macOS/Linux sandbox execution. The static package protocol itself is portable. Windows users can use core offckb commands and manage registrations; running a plugin fails before acquiring its lease or starting its code.
 
-The pinned sandbox-runtime 0.0.81 Windows backend uses a dedicated account, ACLs and machine-wide WFP filters. Its [documented limitations](https://github.com/anthropics/sandbox-runtime/blob/v0.0.81/README.md#known-limitations) include token-based network-fence bypasses and traffic carried by services such as SMB/WSL outside that fence. Our runner also needs native Windows adaptation for paths, HTTP transport and process-tree lifetime. Merely removing the platform check or passing ordinary Windows child-process tests would not validate the file/network boundary.
+The pinned sandbox-runtime 0.0.81 Windows backend uses a dedicated account, ACLs and machine-wide WFP filters. Its [documented limitations](https://github.com/anthropics/sandbox-runtime/blob/v0.0.81/README.md#known-limitations) include token-based network-fence bypasses and traffic carried by services such as SMB/WSL outside that fence. Our runner also needs native Windows adaptation and validation for paths, transport and process-tree lifetime. Merely removing the platform check or passing ordinary Windows child-process tests would not validate the file/network boundary.
 
 Windows enablement requires an explicitly chosen isolation backend, user-visible installation requirements, and native positive/negative tests for file access, credentials, direct/loopback networking and descendant cleanup. There is no fallback that silently runs with the user's unrestricted permissions. This is a current host implementation limit; it is independent of any plugin's functionality or release schedule.
 
@@ -62,7 +62,7 @@ offckb plugin link /path/to/package --allow devnet-read --read /path/to/report.j
 | None | Read package/runtime dependencies and invocation context; write back to host only through own data/cache and temporary directory |
 | `devnet-read` | Reach only a host-owned JSON-RPC gateway with an explicit read-method allowlist; no transaction submission or node administration |
 | `project-deployment` | Read the invocation project's `deployment/` directory; an escaping directory symlink is rejected |
-| `serve` | Serve HTTP over a designated Unix socket to a host-owned `127.0.0.1` listener; no arbitrary TCP bind or loopback access |
+| `serve` | Serve HTTP over an authenticated reverse connection to a host-owned `127.0.0.1` listener; no arbitrary TCP bind or loopback access |
 | `--read <path>` | Read the canonical file/directory, recursively for directories; treat this as disclosure of its contents |
 
 Capabilities do not grant arbitrary Internet access, project writes, access to other plugins' data, SSH agents, keys or core settings. Manifest changes that add capabilities invalidate the registration until explicitly relinked. Local package source remains mutable; review changes before running it again.
@@ -78,7 +78,7 @@ The host uses the pinned [Anthropic sandbox runtime](https://github.com/anthropi
 - `plugin.command`, `plugin.dataPath`, `plugin.cachePath`: plugin-specific persistent storage.
 - `devnet.kind`, `genesisHash`, `addressPrefix`, `systemScriptsFile`, `systemScriptsVersion: 1`.
 - `devnet.rpcUrl` and `proxyUrl`: empty without `devnet-read`; otherwise the restricted gateway URL. Original RPC URLs, userinfo and credentials stay in the host.
-- `sandbox.backend: "os"`, granted `permissions`, and optional `http: { socket, url }` for `serve`.
+- `sandbox.backend: "os"`, granted `permissions`, and optional `http: { transport: "proxy-connect-v1", endpoint, token, url }` for `serve`.
 - Optional `devnet.diagnostic: { code: "LIST_HASHES_FAILED", message: string }`. Consumers must tolerate additive API v1 fields.
 
 The process working directory is the package directory. Resolve project-relative arguments against **context.cwd**; that path alone grants no filesystem access. Only the listed paths/capabilities are available. The system scripts file uses the existing `devnet` record shape. Context/scripts and sandbox scratch storage are removed on normal/handled exit; data/cache remain. No account keys or full settings are exported.
@@ -98,6 +98,17 @@ offckb --json my-tool -- --json -- literal
 In the second invocation `--json` belongs to the plugin. The host consumes only the immediately following `--` separator and preserves the rest. `--plugin-port` selects the host HTTP listener (default 7070, `0` selects a free port); only `serve` uses it. The plugin owns stdout after delegation, including its one JSON result. Diagnostics go to stderr; the parent propagates exit status without appending a fallback result. A malicious plugin can still violate this output convention.
 
 The RPC gateway only accepts bounded JSON-RPC 2.0 POST requests with array params and known read methods. Redirects, empty/over-200-call or mixed-permission batches, write/admin methods and oversized requests/responses are rejected. Browser-facing HTTP responses receive host-controlled CSP, no-referrer and nosniff headers; the bridge provides no CONNECT or WebSocket tunnel. It cannot protect information the user explicitly enters into a plugin UI or eliminate every browser-side risk.
+
+## HTTP serving transport
+
+For `serve`, `sandbox.http.url` is the public loopback URL. `endpoint` is a separate host-owned relay, and `token` authenticates this invocation. Keep the token private; it is not a browser URL or a persisted permission.
+
+1. Read the sandbox-injected `HTTP_PROXY`/`http_proxy`. Open an HTTP CONNECT to `endpoint` through that proxy, including its proxy credentials. Only this relay destination is allowed by the `serve` grant.
+2. After the proxy returns 200, send the UTF-8 line `offckb-http/1 <token>\n`. The host rejects a wrong/missing token and limits handshake size/time.
+3. Wait for `OK\n`, then serve ordinary HTTP/1.1 requests on the established connection, in the reverse direction. Handle partial frames and preserve any bytes following the acknowledgement. Maintain several connections and reconnect closed ones; the host uses one request per connection with `Connection: close`.
+4. Attach the HTTP handler before announcing readiness. The plugin chooses its own output record; the host never parses application logs.
+
+Both macOS and Linux keep Unix-socket creation/access blocked. No arbitrary bind or direct loopback permission is added to support serving. The public listener rejects CONNECT/Upgrade requests; the internal relay accepts only authenticated reverse channels and never dials a plugin-selected destination. The synthetic HTTP fixture in [the native smoke test](../scripts/plugin-sandbox-smoke.mjs) demonstrates this transport without an application dependency.
 
 ## Third-party adapters
 

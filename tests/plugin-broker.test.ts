@@ -1,6 +1,3 @@
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
 import http from 'http';
 import net from 'net';
 import { createHttpBridge, createReadRpcBroker } from '../src/plugins/broker';
@@ -49,19 +46,36 @@ it('only forwards read RPC calls and keeps upstream credentials inside the host'
   }
 });
 
-const posixIt = process.platform === 'win32' ? it.skip : it;
-posixIt('forwards HTTP over a plugin-initiated connection and enforces host response headers', async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ocb-'));
-  const socketPath = path.join(root, 'http.sock');
-  const bridge = await createHttpBridge(socketPath, 0);
+it('forwards HTTP over a plugin-initiated connection and enforces host response headers', async () => {
+  const bridge = await createHttpBridge(0);
   const app = http.createServer((_req, res) => {
     res.setHeader('Content-Security-Policy', 'default-src *');
     res.end('sandboxed page');
   });
-  const connection = net.connect(socketPath);
+  const connect = () => net.connect(Number(bridge.endpoint.split(':')[1]), '127.0.0.1');
+  const invalid = connect();
+  const refused = new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Unauthenticated connection was not rejected')), 1000);
+    invalid.on('error', () => {});
+    invalid.once('close', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    invalid.once('connect', () => invalid.write('offckb-http/1 wrong-token\n'));
+  });
+  const connection = connect();
   connection.on('error', () => {});
-  connection.once('connect', () => app.emit('connection', connection));
+  const authenticated = new Promise<void>((resolve) => {
+    connection.once('connect', () => connection.write(`offckb-http/1 ${bridge.token}\n`));
+    connection.once('data', (data) => {
+      expect(data.toString()).toBe('OK\n');
+      app.emit('connection', connection);
+      resolve();
+    });
+  });
   try {
+    await refused;
+    await authenticated;
     const response = await fetch(bridge.url);
     expect(await response.text()).toBe('sandboxed page');
     expect(response.headers.get('Content-Security-Policy')).toContain("connect-src 'self'");
@@ -69,6 +83,6 @@ posixIt('forwards HTTP over a plugin-initiated connection and enforces host resp
   } finally {
     connection.destroy();
     bridge.close();
-    fs.rmSync(root, { recursive: true, force: true });
+    invalid.destroy();
   }
 });
