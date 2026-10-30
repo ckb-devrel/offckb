@@ -16,5 +16,5 @@ coverage/
 # Sisyphus plans and sessions
 .sisyphus/
 
-# Local upstream sources for the experimental Explorer adapter
+# Local research, extracted adapters and validation artifacts
 .prototype/

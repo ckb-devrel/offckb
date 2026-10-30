@@ -25,28 +25,39 @@ const env = {
 };
 const makeWorker = (entry) =>
   `require('os').homedir=()=>process.env.OFFCKB_SANDBOX_TEST_ROOT;process.argv=[process.execPath,${JSON.stringify(entry)},...process.argv.slice(1)];require(${JSON.stringify(entry)}).runCli(process.argv);`;
-async function invoke(args, expected = 0, entry = cli) {
+function start(args, entry = cli) {
   const child = spawn(process.execPath, ['-e', makeWorker(entry), '--', ...args], {
     cwd: project,
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  let stdout = '',
-    stderr = '';
+  const running = { child, stdout: '', stderr: '', code: undefined };
   child.stdout.on('data', (value) => {
-    stdout += value;
+    running.stdout += value;
   });
   child.stderr.on('data', (value) => {
-    stderr += value;
+    running.stderr += value;
   });
-  const timer = setTimeout(() => child.kill('SIGKILL'), 20000);
-  const code = await new Promise((resolve, reject) => {
+  running.closed = new Promise((resolve, reject) => {
     child.once('error', reject);
-    child.once('close', resolve);
+    child.once('close', (code) => {
+      running.code = code;
+      resolve(code);
+    });
   });
-  clearTimeout(timer);
-  assert.equal(code, expected, stderr || stdout);
-  return { stdout, stderr };
+  running.closed.catch(() => {});
+  return running;
+}
+async function invoke(args, expected = 0, entry = cli) {
+  const running = start(args, entry);
+  const timer = setTimeout(() => running.child.kill('SIGKILL'), 20000);
+  try {
+    const code = await running.closed;
+    assert.equal(code, expected, running.stderr || running.stdout);
+    return { stdout: running.stdout, stderr: running.stderr };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 function plugin(name, code, permissions = []) {
   const directory = path.join(root, name);
@@ -85,6 +96,19 @@ try {
     settings,
     JSON.stringify({ devnet: { rpcUrl: `http://user:rpc-canary@127.0.0.1:${rpc.address().port}` } }),
   );
+  const probePackage = path.join(project, 'examples/plugins/context-probe');
+  await invoke(['plugin', 'link', probePackage]);
+  const contextProbe = JSON.parse(
+    (await invoke(['--json', 'context-probe', '--', '--json', 'path with spaces', '--', '$literal'])).stdout,
+  );
+  assert.deepEqual(contextProbe.argv, ['--json', 'path with spaces', '--', '$literal']);
+  assert.equal(contextProbe.output, 'json');
+  assert.equal(contextProbe.cwd, project.replace(/\/$/, ''));
+  assert.equal(contextProbe.kind, 'unknown');
+  assert.match((await invoke(['context-probe', '--help'])).stdout, /Usage/);
+  await invoke(['plugin', 'unlink', 'context-probe']);
+  console.log('PASS: production argv/JSON boundaries, invocation context and offline help');
+
   const secret = path.join(root, 'private.txt');
   fs.writeFileSync(secret, 'file-canary');
   const escapedWrite = path.join(root, 'escaped.txt');
@@ -145,6 +169,48 @@ try {
   assert.equal(upstreamCalls[0].body.method, 'get_tip_block_number');
   assert.equal(upstreamCalls[0].authorization, `Basic ${Buffer.from('user:rpc-canary').toString('base64')}`);
   await invoke(['plugin', 'unlink', 'rpc-reader']);
+  const web = plugin(
+    'web-fixture',
+    `
+    const fs=require('fs'),http=require('http'),net=require('net');
+    const c=JSON.parse(fs.readFileSync(process.env.OFFCKB_PLUGIN_CONTEXT,'utf8'));
+    const server=http.createServer((req,res)=>{res.setHeader('Content-Type','text/plain');res.setHeader('Content-Security-Policy','default-src *');res.end('generic plugin fixture');});
+    let ready=false;
+    function connect(){const socket=net.connect(c.sandbox.http.socket);socket.once('connect',()=>{server.emit('connection',socket);if(!ready){ready=true;console.log(JSON.stringify({url:c.sandbox.http.url,rpc:c.devnet.rpcUrl}));}});socket.on('error',()=>socket.destroy());socket.once('close',()=>setTimeout(connect,20));}
+    connect();connect();
+  `,
+    ['serve'],
+  );
+  await invoke(['plugin', 'link', web, '--allow', 'serve']);
+  const serving = start(['--json', '--plugin-port', '0', 'web-fixture']);
+  try {
+    const deadline = Date.now() + 15000;
+    while (!serving.stdout.includes('\n')) {
+      if (serving.code !== undefined || Date.now() >= deadline)
+        throw new Error(serving.stderr || 'HTTP fixture did not become ready');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    const ready = JSON.parse(serving.stdout);
+    assert.match(ready.url, /^http:\/\/127\.0\.0\.1:/);
+    assert.equal(ready.rpc, ''); // Serving does not imply a devnet-read grant.
+    const response = await fetch(ready.url, { signal: AbortSignal.timeout(5000) });
+    assert.equal(await response.text(), 'generic plugin fixture');
+    assert.ok(response.headers.get('Content-Security-Policy').includes("connect-src 'self'"));
+    assert.match((await invoke(['plugin', 'unlink', 'web-fixture'], 1)).stderr, /running/);
+  } finally {
+    serving.child.kill('SIGTERM');
+    const timer = setTimeout(() => serving.child.kill('SIGKILL'), 10000);
+    try {
+      assert.equal(await serving.closed, 143, serving.stderr);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  assert.equal(serving.stdout.trim().split('\n').length, 1);
+  assert.equal(fs.existsSync(path.join(home, 'web-fixture.running')), false);
+  await invoke(['plugin', 'unlink', 'web-fixture']);
+  console.log('PASS: generic sandboxed HTTP serving, separate capabilities, running lease and signal cleanup');
+
   const signalled = plugin('signal-exit', "process.kill(process.pid,'SIGTERM');");
   await invoke(['plugin', 'link', signalled]);
   await invoke(['signal-exit'], 143);

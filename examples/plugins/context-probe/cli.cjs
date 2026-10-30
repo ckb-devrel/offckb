@@ -4,7 +4,7 @@ if (process.argv.slice(2).includes('--help')) {
   console.log('Usage: offckb context-probe [arguments...]\nPrints the invocation context and unmodified arguments.');
 } else {
   const context = JSON.parse(fs.readFileSync(process.env.OFFCKB_PLUGIN_CONTEXT, 'utf8'));
-  // Do not dump the whole context: RPC URLs can contain credentials.
+  // Print only the fields this protocol probe needs.
   const result = {
     ok: true,
     command: 'context-probe',

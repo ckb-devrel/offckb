@@ -2,9 +2,17 @@
 
 Plugins are independent npm-shaped packages with a static declaration and a prebuilt JavaScript entry. The host supplies a versioned context and runs each tool in an OS sandbox. This stage implements explicit `link/list/unlink`, foreground execution and capability grants. Registry installation, background services and plugin dependencies are deferred.
 
+## Platform boundary
+
+This runner currently supports macOS/Linux sandbox execution. The static package protocol itself is portable. Windows users can use core offckb commands and manage registrations; running a plugin fails before acquiring its lease or starting its code.
+
+The pinned sandbox-runtime 0.0.81 Windows backend uses a dedicated account, ACLs and machine-wide WFP filters. Its [documented limitations](https://github.com/anthropics/sandbox-runtime/blob/v0.0.81/README.md#known-limitations) include token-based network-fence bypasses and traffic carried by services such as SMB/WSL outside that fence. Our runner also needs native Windows adaptation for paths, HTTP transport and process-tree lifetime. Merely removing the platform check or passing ordinary Windows child-process tests would not validate the file/network boundary.
+
+Windows enablement requires an explicitly chosen isolation backend, user-visible installation requirements, and native positive/negative tests for file access, credentials, direct/loopback networking and descendant cleanup. There is no fallback that silently runs with the user's unrestricted permissions. This is a current host implementation limit; it is independent of any plugin's functionality or release schedule.
+
 ## Try the protocol
 
-Use macOS or Linux, Node **22.21+ (22.x) or 24.5+**, and a working sandbox backend. macOS uses `sandbox-exec`; Linux requires bubblewrap, socat, ripgrep and permitted unprivileged user namespaces. The runtime is an optional npm dependency so core Node 20 installations remain supported; plugin users must install it on a supported Node version without omitting optional dependencies. A missing runtime or backend failure stops execution. There is no unsandboxed fallback. Windows plugin execution is disabled until a suitable backend is validated. Core offckb commands still support Node 20 on all three platforms.
+Use macOS or Linux, Node **22.21+ (22.x) or 24.5+**, and a working sandbox backend. macOS uses `sandbox-exec`; Linux requires bubblewrap, socat, ripgrep and permitted unprivileged user namespaces. The runtime is an optional npm dependency so core Node 20 installations remain supported; plugin users must install it on a supported Node version without omitting optional dependencies. A missing runtime or backend failure stops execution. There is no unsandboxed fallback. Windows plugin execution is not implemented in this runner. See the platform boundary below. Core offckb commands still support Node 20 on all three platforms.
 
 ```sh
 pnpm build
@@ -91,24 +99,11 @@ In the second invocation `--json` belongs to the plugin. The host consumes only 
 
 The RPC gateway only accepts bounded JSON-RPC 2.0 POST requests with array params and known read methods. Redirects, empty/over-200-call or mixed-permission batches, write/admin methods and oversized requests/responses are rejected. Browser-facing HTTP responses receive host-controlled CSP, no-referrer and nosniff headers; the bridge provides no CONNECT or WebSocket tunnel. It cannot protect information the user explicitly enters into a plugin UI or eliminate every browser-side risk.
 
-## Explorer through a public upstream CLI
+## Third-party adapters
 
-The adapter is now [packages/plugin-explorer](../packages/plugin-explorer). It exclusively resolves upstream's declared npm `bin` and invokes its public CLI; it does not import private `src/*.ts`, inspect tsx exports, replace source strings, or accept a source-path override. The former private-source prototype and preparation script have been removed.
+Each adapter is maintained and released independently by its author. The host has no built-in package list, preferred plugin, upstream-version pin or application-specific readiness logic. No particular adapter's upstream merge or npm release gates delivery of this generic plugin host.
 
-The adapter requires a pinned upstream release with integration API v1: offline `--integration-info`, `--system-scripts`, explicit `--host`, outbound Unix `--bridge` transport, and a single versioned JSON ready record. Its provisional dependency is `ckb-devnet-explorer@0.3.0`. **That upstream release is not yet available ([upstream PR #1](https://github.com/wildanrhmn/ckb-devnet-explorer/pull/1)); the adapter package is private and must not be published until the upstream contract is merged/released and the exact version is confirmed.** Local tests use an npm tarball of the upstream contribution, never a private import fallback. See the [distribution gate](plugin-system-proposal.md#explorer-正式分发门禁).
-
-Once the released provider is available:
-
-```sh
-npm install --prefix packages/plugin-explorer --omit=dev --ignore-scripts
-node build/index.js plugin link ./packages/plugin-explorer \
-  --allow devnet-read --allow project-deployment --allow serve
-node build/index.js node --daemon
-node build/index.js --plugin-port 7070 explorer --project .
-# Other project deployment directories require explicit --read grants at link time; use canonical absolute paths for --project (symlink aliases outside the granted tree are unavailable).
-```
-
-Only ordinary devnet with `ckt` is supported. Unknown chains/forks fail before ready. RPC genesis must match context; missing/lagging indexer is reported separately. The adapter receives only read RPC access; the host exposes the page on loopback. Ctrl+C stops the tool without stopping a separately running CKB node. Restart after redeploy, reset or chain switching to reload scripts/caches. There is no arbitrary RPC override or automatic browser launch.
+Adapters consume the declared context/capabilities and keep their application's CLI flags, supported chains, version checks, readiness/output translation and dependencies in their own package. Use a dependency's public, versioned interfaces and maintain its integration tests in the adapter repository. offckb tests the host with synthetic fixtures, without installing or starting any third-party application.
 
 ## Validation and limits
 
@@ -118,11 +113,9 @@ pnpm typecheck
 pnpm lint
 pnpm build
 node scripts/plugin-sandbox-smoke.mjs
-# Optional: public provider installed and official CKB 0.208.0 binary:
-node scripts/plugin-smoke.mjs /path/to/ckb
 ```
 
-The native security test exercises the production bundle with canary secrets: forbidden reads/writes, symlink/child escape, direct network access, credential inheritance and write RPC rejection, plus positive cache/read-RPC access. CI runs it on native macOS/Linux with Node 24. The live test additionally checks Explorer page/API, ready output, SIGTERM, node survival, chain reset/restart and unknown-fork rejection. Tests isolate settings and override `os.homedir()` only in their worker, without changing HOME.
+The native security test exercises the production bundle with canary secrets: forbidden reads/writes, symlink/child escape, direct network access, credential inheritance and write RPC rejection, plus positive cache/read-RPC access. CI runs it on native macOS/Linux with Node 24. Synthetic fixtures also verify argv/JSON ownership, offline help, sandboxed HTTP serving, foreground shutdown and cleanup. Tests isolate settings and override `os.homedir()` only in their worker, without changing HOME.
 
 POSIX foreground groups receive SIGINT/SIGTERM/SIGHUP, a three-second limit and final owned-process cleanup. No saved PID is signalled. Windows plugin execution is refused. Crash/SIGKILL can leave registry/run locks or temporary files: confirm the tool has stopped before manual cleanup. Automatic crash recovery, concurrent instances, resource quotas, background services and arbitrary network grants are deferred. A second-tool `ckb-tui` adapter still needs native TTY and sandbox network adaptation; its existing core `status` command is unchanged.
 
