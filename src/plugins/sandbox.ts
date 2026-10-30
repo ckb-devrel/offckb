@@ -52,10 +52,22 @@ export async function preparePluginSandbox(
     fs.rmSync(root, { recursive: true, force: true });
   };
   try {
+    const externalRequire = createRequire(__filename);
+    let runtimeDirectory: string;
+    try {
+      runtimeDirectory = path.dirname(externalRequire.resolve('@anthropic-ai/sandbox-runtime/package.json'));
+    } catch {
+      throw new Error(
+        'Sandbox runtime is unavailable; reinstall offckb with optional dependencies on a supported Node version. Refusing unsandboxed execution.',
+      );
+    }
+    const runtime = path.join(runtimeDirectory, 'dist/cli.js');
     // Seatbelt evaluates literal paths. Do not pass /var aliases for /private/var grants.
     if (contextFile) contextFile = fs.realpathSync(contextFile);
     const context = contextFile ? (JSON.parse(fs.readFileSync(contextFile, 'utf8')) as PluginContext) : undefined;
     const read = [...runtimeReadPaths(plugin), ...readPaths, root];
+    // Linux executes the runtime's seccomp helper after entering the restricted mount namespace.
+    if (process.platform === 'linux') read.push(path.join(runtimeDirectory, 'vendor/seccomp'));
     const write = [root];
     const allowedDomains: string[] = [];
     const sockets: string[] = [];
@@ -138,18 +150,6 @@ export async function preparePluginSandbox(
       NODE_USE_ENV_PROXY: '1',
       ...(contextFile ? { OFFCKB_PLUGIN_CONTEXT: contextFile } : {}),
     };
-    const externalRequire = createRequire(__filename);
-    let runtime: string;
-    try {
-      runtime = path.join(
-        path.dirname(externalRequire.resolve('@anthropic-ai/sandbox-runtime/package.json')),
-        'dist/cli.js',
-      );
-    } catch {
-      throw new Error(
-        'Sandbox runtime is unavailable; reinstall offckb with optional dependencies on a supported Node version. Refusing unsandboxed execution.',
-      );
-    }
     return {
       command: process.execPath,
       args: [runtime, '--settings', policy, '--', process.execPath, bootstrap, plugin.entry, ...args],
