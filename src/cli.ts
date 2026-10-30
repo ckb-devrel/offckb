@@ -36,6 +36,7 @@ import { logger } from './util/logger';
 import { installBrokenPipeHandlers } from './util/shutdown';
 import { Network } from './type/base';
 import { status } from './cmd/status';
+import { coreCommandIndex, registerPluginManagement } from './plugins/cli';
 
 const version = require('../package.json').version;
 const description = require('../package.json').description;
@@ -471,6 +472,8 @@ devnetCommand
   .option('--dry-run', 'Run source/spec/database preflight without replacing the current devnet')
   .action(devnetFork);
 
+const plugins = registerPluginManagement(program);
+
 function normalizeGlobalJsonFlag(argv: string[]): string[] {
   const jsonRequested = argv.slice(2).includes('--json');
   if (!jsonRequested) return argv;
@@ -489,19 +492,26 @@ function configureCommanderErrors(command: Command) {
 
 export async function runCli(argv: string[] = process.argv): Promise<void> {
   installBrokenPipeHandlers();
-  const normalizedArgv = normalizeGlobalJsonFlag(argv);
-  if (normalizedArgv.includes('--json')) logger.setJsonMode(true);
-
-  if (!normalizedArgv.slice(2).length) {
-    program.outputHelp();
-    return;
-  }
-
-  configureCommanderErrors(program);
-
   try {
+    const commandIndex = coreCommandIndex(program, argv);
+    if (argv.slice(2, commandIndex === -1 ? argv.length : commandIndex).includes('--json')) logger.setJsonMode(true);
+    // Determine the plugin boundary before the legacy global flag normalization.
+    // Only core arguments may participate in --json promotion.
+    const invocation = plugins.prepare(argv);
+    const normalizedArgv = normalizeGlobalJsonFlag(invocation.argv);
+    if (normalizedArgv.includes('--json')) logger.setJsonMode(true);
+    if (!normalizedArgv.slice(2).length) {
+      program.outputHelp();
+      return;
+    }
+    configureCommanderErrors(program);
     await program.parseAsync(normalizedArgv);
-    if (logger.isJsonMode() && !logger.hasResult() && (process.exitCode == null || process.exitCode === 0)) {
+    if (
+      !invocation.delegated() &&
+      logger.isJsonMode() &&
+      !logger.hasResult() &&
+      (process.exitCode == null || process.exitCode === 0)
+    ) {
       logger.result({ command: activeCommand, completed: true });
     }
   } catch (error) {

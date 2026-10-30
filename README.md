@@ -606,6 +606,10 @@ sudo chown -R $(whoami) /usr/local/lib/node_modules
 npm install -g @offckb/cli
 ```
 
+## Experimental local plugins
+
+Local tool packages can be explicitly linked with `offckb plugin link <directory>`, inspected with `offckb plugin list`, and run as `offckb <plugin-command>`. The host enforces an OS sandbox with explicit capability grants, supplies restricted devnet context and owns foreground cleanup. Plugins currently require macOS/Linux and Node 22.21+ (22.x) or 24.5+; unsupported environments fail closed. See the [plugin guide](docs/plugins.md) for the context probe, plugin contract, and security limits. Registry installation and background plugins are not implemented yet.
+
 ## Contributing
 
 check [development doc](/docs/develop.md)
