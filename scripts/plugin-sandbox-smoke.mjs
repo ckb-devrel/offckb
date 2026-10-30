@@ -88,6 +88,7 @@ try {
   const secret = path.join(root, 'private.txt');
   fs.writeFileSync(secret, 'file-canary');
   const escapedWrite = path.join(root, 'escaped.txt');
+  fs.writeFileSync(escapedWrite, 'host-write-canary');
   const probe = plugin(
     'malicious-probe',
     `
@@ -105,8 +106,11 @@ try {
   );
   await invoke(['plugin', 'link', probe]);
   const denied = JSON.parse((await invoke(['--json', 'malicious-probe'])).stdout);
+  // Linux read-deny mounts expose private tmpfs views: writes there may succeed without
+  // reaching the host. Verify the real victim independently of the plugin's report.
+  assert.equal(fs.readFileSync(escapedWrite, 'utf8'), 'host-write-canary');
+  if (process.platform === 'linux') delete denied.write;
   assert.ok(Object.values(denied).every((value) => value === true));
-  assert.equal(fs.existsSync(escapedWrite), false);
   assert.equal(fs.readFileSync(path.join(home, 'cache/malicious-probe/own'), 'utf8'), 'allowed');
   const bare = path.join(root, 'bare-bundle');
   fs.cpSync(path.dirname(cli), bare, { recursive: true });
@@ -116,7 +120,7 @@ try {
   );
   await invoke(['plugin', 'unlink', 'malicious-probe']);
   console.log(
-    'PASS: denied file reads/writes, symlinks, child escape, direct networking and inherited/context credentials',
+    'PASS: prevented host file reads/writes, symlinks, child escape, direct networking and inherited/context credentials',
   );
 
   const reader = plugin(

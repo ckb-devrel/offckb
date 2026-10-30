@@ -51,7 +51,7 @@ offckb plugin link /path/to/package --allow devnet-read --read /path/to/report.j
 
 | Grant | Access |
 | --- | --- |
-| None | Read package/runtime dependencies and invocation context; write own data/cache and temporary directory |
+| None | Read package/runtime dependencies and invocation context; write back to host only through own data/cache and temporary directory |
 | `devnet-read` | Reach only a host-owned JSON-RPC gateway with an explicit read-method allowlist; no transaction submission or node administration |
 | `project-deployment` | Read the invocation project's `deployment/` directory; an escaping directory symlink is rejected |
 | `serve` | Serve HTTP over a designated Unix socket to a host-owned `127.0.0.1` listener; no arbitrary TCP bind or loopback access |
@@ -59,7 +59,7 @@ offckb plugin link /path/to/package --allow devnet-read --read /path/to/report.j
 
 Capabilities do not grant arbitrary Internet access, project writes, access to other plugins' data, SSH agents, keys or core settings. Manifest changes that add capabilities invalidate the registration until explicitly relinked. Local package source remains mutable; review changes before running it again.
 
-The host uses the pinned [Anthropic sandbox runtime](https://github.com/anthropics/sandbox-runtime) as an external npm dependency. OS restrictions apply to descendants too. Caller environment variables are replaced with a small allowlist: no inherited tokens, proxy credentials, SSH agent socket, Node preload options or module search overrides. The sandbox can read required OS/runtime locations and its package/dependency tree, so keep credentials out of these locations and out of packages. This is a filesystem/network boundary, not a VM or a resource quota: CPU/memory exhaustion, terminal output and OS/runtime vulnerabilities remain risks. Trust and review plugin code, particularly before granting additional read paths.
+The host uses the pinned [Anthropic sandbox runtime](https://github.com/anthropics/sandbox-runtime) as an external npm dependency. OS restrictions apply to descendants too. Linux may accept writes into private tmpfs views of hidden paths; these do not modify the corresponding host files. Native tests verify a pre-existing host canary remains unchanged, independently of the plugin's reported syscall result. Caller environment variables are replaced with a small allowlist: no inherited tokens, proxy credentials, SSH agent socket, Node preload options or module search overrides. The sandbox can read required OS/runtime locations and its package/dependency tree, so keep credentials out of these locations and out of packages. This is a filesystem/network boundary, not a VM or a resource quota: CPU/memory exhaustion, terminal output and OS/runtime vulnerabilities remain risks. Trust and review plugin code, particularly before granting additional read paths.
 
 ## Context and output
 

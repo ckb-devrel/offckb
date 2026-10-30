@@ -175,6 +175,7 @@ try {
   fs.mkdirSync(attacker);
   const secret = path.join(root, 'private.txt');
   const escapedWrite = path.join(root, 'escaped.txt');
+  fs.writeFileSync(escapedWrite, 'host-write-canary');
   fs.writeFileSync(secret, 'private-canary');
   const listener = net.createServer((socket) => {
     socket.destroy();
@@ -208,8 +209,9 @@ try {
   try {
     invoke(['plugin', 'link', attacker]);
     const result = JSON.parse(invoke(['--json', 'sandbox-probe']));
+    assert.equal(fs.readFileSync(escapedWrite, 'utf8'), 'host-write-canary');
+    if (process.platform === 'linux') delete result.write;
     assert.ok(Object.values(result).every((value) => value === true));
-    assert.equal(fs.existsSync(escapedWrite), false);
     invoke(['plugin', 'unlink', 'sandbox-probe']);
   } finally {
     await new Promise((resolve) => listener.close(resolve));
