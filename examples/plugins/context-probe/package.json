@@ -1,0 +1,11 @@
+{
+  "name": "offckb-context-probe",
+  "version": "0.1.0",
+  "private": true,
+  "offckb": {
+    "apiVersion": 1,
+    "command": "context-probe",
+    "entry": "cli.cjs",
+    "description": "Inspect plugin context and argument forwarding (development example)"
+  }
+}
