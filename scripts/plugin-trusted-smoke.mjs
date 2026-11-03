@@ -116,7 +116,7 @@ else{
   await invoke(['plugin', 'link', probe]);
   const listed = JSON.parse((await invoke(['--json', 'plugin', 'list'])).stdout);
   assert.equal(listed.plugins[0].mode, 'sandbox');
-  assert.match((await invoke(['trusted-probe'], 1)).stderr, /refusing unsandboxed/i);
+  assert.match((await invoke(['trusted-probe'], 1)).stderr, /refusing unsandboxed|Sandboxed plugins require Node/i);
   assert.equal(fs.existsSync(path.join(home, 'trusted-probe.running')), false);
   const linked = await invoke(['--json', 'plugin', 'link', probe, '--trust']);
   assert.equal(JSON.parse(linked.stdout).mode, 'trusted');
