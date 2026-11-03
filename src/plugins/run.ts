@@ -8,12 +8,14 @@ import {
 import { enterGracefulShutdown } from '../util/shutdown';
 import { createPluginContext } from './context';
 import { acquirePlugin } from './store';
-import { assertSandboxSupported, preparePluginSandbox } from './sandbox';
+import { assertSandboxSupported, preparePluginExecution } from './sandbox';
 
 function signalChild(child: ChildProcess, signal: NodeJS.Signals): void {
   if (!child.pid) return;
   try {
     if (process.platform === 'win32') {
+      // Never taskkill a PID after our child exited; it could have been reused.
+      if (child.exitCode != null || child.signalCode != null) return;
       execFileSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', timeout: 5000 });
     } else {
       // The group was created by this invocation; never target a stored PID.
@@ -30,10 +32,11 @@ function signalChild(child: ChildProcess, signal: NodeJS.Signals): void {
 }
 
 export async function runPlugin(command: string, args: string[], json: boolean, port = 7070): Promise<void> {
-  assertSandboxSupported();
-  const lease = acquirePlugin(command);
+  const lease = acquirePlugin(command, (mode) => {
+    if (mode === 'sandbox') assertSandboxSupported();
+  });
   let context: ReturnType<typeof createPluginContext> | undefined;
-  let sandbox: Awaited<ReturnType<typeof preparePluginSandbox>> | undefined;
+  let execution: Awaited<ReturnType<typeof preparePluginExecution>> | undefined;
   const guard = bindChildrenToProcessLifetime();
   const listeners: Array<[LifetimeSignal, () => void]> = [];
   let child: ChildProcess | undefined;
@@ -46,11 +49,11 @@ export async function runPlugin(command: string, args: string[], json: boolean, 
     // Help is delegated without reading settings, exporting scripts or requiring a chain.
     const helpOnly = args.length === 1 && (args[0] === '--help' || args[0] === '-h');
     if (!helpOnly) context = createPluginContext(lease.plugin, json);
-    sandbox = await preparePluginSandbox(lease.plugin, context?.file, lease.readPaths, args, port);
-    child = spawn(sandbox.command, sandbox.args, {
+    execution = await preparePluginExecution(lease.plugin, context?.file, lease.readPaths, args, port, lease.mode);
+    child = spawn(execution.command, execution.args, {
       stdio: 'inherit',
-      cwd: process.cwd(),
-      env: sandbox.env,
+      cwd: execution.cwd,
+      env: execution.env,
       shell: false,
       detached: process.platform !== 'win32',
     });
@@ -89,7 +92,7 @@ export async function runPlugin(command: string, args: string[], json: boolean, 
     guard.stopAll();
     guard.dispose();
     try {
-      sandbox?.dispose();
+      execution?.dispose();
     } finally {
       try {
         context?.dispose();

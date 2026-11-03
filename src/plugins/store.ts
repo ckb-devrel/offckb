@@ -7,6 +7,7 @@ import {
   isPluginCommand,
   PLUGIN_PERMISSIONS,
   PluginManifest,
+  PluginMode,
   PluginPermission,
   readJsonFile,
   readPluginManifest,
@@ -16,6 +17,8 @@ interface Registration {
   directory: string;
   permissions: PluginPermission[];
   readPaths: string[];
+  /** Host authorization only; a package declaration can never select trusted execution. */
+  trusted?: { name: string; version: string };
 }
 interface Registry {
   apiVersion: 2;
@@ -25,6 +28,7 @@ interface Registry {
 export interface PluginInfo {
   command: string;
   directory: string;
+  mode: PluginMode;
   state: 'available' | 'invalid' | 'incompatible' | 'shadowed';
   name?: string;
   version?: string;
@@ -83,7 +87,9 @@ function readRegistry(): Registry {
         !Array.isArray(entry.permissions) ||
         entry.permissions.some((permission) => !PLUGIN_PERMISSIONS.includes(permission)) ||
         !Array.isArray(entry.readPaths) ||
-        entry.readPaths.some((file) => typeof file !== 'string' || !path.isAbsolute(file)),
+        entry.readPaths.some((file) => typeof file !== 'string' || !path.isAbsolute(file)) ||
+        (entry.trusted !== undefined &&
+          (!entry.trusted || typeof entry.trusted.name !== 'string' || typeof entry.trusted.version !== 'string')),
     )
   )
     throw new Error(`Invalid plugin registry: ${registryPath()}`);
@@ -136,14 +142,15 @@ function assertNotRunning(command: string): void {
 }
 
 export function listPlugins(reserved: ReadonlySet<string>): PluginInfo[] {
-  return Object.entries(readRegistry().plugins).map(([command, { directory, permissions, readPaths }]) => {
-    const base = { command, directory };
+  return Object.entries(readRegistry().plugins).map(([command, { directory, permissions, readPaths, trusted }]) => {
+    const base = { command, directory, mode: trusted ? ('trusted' as const) : ('sandbox' as const) };
     if (reserved.has(command)) return { ...base, state: 'shadowed', error: 'A core command has priority' };
     let plugin: PluginManifest;
     try {
       plugin = readPluginManifest(directory);
       if (plugin.command !== command) throw new Error('Plugin command changed; unlink and link the package again');
       assertPermissions(plugin, permissions);
+      assertTrustedIdentity(plugin, trusted);
     } catch (error) {
       return { ...base, state: 'invalid', error: (error as Error).message };
     }
@@ -171,10 +178,15 @@ function assertPermissions(plugin: PluginManifest, granted: readonly string[]): 
     );
 }
 
+function assertTrustedIdentity(plugin: PluginManifest, trusted: Registration['trusted']): void {
+  if (trusted && (trusted.name !== plugin.name || trusted.version !== plugin.version))
+    throw new Error(`${plugin.command} package identity changed; relink with --trust to trust this name/version`);
+}
+
 export function linkPlugin(
   directory: string,
   reserved: ReadonlySet<string>,
-  options: { allow?: string[]; read?: string[] } = {},
+  options: { allow?: string[]; read?: string[]; trust?: boolean } = {},
 ): PluginManifest {
   return withRegistryLock(() => {
     const plugin = readPluginManifest(directory);
@@ -191,7 +203,12 @@ export function linkPlugin(
     if (existing && existing.directory !== plugin.directory)
       throw new Error(`Plugin command ${plugin.command} is already linked`);
     assertNotRunning(plugin.command);
-    registry.plugins[plugin.command] = { directory: plugin.directory, permissions: plugin.permissions, readPaths };
+    registry.plugins[plugin.command] = {
+      directory: plugin.directory,
+      permissions: plugin.permissions,
+      readPaths,
+      ...(options.trust ? { trusted: { name: plugin.name, version: plugin.version } } : {}),
+    };
     writeRegistry(registry);
     return plugin;
   });
@@ -209,7 +226,10 @@ export function unlinkPlugin(command: string): void {
 }
 
 /** A foreground lease prevents unlink/relink; it never authorizes signaling a saved PID. */
-export function acquirePlugin(command: string): { plugin: PluginManifest; readPaths: string[]; release: () => void } {
+export function acquirePlugin(
+  command: string,
+  checkMode?: (mode: PluginMode) => void,
+): { plugin: PluginManifest; mode: PluginMode; readPaths: string[]; release: () => void } {
   return withRegistryLock(() => {
     const registry = readRegistry();
     const entry = Object.prototype.hasOwnProperty.call(registry.plugins, command)
@@ -220,9 +240,12 @@ export function acquirePlugin(command: string): { plugin: PluginManifest; readPa
     if (plugin.command !== command) throw new Error('Plugin command changed; unlink and link the package again');
     assertPluginCompatible(plugin);
     assertPermissions(plugin, entry.permissions);
+    assertTrustedIdentity(plugin, entry.trusted);
+    const mode = entry.trusted ? 'trusted' : 'sandbox';
+    checkMode?.(mode);
     assertNotRunning(command);
     const file = leasePath(command);
     fs.writeFileSync(file, JSON.stringify({ pid: process.pid }), { mode: 0o600, flag: 'wx' });
-    return { plugin, readPaths: entry.readPaths, release: () => fs.rmSync(file, { force: true }) };
+    return { plugin, mode, readPaths: entry.readPaths, release: () => fs.rmSync(file, { force: true }) };
   });
 }

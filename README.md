@@ -608,7 +608,7 @@ npm install -g @offckb/cli
 
 ## Experimental local plugins
 
-Local tool packages can be explicitly linked with `offckb plugin link <directory>`, inspected with `offckb plugin list`, and run as `offckb <plugin-command>`. The host enforces an OS sandbox with explicit capability grants, supplies restricted devnet context and owns foreground cleanup. Plugins currently require macOS/Linux and Node 22.21+ (22.x) or 24.5+; unsupported environments fail closed. See the [plugin guide](docs/plugins.md) for the context probe, plugin contract, and security limits. Registry installation and background plugins are not implemented yet.
+Local tool packages can be explicitly linked with `offckb plugin link <directory>`, inspected with `offckb plugin list`, and run as `offckb <plugin-command>`. Default sandbox mode requires macOS/Linux and Node 22.21+ (22.x) or 24.5+. Windows users can run plugins natively with Node 20+ by explicitly linking with `--trust`; this mode runs with the user's OS permissions and needs no WSL or sandbox setup. Both modes filter inherited credentials, supply minimal devnet context/read-RPC interfaces and own foreground cleanup. A sandbox failure never silently enables trusted execution. See the [plugin guide](docs/plugins.md) for grants, mode differences and security limits. Registry installation and background plugins are not implemented yet.
 
 ## Contributing
 

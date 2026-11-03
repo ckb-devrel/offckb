@@ -145,8 +145,50 @@ it('reads legacy links without silently granting capabilities or rewriting the r
   const file = path.join(process.env.OFFCKB_PLUGIN_HOME!, 'registry.json');
   const content = JSON.stringify({ apiVersion: 1, plugins: { probe: fs.realpathSync(root) } });
   fs.writeFileSync(file, content);
-  expect(listPlugins(new Set())[0]).toMatchObject({ state: 'available', permissions: [], readPaths: [] });
+  expect(listPlugins(new Set())[0]).toMatchObject({
+    state: 'available',
+    mode: 'sandbox',
+    permissions: [],
+    readPaths: [],
+  });
   expect(fs.readFileSync(file, 'utf8')).toBe(content);
+});
+
+it('requires host authorization for trusted execution and binds it to package name/version', () => {
+  const root = makePlugin('probe', { offckb: { mode: 'trusted', trusted: true } });
+  linkPlugin(root, new Set());
+  expect(listPlugins(new Set())[0].mode).toBe('sandbox');
+  linkPlugin(root, new Set(), { trust: true });
+  expect(listPlugins(new Set())[0]).toMatchObject({ state: 'available', mode: 'trusted' });
+  for (const change of [{ version: '1.1.0' }, { name: 'different-package' }]) {
+    const file = path.join(root, 'package.json');
+    const pkg = { ...JSON.parse(fs.readFileSync(file, 'utf8')), ...change };
+    fs.writeFileSync(file, JSON.stringify(pkg));
+    expect(listPlugins(new Set())[0]).toMatchObject({ state: 'invalid', mode: 'trusted' });
+    expect(() => acquirePlugin('probe')).toThrow('identity changed');
+    linkPlugin(root, new Set(), { trust: true });
+    const lease = acquirePlugin('probe');
+    expect(lease.mode).toBe('trusted');
+    lease.release();
+  }
+  linkPlugin(root, new Set());
+  expect(listPlugins(new Set())[0]).toMatchObject({ state: 'available', mode: 'sandbox' });
+});
+
+it('keeps existing v2 registrations sandboxed and rejects malformed trust records', () => {
+  const root = makePlugin();
+  linkPlugin(root, new Set());
+  const file = path.join(process.env.OFFCKB_PLUGIN_HOME!, 'registry.json');
+  const registry = JSON.parse(fs.readFileSync(file, 'utf8'));
+  expect(registry.plugins.probe).not.toHaveProperty('trusted');
+  const lease = acquirePlugin('probe');
+  expect(lease.mode).toBe('sandbox');
+  lease.release();
+  for (const trusted of [true, {}, null, { name: 'probe', version: 2 }]) {
+    registry.plugins.probe.trusted = trusted;
+    fs.writeFileSync(file, JSON.stringify(registry));
+    expect(() => listPlugins(new Set())).toThrow('Invalid plugin registry');
+  }
 });
 
 it('exports current chain metadata without keys and removes per-run files', () => {
@@ -293,4 +335,17 @@ it('does not carry capability grants into a later link in the same CLI process',
     /explicit grants/,
   );
   expect(listPlugins(new Set()).map((plugin) => plugin.command)).toEqual(['first']);
+});
+
+it('does not carry trusted execution into a later link in the same CLI process', async () => {
+  const first = makePlugin('first');
+  const second = makePlugin('second');
+  const program = new Command();
+  const plugins = registerPluginManagement(program);
+  await program.parseAsync(plugins.prepare(['node', 'offckb', 'plugin', 'link', first, '--trust']).argv);
+  await program.parseAsync(plugins.prepare(['node', 'offckb', 'plugin', 'link', second]).argv);
+  expect(listPlugins(new Set()).map(({ command, mode }) => ({ command, mode }))).toEqual([
+    { command: 'first', mode: 'trusted' },
+    { command: 'second', mode: 'sandbox' },
+  ]);
 });

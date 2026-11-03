@@ -56,6 +56,9 @@ jobs:
       - name: Build project
         run: pnpm build
 
+      - name: Integration test - Native trusted plugins (no sandbox runtime required)
+        run: node scripts/plugin-trusted-smoke.mjs
+
       # Upgrade-path regression: data created by an old offckb release (old
       # CKB binary) must keep working with this build. Ubuntu only — the test
       # is OS-independent (config/data compatibility) and downloads an extra

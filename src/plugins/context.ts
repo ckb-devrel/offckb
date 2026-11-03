@@ -15,9 +15,9 @@ export interface PluginContext {
   cli: { node: string; entry: string | null };
   plugin: { command: string; dataPath: string; cachePath: string };
   sandbox?: {
-    backend: 'os';
+    backend: 'os' | 'none';
     permissions: PluginManifest['permissions'];
-    http?: { transport: 'proxy-connect-v1'; endpoint: string; token: string; url: string };
+    http?: { transport: 'proxy-connect-v1' | 'tcp-v1'; endpoint: string; token: string; url: string };
   };
   devnet: {
     rpcUrl: string;

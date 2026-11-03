@@ -18,7 +18,7 @@ export function registerPluginManagement(program: Command): {
 } {
   program.option(
     '--plugin-port <port>',
-    'Loopback web port for a sandboxed plugin (0 selects a free port)',
+    'Loopback web port for a plugin (0 selects a free port)',
     (value) => {
       const port = Number(value);
       if (!/^\d+$/.test(value) || !Number.isInteger(port) || port < 0 || port > 65535)
@@ -38,7 +38,8 @@ export function registerPluginManagement(program: Command): {
   const management = program.command('plugin').description('Link and run local tool plugins (experimental)');
   const link = management
     .command('link <directory>')
-    .description('Register a local plugin with explicit sandbox capability grants')
+    .description('Register a local plugin with explicit capability grants')
+    .option('--trust', 'Trust this package to run with your user permissions, without OS isolation', false)
     .option(
       '--allow <permission>',
       'Grant one declared capability (repeatable)',
@@ -51,14 +52,17 @@ export function registerPluginManagement(program: Command): {
       (value, all: string[]) => [...all, value],
       [],
     )
-    .action((directory: string, options: { allow: string[]; read: string[] }) => {
+    .action((directory: string, options: { allow: string[]; read: string[]; trust: boolean }) => {
       const plugin = linkPlugin(directory, reserved(), options);
       logger.info(`Linked ${plugin.command} (${plugin.name}@${plugin.version})`);
+      if (options.trust)
+        logger.warn('Trusted mode: this plugin runs with your user permissions, without OS isolation.');
       logger.result({
         command: 'plugin.link',
         plugin: plugin.command,
         directory: plugin.directory,
         permissions: plugin.permissions,
+        mode: options.trust ? 'trusted' : 'sandbox',
       });
     });
   management
@@ -67,7 +71,7 @@ export function registerPluginManagement(program: Command): {
     .action(() => {
       const plugins = listPlugins(reserved());
       for (const plugin of plugins)
-        logger.info(`${plugin.command}: ${plugin.state}${plugin.error ? ` — ${plugin.error}` : ''}`);
+        logger.info(`${plugin.command}: ${plugin.state} [${plugin.mode}]${plugin.error ? ` — ${plugin.error}` : ''}`);
       logger.result({ command: 'plugin.list', plugins });
     });
   management
@@ -85,6 +89,7 @@ export function registerPluginManagement(program: Command): {
       // runCli is reusable: an earlier invocation cannot authorize a later link.
       link.setOptionValueWithSource('allow', [], 'default');
       link.setOptionValueWithSource('read', [], 'default');
+      link.setOptionValueWithSource('trust', false, 'default');
       for (const command of dynamic) {
         const index = program.commands.indexOf(command);
         // Commander exposes a readonly view of its mutable registration array.

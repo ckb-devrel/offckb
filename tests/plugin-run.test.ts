@@ -4,6 +4,7 @@ import path from 'path';
 import childProcess from 'child_process';
 import { runPlugin } from '../src/plugins/run';
 import { linkPlugin, unlinkPlugin } from '../src/plugins/store';
+import { assertSandboxSupported } from '../src/plugins/sandbox';
 
 const mockCreateContext = jest.fn();
 jest.mock('../src/plugins/context', () => ({
@@ -12,7 +13,7 @@ jest.mock('../src/plugins/context', () => ({
 jest.mock('../src/util/shutdown', () => ({ enterGracefulShutdown: jest.fn() }));
 jest.mock('../src/plugins/sandbox', () => ({
   assertSandboxSupported: jest.fn(),
-  preparePluginSandbox: async (
+  preparePluginExecution: async (
     plugin: { entry: string },
     file: string | undefined,
     _read: string[],
@@ -21,7 +22,7 @@ jest.mock('../src/plugins/sandbox', () => ({
     const env = { ...process.env };
     delete env.OFFCKB_PLUGIN_CONTEXT;
     if (file) env.OFFCKB_PLUGIN_CONTEXT = file;
-    return { command: process.execPath, args: [plugin.entry, ...args], env, dispose: jest.fn() };
+    return { command: process.execPath, args: [plugin.entry, ...args], cwd: process.cwd(), env, dispose: jest.fn() };
   },
 }));
 
@@ -44,6 +45,7 @@ beforeEach(() => {
     fs.writeFileSync(contextFile, JSON.stringify({ apiVersion: 1 }));
     return { file: contextFile, dispose };
   });
+  jest.mocked(assertSandboxSupported).mockReset();
   fs.writeFileSync(
     path.join(root, 'package.json'),
     JSON.stringify({
@@ -114,6 +116,19 @@ it('preserves nonzero exit codes and cleans up after context preparation fails',
   expect(() => unlinkPlugin('runner')).not.toThrow();
 });
 
+it('refuses an unavailable sandbox before acquiring a lease, without falling back to trusted execution', async () => {
+  jest.mocked(assertSandboxSupported).mockImplementation(() => {
+    throw new Error('sandbox unavailable');
+  });
+  await expect(runPlugin('runner', [], false)).rejects.toThrow('sandbox unavailable');
+  expect(mockCreateContext).not.toHaveBeenCalled();
+  expect(fs.existsSync(output)).toBe(false);
+  expect(fs.existsSync(path.join(process.env.OFFCKB_PLUGIN_HOME!, 'runner.running'))).toBe(false);
+  linkPlugin(root, new Set(), { trust: true });
+  await runPlugin('runner', [], false);
+  expect(process.exitCode).toBe(0);
+});
+
 const posixIt = process.platform === 'win32' ? it.skip : it;
 posixIt.each(['success', 'throw', 'error event'])(
   'keeps shutdown and cleanup usable after a group signal fails and the child fallback reports %s',
@@ -153,8 +168,7 @@ posixIt.each(['success', 'throw', 'error event'])(
   },
 );
 
-it('forwards a captured shutdown signal to its owned process group and waits for cleanup', async () => {
-  if (process.platform === 'win32') return; // Signal and taskkill behavior needs a Windows host.
+it('forwards a captured shutdown signal to its owned process tree and waits for cleanup', async () => {
   const listeners = new Map<string, () => void>();
   const originalOn = process.on.bind(process);
   jest.spyOn(process, 'on').mockImplementation(((event: string, listener: () => void) => {

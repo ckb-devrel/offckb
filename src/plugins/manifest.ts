@@ -4,6 +4,7 @@ import semver from 'semver';
 
 export const PLUGIN_PERMISSIONS = ['devnet-read', 'project-deployment', 'serve'] as const;
 export type PluginPermission = (typeof PLUGIN_PERMISSIONS)[number];
+export type PluginMode = 'sandbox' | 'trusted';
 
 export interface PluginManifest {
   directory: string;
