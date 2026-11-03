@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { dataPath } from '../cfg/setting';
+import { logger } from '../util/logger';
 import {
   assertPluginCompatible,
   isPluginCommand,
@@ -13,12 +14,29 @@ import {
   readPluginManifest,
 } from './manifest';
 
+export interface PluginSource {
+  kind: 'npm' | 'github';
+  requested: string;
+  resolved: string;
+}
+export interface PluginInstallation {
+  id: string;
+  name: string;
+  source: PluginSource;
+  allowScripts: boolean;
+}
+export interface PluginLinkOptions {
+  allow?: string[];
+  read?: string[];
+  trust?: boolean;
+}
 interface Registration {
   directory: string;
   permissions: PluginPermission[];
   readPaths: string[];
   /** Host authorization only; a package declaration can never select trusted execution. */
   trusted?: { name: string; version: string };
+  installation?: PluginInstallation;
 }
 interface Registry {
   apiVersion: 2;
@@ -29,6 +47,7 @@ export interface PluginInfo {
   command: string;
   directory: string;
   mode: PluginMode;
+  source?: PluginSource;
   state: 'available' | 'invalid' | 'incompatible' | 'shadowed';
   name?: string;
   version?: string;
@@ -89,11 +108,55 @@ function readRegistry(): Registry {
         !Array.isArray(entry.readPaths) ||
         entry.readPaths.some((file) => typeof file !== 'string' || !path.isAbsolute(file)) ||
         (entry.trusted !== undefined &&
-          (!entry.trusted || typeof entry.trusted.name !== 'string' || typeof entry.trusted.version !== 'string')),
+          (!entry.trusted || typeof entry.trusted.name !== 'string' || typeof entry.trusted.version !== 'string')) ||
+        (entry.installation !== undefined && !isInstallation(entry.installation)),
     )
   )
     throw new Error(`Invalid plugin registry: ${registryPath()}`);
   return registry;
+}
+
+function isInstallation(value: PluginInstallation): boolean {
+  return (
+    !!value &&
+    /^[a-f0-9-]{36}$/.test(value.id) &&
+    typeof value.name === 'string' &&
+    typeof value.allowScripts === 'boolean' &&
+    !!value.source &&
+    ['npm', 'github'].includes(value.source.kind) &&
+    typeof value.source.requested === 'string' &&
+    typeof value.source.resolved === 'string'
+  );
+}
+
+/** Store only an identifier; never recursively delete a caller-supplied installation path. */
+export function pluginPackagesPath(): string {
+  fs.mkdirSync(pluginHome(), { recursive: true, mode: 0o700 });
+  const packages = path.join(fs.realpathSync(pluginHome()), 'packages');
+  fs.mkdirSync(packages, { recursive: true, mode: 0o700 });
+  if (fs.lstatSync(packages).isSymbolicLink()) throw new Error('Plugin packages directory must not be a symlink');
+  return packages;
+}
+
+function installationRoot(entry: Registration): string | undefined {
+  if (!entry.installation) return;
+  const root = path.join(pluginPackagesPath(), entry.installation.id);
+  // A missing/corrupted managed package must remain removable, without following links.
+  if (fs.existsSync(root) && (fs.lstatSync(root).isSymbolicLink() || fs.realpathSync(root) !== root))
+    throw new Error('Managed plugin root must not be a symlink');
+  const relative = path.relative(root, entry.directory);
+  if (!relative || relative.startsWith(`..${path.sep}`) || relative === '..' || path.isAbsolute(relative))
+    throw new Error('Managed plugin directory escapes its installation');
+  return root;
+}
+
+function cleanupInstallation(root: string | undefined): void {
+  if (!root) return;
+  try {
+    fs.rmSync(root, { recursive: true, force: true });
+  } catch {
+    logger.warn(`Plugin registration updated, but package cleanup failed at ${root}; remove that directory manually.`);
+  }
 }
 
 function withRegistryLock<T>(action: () => T): T {
@@ -142,39 +205,46 @@ function assertNotRunning(command: string): void {
 }
 
 export function listPlugins(reserved: ReadonlySet<string>): PluginInfo[] {
-  return Object.entries(readRegistry().plugins).map(([command, { directory, permissions, readPaths, trusted }]) => {
-    const base = { command, directory, mode: trusted ? ('trusted' as const) : ('sandbox' as const) };
-    if (reserved.has(command)) return { ...base, state: 'shadowed', error: 'A core command has priority' };
-    let plugin: PluginManifest;
-    try {
-      plugin = readPluginManifest(directory);
-      if (plugin.command !== command) throw new Error('Plugin command changed; unlink and link the package again');
-      assertPermissions(plugin, permissions);
-      assertTrustedIdentity(plugin, trusted);
-    } catch (error) {
-      return { ...base, state: 'invalid', error: (error as Error).message };
-    }
-    const info = {
-      ...base,
-      name: plugin.name,
-      version: plugin.version,
-      description: plugin.description,
-      permissions,
-      readPaths,
-    };
-    try {
-      assertPluginCompatible(plugin);
-      return { ...info, state: 'available' };
-    } catch (error) {
-      return { ...info, state: 'incompatible', error: (error as Error).message };
-    }
-  });
+  return Object.entries(readRegistry().plugins).map(
+    ([command, { directory, permissions, readPaths, trusted, installation }]) => {
+      const base = {
+        command,
+        directory,
+        mode: trusted ? ('trusted' as const) : ('sandbox' as const),
+        ...(installation ? { source: installation.source } : {}),
+      };
+      if (reserved.has(command)) return { ...base, state: 'shadowed', error: 'A core command has priority' };
+      let plugin: PluginManifest;
+      try {
+        plugin = readPluginManifest(directory);
+        if (plugin.command !== command) throw new Error('Plugin command changed; unlink and link the package again');
+        assertPermissions(plugin, permissions);
+        assertTrustedIdentity(plugin, trusted);
+      } catch (error) {
+        return { ...base, state: 'invalid', error: (error as Error).message };
+      }
+      const info = {
+        ...base,
+        name: plugin.name,
+        version: plugin.version,
+        description: plugin.description,
+        permissions,
+        readPaths,
+      };
+      try {
+        assertPluginCompatible(plugin);
+        return { ...info, state: 'available' };
+      } catch (error) {
+        return { ...info, state: 'incompatible', error: (error as Error).message };
+      }
+    },
+  );
 }
 
 function assertPermissions(plugin: PluginManifest, granted: readonly string[]): void {
   if (plugin.permissions.some((permission) => !granted.includes(permission)))
     throw new Error(
-      `${plugin.command} requires explicit grants: ${plugin.permissions.map((permission) => `--allow ${permission}`).join(' ')}. Relink to approve changed permissions.`,
+      `${plugin.command} requires explicit grants: ${plugin.permissions.map((permission) => `--allow ${permission}`).join(' ')}. Relink or reinstall to approve changed permissions.`,
     );
 }
 
@@ -186,7 +256,7 @@ function assertTrustedIdentity(plugin: PluginManifest, trusted: Registration['tr
 export function linkPlugin(
   directory: string,
   reserved: ReadonlySet<string>,
-  options: { allow?: string[]; read?: string[]; trust?: boolean } = {},
+  options: PluginLinkOptions = {},
 ): PluginManifest {
   return withRegistryLock(() => {
     const plugin = readPluginManifest(directory);
@@ -208,6 +278,7 @@ export function linkPlugin(
       permissions: plugin.permissions,
       readPaths,
       ...(options.trust ? { trusted: { name: plugin.name, version: plugin.version } } : {}),
+      ...(existing?.installation ? { installation: existing.installation } : {}),
     };
     writeRegistry(registry);
     return plugin;
@@ -220,9 +291,72 @@ export function unlinkPlugin(command: string): void {
     assertNotRunning(command);
     if (!Object.prototype.hasOwnProperty.call(registry.plugins, command))
       throw new Error(`Plugin ${command} is not linked`);
+    if (registry.plugins[command].installation) throw new Error('Use plugin remove to uninstall a managed package');
     delete registry.plugins[command];
     writeRegistry(registry);
   });
+}
+
+export function commitPluginInstallation(
+  directory: string,
+  installation: PluginInstallation,
+  reserved: ReadonlySet<string>,
+  options: PluginLinkOptions,
+): PluginManifest {
+  let previousRoot: string | undefined;
+  const plugin = withRegistryLock(() => {
+    const candidate = readPluginManifest(directory);
+    assertPluginCompatible(candidate);
+    assertPermissions(candidate, options.allow ?? []);
+    if (options.allow?.some((permission) => !candidate.permissions.includes(permission as PluginPermission)))
+      throw new Error('Only permissions declared by this plugin may be granted');
+    if (!isInstallation(installation) || installation.name !== candidate.name) throw new Error('Invalid installation');
+    if (reserved.has(candidate.command))
+      throw new Error(`Plugin command ${candidate.command} conflicts with a core command`);
+    const registry = readRegistry();
+    const previous = Object.prototype.hasOwnProperty.call(registry.plugins, candidate.command)
+      ? registry.plugins[candidate.command]
+      : undefined;
+    if (previous && (!previous.installation || previous.installation.name !== candidate.name))
+      throw new Error(`Plugin command ${candidate.command} is already linked; remove/unlink it explicitly first`);
+    if (
+      Object.entries(registry.plugins).some(
+        ([name, entry]) => name !== candidate.command && entry.installation?.name === candidate.name,
+      )
+    )
+      throw new Error('This package changed its command; remove its previous registration first');
+    assertNotRunning(candidate.command);
+    if (previous) previousRoot = installationRoot(previous);
+    const entry: Registration = {
+      directory: candidate.directory,
+      permissions: candidate.permissions,
+      readPaths: (options.read ?? []).map((file) => fs.realpathSync(file)),
+      ...(options.trust ? { trusted: { name: candidate.name, version: candidate.version } } : {}),
+      installation,
+    };
+    if (installationRoot(entry) === previousRoot)
+      throw new Error('A replacement must use a fresh installation directory');
+    registry.plugins[candidate.command] = entry;
+    writeRegistry(registry);
+    return candidate;
+  });
+  cleanupInstallation(previousRoot);
+  return plugin;
+}
+
+/** Managed packages are removed; user-linked directories and persistent data/cache are kept. */
+export function removePlugin(command: string): void {
+  let root: string | undefined;
+  withRegistryLock(() => {
+    const registry = readRegistry();
+    if (!Object.prototype.hasOwnProperty.call(registry.plugins, command))
+      throw new Error(`Plugin ${command} is not linked`);
+    assertNotRunning(command);
+    root = installationRoot(registry.plugins[command]);
+    delete registry.plugins[command];
+    writeRegistry(registry);
+  });
+  cleanupInstallation(root);
 }
 
 /** A foreground lease prevents unlink/relink; it never authorizes signaling a saved PID. */

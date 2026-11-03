@@ -8,6 +8,7 @@ import { createPluginContext } from '../src/plugins/context';
 import { registerPluginManagement } from '../src/plugins/cli';
 
 const mockRunPlugin = jest.fn().mockResolvedValue(undefined);
+const mockInstallPlugin = jest.fn();
 const mockResolveScripts = jest.fn();
 const mockExecFileSync = jest.fn();
 const mockSettings = {
@@ -27,6 +28,7 @@ jest.mock('child_process', () => ({
 }));
 jest.mock('../src/util/daemon', () => ({ resolveCliEntry: () => '/current/offckb.js' }));
 jest.mock('../src/plugins/run', () => ({ runPlugin: (...args: unknown[]) => mockRunPlugin(...args) }));
+jest.mock('../src/plugins/install', () => ({ installPlugin: (...args: unknown[]) => mockInstallPlugin(...args) }));
 
 let directory: string;
 let previousHome: string | undefined;
@@ -55,6 +57,10 @@ beforeEach(() => {
   mockResolveScripts.mockReset();
   mockExecFileSync.mockReset().mockReturnValue('test hashes');
   mockRunPlugin.mockClear();
+  mockInstallPlugin.mockReset().mockResolvedValue({
+    plugin: { command: 'installed', name: 'installed', version: '1.0.0', directory: '/installed', permissions: [] },
+    source: { kind: 'npm', requested: 'installed', resolved: 'installed@1.0.0' },
+  });
 });
 afterEach(() => {
   if (previousHome === undefined) delete process.env.OFFCKB_PLUGIN_HOME;
@@ -348,4 +354,33 @@ it('does not carry trusted execution into a later link in the same CLI process',
     { command: 'first', mode: 'trusted' },
     { command: 'second', mode: 'sandbox' },
   ]);
+});
+
+it('does not carry install-script consent or grants into a later install in the same CLI process', async () => {
+  const program = new Command();
+  const plugins = registerPluginManagement(program);
+  await program.parseAsync(
+    plugins.prepare([
+      'node',
+      'offckb',
+      'plugin',
+      'install',
+      'installed',
+      '--trust',
+      '--allow-scripts',
+      '--allow',
+      'serve',
+    ]).argv,
+  );
+  expect(mockInstallPlugin).toHaveBeenLastCalledWith(
+    'installed',
+    expect.any(Set),
+    expect.objectContaining({ trust: true, allowScripts: true, allow: ['serve'] }),
+  );
+  await program.parseAsync(plugins.prepare(['node', 'offckb', 'plugin', 'install', 'installed']).argv);
+  expect(mockInstallPlugin).toHaveBeenLastCalledWith(
+    'installed',
+    expect.any(Set),
+    expect.objectContaining({ trust: false, allowScripts: false, allow: [], read: [] }),
+  );
 });

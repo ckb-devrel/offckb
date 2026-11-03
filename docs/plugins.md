@@ -1,6 +1,6 @@
 # Local tool plugins
 
-Plugins are independent npm-shaped packages with a static declaration and a prebuilt JavaScript entry. The host supplies a versioned context and runs each tool in a separate process. Execution uses an OS sandbox by default; users may explicitly trust an individual package for native execution. This stage implements `link/list/unlink`, foreground execution and capability grants. Registry installation, background services and plugin dependencies are deferred.
+Plugins are independent npm-shaped packages with a static declaration and a prebuilt JavaScript entry. The host supplies a versioned context and runs each tool in a separate process. Execution uses an OS sandbox by default; users may explicitly trust an individual package for native execution. The host provides npm/GitHub installation, managed replacement/removal, local linking, foreground execution and capability grants. Background services and dependencies between offckb plugins are deferred.
 
 ## Platform boundary
 
@@ -9,17 +9,17 @@ Plugins are independent npm-shaped packages with a static declaration and a preb
 | `sandbox` (default) | macOS/Linux | Node 22.21+ (22.x) or 24.5+, sandbox-runtime and OS prerequisites below |
 | `trusted` (explicit `--trust`) | Windows/macOS/Linux | Node 20+, or the plugin's own higher engine requirement; no sandbox runtime, WSL or administrator setup required |
 
-Windows core commands work without WSL. Windows users can run plugins natively after explicitly selecting trusted mode when linking:
+Windows core commands work without WSL. Windows users can run plugins natively after explicitly selecting trusted mode when installing or linking:
 
 ```sh
-offckb plugin link /path/to/package --trust --allow devnet-read
+offckb plugin install my-offckb-tool --trust --allow devnet-read
 offckb plugin list
 offckb my-tool
 ```
 
 `--trust` authorizes execution with the current user's OS permissions, without file or network isolation. A plugin can read/modify files, access other plugins' data, start processes and use the network wherever that user can. The host filters inherited environment variables and supplies a minimal context/read-RPC gateway, but these measures cannot stop trusted code from obtaining information or accessing services independently. Capabilities describe host-provided interfaces in this mode; `--read` is not an access ceiling. Run only code you trust, including its dependencies. The runner does not request elevation; starting offckb elevated also elevates a trusted child.
 
-The trust record is local to the canonical package directory and its name/version. A name/version change or newly requested capability requires relinking with the appropriate grants. Local source and dependencies remain mutable: this is not a signature, content hash or protection against modifications that retain the same version. `plugin list` and JSON link/list results show `trusted` or `sandbox`. A package cannot select trusted execution in its own manifest. Relink without `--trust` to return to sandbox mode; existing registrations stay sandboxed. A missing/failed sandbox never automatically enables trusted mode.
+The trust record is local to the canonical package directory and its name/version. A name/version change or newly requested capability requires relinking or reinstalling with the appropriate grants. Local source and dependencies remain mutable: this is not a signature, content hash or protection against modifications that retain the same version. `plugin list` and JSON link/list results show `trusted` or `sandbox`. A package cannot select trusted execution in its own manifest. Relink without `--trust` to return to sandbox mode; existing registrations stay sandboxed. A missing/failed sandbox never automatically enables trusted mode.
 
 Native Windows OS sandboxing is not implemented. The pinned sandbox-runtime's Windows alpha requires machine-wide setup and has [documented network-fence limitations](https://github.com/anthropics/sandbox-runtime/blob/v0.0.81/README.md#known-limitations); this host does not install or use it. WSL2 sandbox execution remains unvalidated, rather than a prerequisite for native Windows plugins.
 
@@ -40,7 +40,39 @@ On native Windows, add `--trust` to the link command above. No trust prompt is r
 
 Linking reads metadata; it does not execute the plugin, install dependencies or run install scripts. `link` records the canonical package directory and explicit grants. `unlink` keeps the package and its data/cache. A lease prevents concurrent execution or relinking/unlinking a running tool.
 
-A third party can publish a normal npm package. Until an installer exists, prepare it in a dedicated directory with an exact dependency version, `npm install --save-exact --omit=dev --ignore-scripts <package>@<version>`, inspect it, then link its directory under `node_modules`. Dependencies must work without installation scripts. Installing with an external package manager is outside the runtime sandbox; never enable unreviewed lifecycle scripts on the assumption that offckb will contain them.
+## Install, update and remove
+
+Use one offckb command; no manual npm install or link step is needed. These examples use placeholder package/repository names and assume the plugin declares `devnet-read` (add only capabilities it requests):
+
+```sh
+# npm: package name, exact version, range or dist-tag; the result is pinned locally.
+offckb plugin install my-offckb-tool@1.2.3 --allow devnet-read
+# GitHub: shorthand or HTTPS repository URL, optionally with a tag/branch/commit.
+offckb plugin install github:owner/repo#v1.2.3 --allow devnet-read
+offckb plugin install https://github.com/owner/repo --allow devnet-read
+# Windows native execution, or explicitly trusted execution on other platforms:
+offckb plugin install my-offckb-tool --trust --allow devnet-read
+# Run the command declared by the installed package:
+offckb my-tool
+# Install a newer version as an atomic replacement of the same managed package:
+offckb plugin install my-offckb-tool@1.3.0 --trust --allow devnet-read
+offckb plugin list
+offckb plugin remove my-tool
+```
+
+The installer uses the pinned npm 11.21.1 CLI shipped as an optional dependency, invoked through the current Node executable on every platform; it never executes `npm.cmd` through a shell. Installation requires Node **20.17+ (20.x) or 22.9+**, this optional dependency, and Git for GitHub sources. Core commands/local links retain their own Node requirements. A missing installer dependency produces an actionable error and does not fall back to an older system npm: npm 10 was observed running Git `prepare` despite `--ignore-scripts`.
+
+Packages live under `<plugin home>/packages/<installation-id>`, with an npm lockfile and the resolved npm version or GitHub commit shown by `plugin list`/JSON output. Installation happens in a fresh, undiscovered directory. Declaration, entry, engines, grants and conflicts are checked before the atomic registry switch; a failed download/build/validation/replacement leaves the previous registration and package intact. Running plugins cannot be replaced or removed. Successful replacement removes the previous managed package and keeps data/cache. Private npm registries and HTTPS Git credentials use normal npm/Git configuration; credentials must not be embedded in the source argument. Arbitrary file/tarball/SSH source specifications are not supported.
+
+Scripts are **disabled by default**, independently of `--trust`. Packages must ship a prebuilt JS entry. A GitHub repository must itself be an npm-compatible offckb plugin at its root, rather than an arbitrary tool that offckb can adapt automatically. Source packages can use npm's standard `prepare` hook to build their entry and install build dependencies. Explicitly authorize that installation-time code with:
+
+```sh
+offckb plugin install github:owner/repo#v1.2.3 --trust --allow-scripts --allow devnet-read
+```
+
+`--allow-scripts` requires `--trust` and enables npm install/build scripts, including dependency scripts, **with the caller's permissions and environment outside the runtime sandbox**. It does not carry over to a later install. The runtime sandbox cannot protect the installation phase. An installation failure preserves the previous package but cannot undo external side effects from explicitly allowed scripts. Repositories with only source and no npm preparation/build contract must publish a prebuilt npm package or add that contract; offckb does not guess project-specific build commands.
+
+`plugin remove` deletes a managed package and its registration, preserving data/cache. For a user-linked directory it removes only the registration, never the user's files. `plugin unlink` is for local links; managed packages direct users to `remove`. `plugin link` remains available for local development and for regranting a managed package's capabilities/mode without losing its ownership record. Updates are explicit installs; there is no automatic upgrade or background service.
 
 Registrations default to `<offckb data directory>/plugins`. `OFFCKB_PLUGIN_HOME` selects isolated registry/storage; it does not change core settings. Discovery probes `registry.json` even for core commands, without creating an absent registry. Broken declarations/registries do not block core commands. `plugin list` reports invalid/incompatible entries; future core collisions are `shadowed` and remain removable. Legacy registrations have zero capability grants; new permissions require relinking.
 
@@ -140,11 +172,12 @@ pnpm lint
 pnpm build
 node scripts/plugin-sandbox-smoke.mjs
 node scripts/plugin-trusted-smoke.mjs
+node scripts/plugin-install-smoke.mjs
 ```
 
 The native security test exercises the production bundle with canary secrets: forbidden reads/writes, symlink/child escape, direct network access, credential inheritance and write RPC rejection, plus positive cache/read-RPC access. CI runs it on native macOS/Linux with Node 24. Synthetic fixtures also verify argv/JSON ownership, offline help, sandboxed HTTP serving, foreground shutdown and cleanup. Tests isolate settings and override `os.homedir()` only in their worker, without changing HOME.
 
-Trusted-mode production smoke runs in the existing native Windows/macOS/Linux Node 20 CI matrix with sandbox-runtime resolution deliberately blocked. It verifies explicit trust, safe environment/context, read-only RPC, TCP HTTP serving, argv/JSON, help and interrupt cleanup. This checks the trusted contract, not OS isolation.
+Trusted-mode production smoke runs in the existing native Windows/macOS/Linux Node 20 CI matrix with sandbox-runtime resolution deliberately blocked. It verifies explicit trust, safe environment/context, read-only RPC, TCP HTTP serving, argv/JSON, help and interrupt cleanup. This checks the trusted contract, not OS isolation. The installer smoke uses a local registry and a test-only GitHub-to-local-Git transport mapping to exercise real npm/Git preparation, script consent, version/commit pinning, rollback, live leases, replacement and removal on all three platforms; it does not claim to test public GitHub authentication or availability.
 
 POSIX foreground groups receive SIGINT/SIGTERM/SIGHUP, a three-second limit and final owned-process cleanup. Windows shutdown uses `taskkill /T /F` for the live child tree, without a graceful signal period; exited/stored PIDs are never targeted. This is best-effort cleanup, not Job Object containment: deliberately detached children or a forcibly killed host can outlive it. Crash/SIGKILL can leave registry/run locks or temporary files: confirm the tool has stopped before manual cleanup. Automatic crash recovery, concurrent instances, resource quotas, background services and arbitrary sandbox network grants are deferred. A second-tool `ckb-tui` adapter still needs native TTY and sandbox network adaptation; its existing core `status` command is unchanged.
 

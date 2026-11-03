@@ -1,4 +1,4 @@
-import { ChildProcess, execFileSync, spawn } from 'child_process';
+import { ChildProcess, spawn } from 'child_process';
 import {
   bindChildrenToProcessLifetime,
   LIFETIME_SIGNALS,
@@ -9,27 +9,7 @@ import { enterGracefulShutdown } from '../util/shutdown';
 import { createPluginContext } from './context';
 import { acquirePlugin } from './store';
 import { assertSandboxSupported, preparePluginExecution } from './sandbox';
-
-function signalChild(child: ChildProcess, signal: NodeJS.Signals): void {
-  if (!child.pid) return;
-  try {
-    if (process.platform === 'win32') {
-      // Never taskkill a PID after our child exited; it could have been reused.
-      if (child.exitCode != null || child.signalCode != null) return;
-      execFileSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', timeout: 5000 });
-    } else {
-      // The group was created by this invocation; never target a stored PID.
-      process.kill(-child.pid, signal);
-    }
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ESRCH' || child.exitCode != null || child.signalCode != null) return;
-    try {
-      child.kill(process.platform === 'win32' ? 'SIGKILL' : signal);
-    } catch {
-      // Best effort: a failed signal must not bypass context cleanup or lease release.
-    }
-  }
-}
+import { signalPluginChild as signalChild } from './process';
 
 export async function runPlugin(command: string, args: string[], json: boolean, port = 7070): Promise<void> {
   const lease = acquirePlugin(command, (mode) => {

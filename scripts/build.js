@@ -16,7 +16,7 @@ try {
   console.log('🔗 Bundling with NCC...');
   fs.rmSync('build', { recursive: true, force: true });
   execSync(
-    'ncc build dist/cli.js -o build --external cpu-features --external @anthropic-ai/sandbox-runtime',
+    'ncc build dist/cli.js -o build --external cpu-features --external @anthropic-ai/sandbox-runtime --external npm',
     { stdio: 'inherit' },
   );
   // Ship the official runtime once, without its unused entry point, types or snippets.

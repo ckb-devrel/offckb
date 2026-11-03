@@ -1,7 +1,25 @@
 import { Command, InvalidArgumentError } from 'commander';
 import { logger } from '../util/logger';
-import { linkPlugin, listPlugins, unlinkPlugin } from './store';
+import { linkPlugin, listPlugins, unlinkPlugin, removePlugin, PluginLinkOptions } from './store';
 import { runPlugin } from './run';
+import { installPlugin } from './install';
+
+function registrationOptions(command: Command): Command {
+  return command
+    .option('--trust', 'Trust this package to run with your user permissions, without OS isolation', false)
+    .option(
+      '--allow <permission>',
+      'Grant one declared capability (repeatable)',
+      (value, all: string[]) => [...all, value],
+      [],
+    )
+    .option(
+      '--read <path>',
+      'Grant an additional read-only path (repeatable)',
+      (value, all: string[]) => [...all, value],
+      [],
+    );
+}
 
 export function coreCommandIndex(program: Command, argv: string[]): number {
   for (let index = 2; index < argv.length; index++) {
@@ -36,33 +54,39 @@ export function registerPluginManagement(program: Command): {
         .flatMap((command) => [command.name(), ...command.aliases()]),
     ]);
   const management = program.command('plugin').description('Link and run local tool plugins (experimental)');
-  const link = management
-    .command('link <directory>')
-    .description('Register a local plugin with explicit capability grants')
-    .option('--trust', 'Trust this package to run with your user permissions, without OS isolation', false)
-    .option(
-      '--allow <permission>',
-      'Grant one declared capability (repeatable)',
-      (value, all: string[]) => [...all, value],
-      [],
-    )
-    .option(
-      '--read <path>',
-      'Grant an additional read-only path (repeatable)',
-      (value, all: string[]) => [...all, value],
-      [],
-    )
-    .action((directory: string, options: { allow: string[]; read: string[]; trust: boolean }) => {
-      const plugin = linkPlugin(directory, reserved(), options);
-      logger.info(`Linked ${plugin.command} (${plugin.name}@${plugin.version})`);
+  const link = registrationOptions(
+    management.command('link <directory>').description('Register a local plugin with explicit capability grants'),
+  ).action((directory: string, options: { allow: string[]; read: string[]; trust: boolean }) => {
+    const plugin = linkPlugin(directory, reserved(), options);
+    logger.info(`Linked ${plugin.command} (${plugin.name}@${plugin.version})`);
+    if (options.trust) logger.warn('Trusted mode: this plugin runs with your user permissions, without OS isolation.');
+    logger.result({
+      command: 'plugin.link',
+      plugin: plugin.command,
+      directory: plugin.directory,
+      permissions: plugin.permissions,
+      mode: options.trust ? 'trusted' : 'sandbox',
+    });
+  });
+  const install = registrationOptions(
+    management
+      .command('install <source>')
+      .description('Install or replace a plugin from npm or github:owner/repo[#ref]'),
+  )
+    .option('--allow-scripts', 'Allow npm install/build scripts outside the runtime sandbox (requires --trust)', false)
+    .action(async (source: string, options: PluginLinkOptions & { allowScripts: boolean }) => {
+      const installed = await installPlugin(source, reserved(), options);
+      const plugin = installed.plugin;
+      logger.info(`Installed ${plugin.command} (${installed.source.resolved}); run offckb ${plugin.command}`);
       if (options.trust)
         logger.warn('Trusted mode: this plugin runs with your user permissions, without OS isolation.');
       logger.result({
-        command: 'plugin.link',
+        command: 'plugin.install',
         plugin: plugin.command,
         directory: plugin.directory,
         permissions: plugin.permissions,
         mode: options.trust ? 'trusted' : 'sandbox',
+        source: installed.source,
       });
     });
   management
@@ -71,8 +95,18 @@ export function registerPluginManagement(program: Command): {
     .action(() => {
       const plugins = listPlugins(reserved());
       for (const plugin of plugins)
-        logger.info(`${plugin.command}: ${plugin.state} [${plugin.mode}]${plugin.error ? ` — ${plugin.error}` : ''}`);
+        logger.info(
+          `${plugin.command}: ${plugin.state} [${plugin.mode}]${plugin.source ? ` (${plugin.source.resolved})` : ''}${plugin.error ? ` — ${plugin.error}` : ''}`,
+        );
       logger.result({ command: 'plugin.list', plugins });
+    });
+  management
+    .command('remove <command>')
+    .description('Uninstall a managed plugin or unlink a local package; keeps data/cache')
+    .action((command: string) => {
+      removePlugin(command);
+      logger.info(`Removed ${command}; data and cache are kept`);
+      logger.result({ command: 'plugin.remove', plugin: command });
     });
   management
     .command('unlink <command>')
@@ -87,9 +121,12 @@ export function registerPluginManagement(program: Command): {
     prepare(argv) {
       program.setOptionValueWithSource('pluginPort', 7070, 'default');
       // runCli is reusable: an earlier invocation cannot authorize a later link.
-      link.setOptionValueWithSource('allow', [], 'default');
-      link.setOptionValueWithSource('read', [], 'default');
-      link.setOptionValueWithSource('trust', false, 'default');
+      for (const command of [link, install]) {
+        command.setOptionValueWithSource('allow', [], 'default');
+        command.setOptionValueWithSource('read', [], 'default');
+        command.setOptionValueWithSource('trust', false, 'default');
+      }
+      install.setOptionValueWithSource('allowScripts', false, 'default');
       for (const command of dynamic) {
         const index = program.commands.indexOf(command);
         // Commander exposes a readonly view of its mutable registration array.
