@@ -6,6 +6,7 @@ import path from 'node:path';
 import net from 'node:net';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const project = fileURLToPath(new URL('../', import.meta.url));
@@ -59,12 +60,12 @@ async function invoke(args, expected = 0, entry = cli) {
     clearTimeout(timer);
   }
 }
-function plugin(name, code, permissions = []) {
+function plugin(name, code, permissions = [], command = name) {
   const directory = path.join(root, name);
   fs.mkdirSync(directory);
   fs.writeFileSync(
     path.join(directory, 'package.json'),
-    JSON.stringify({ name, version: '1.0.0', offckb: { apiVersion: 1, command: name, entry: 'cli.cjs', permissions } }),
+    JSON.stringify({ name, version: '1.0.0', offckb: { apiVersion: 1, command, entry: 'cli.cjs', permissions } }),
   );
   fs.writeFileSync(path.join(directory, 'cli.cjs'), code);
   return directory;
@@ -135,7 +136,57 @@ try {
   assert.equal(fs.readFileSync(escapedWrite, 'utf8'), 'host-write-canary');
   if (process.platform === 'linux') delete denied.write;
   assert.ok(Object.values(denied).every((value) => value === true));
-  assert.equal(fs.readFileSync(path.join(home, 'cache/malicious-probe/own'), 'utf8'), 'allowed');
+  assert.equal(
+    fs.readFileSync(
+      path.join(home, 'cache', createHash('sha256').update('malicious-probe').digest('hex'), 'own'),
+      'utf8',
+    ),
+    'allowed',
+  );
+
+  const firstOwner = plugin(
+    'storage-owner-a',
+    `
+    const fs=require('fs'),path=require('path'),c=JSON.parse(fs.readFileSync(process.env.OFFCKB_PLUGIN_CONTEXT));
+    const secret=path.join(c.plugin.dataPath,'secret'),retained=fs.existsSync(secret);
+    fs.writeFileSync(secret,'package-a-only');
+    console.log(JSON.stringify({secret,retained}));
+  `,
+    [],
+    'storage-probe',
+  );
+  await invoke(['plugin', 'link', firstOwner]);
+  const owner = JSON.parse((await invoke(['--json', 'storage-probe'])).stdout);
+  assert.equal(owner.retained, false);
+  await invoke(['plugin', 'remove', 'storage-probe']);
+  assert.equal(fs.readFileSync(owner.secret, 'utf8'), 'package-a-only');
+  const secondOwner = plugin(
+    'storage-owner-b',
+    `
+    const fs=require('fs'),c=JSON.parse(fs.readFileSync(process.env.OFFCKB_PLUGIN_CONTEXT));
+    let previousReadable=false;try{fs.readFileSync(${JSON.stringify(owner.secret)});previousReadable=true;}catch{}
+    console.log(JSON.stringify({previousReadable,ownFiles:fs.readdirSync(c.plugin.dataPath)}));
+  `,
+    [],
+    'storage-probe',
+  );
+  await invoke(['plugin', 'link', secondOwner]);
+  assert.deepEqual(JSON.parse((await invoke(['--json', 'storage-probe'])).stdout), {
+    previousReadable: false,
+    ownFiles: [],
+  });
+  await invoke(['plugin', 'remove', 'storage-probe']);
+  const ownerManifest = path.join(firstOwner, 'package.json');
+  fs.writeFileSync(
+    ownerManifest,
+    JSON.stringify({ ...JSON.parse(fs.readFileSync(ownerManifest, 'utf8')), version: '1.1.0' }),
+  );
+  await invoke(['plugin', 'link', firstOwner]);
+  assert.deepEqual(JSON.parse((await invoke(['--json', 'storage-probe'])).stdout), { ...owner, retained: true });
+  await invoke(['plugin', 'remove', 'storage-probe']);
+  console.log(
+    'PASS: package storage survives updates without transferring to a different package using the same command',
+  );
   const bare = path.join(root, 'bare-bundle');
   fs.cpSync(path.dirname(cli), bare, { recursive: true });
   assert.match(

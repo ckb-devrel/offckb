@@ -219,8 +219,10 @@ export async function installPlugin(
       },
       reserved,
       options,
+      () => {
+        committed = true;
+      },
     );
-    committed = true;
     return { plugin: registered, source: provenance };
   } finally {
     if (!committed) fs.rmSync(staging, { recursive: true, force: true });

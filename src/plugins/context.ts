@@ -5,7 +5,7 @@ import { getCKBBinaryPath, readSettings } from '../cfg/setting';
 import { resolveCliEntry } from '../util/daemon';
 import { resolveDevnetSystemScriptsFromListHashes } from '../scripts/private';
 import { PluginManifest } from './manifest';
-import { pluginHome } from './store';
+import { pluginHome, pluginStoragePaths } from './store';
 
 export interface PluginContext {
   apiVersion: 1;
@@ -72,8 +72,7 @@ export function createPluginContext(plugin: PluginManifest, json: boolean): { fi
     const systemScriptsFile = scripts ? path.join(directory, 'system-scripts.json') : null;
     if (systemScriptsFile)
       fs.writeFileSync(systemScriptsFile, JSON.stringify({ devnet: scripts!.scripts }), { mode: 0o600 });
-    const data = path.join(pluginHome(), 'data', plugin.command);
-    const cache = path.join(pluginHome(), 'cache', plugin.command);
+    const { data, cache } = pluginStoragePaths(plugin.name);
     fs.mkdirSync(data, { recursive: true, mode: 0o700 });
     fs.mkdirSync(cache, { recursive: true, mode: 0o700 });
     // A tool may leave symlinks in its storage. Never turn one into a new host grant.

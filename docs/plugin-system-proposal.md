@@ -48,7 +48,7 @@
 
 提供 `plugin install <npm-package|github:owner/repo[#ref]>` 一步安装并登记，接受 npm 版本/range/tag 和 GitHub HTTPS URL。用户无需手动 clone、npm install 或 link。GitHub 仓库根目录必须符合插件包协议；安装到专属托管目录，npm 版本及 GitHub commit 明确记录，依赖锁定使用 npm lockfile，不另建完整性登记系统。
 
-再次 install 同名托管包会在独立目录准备，校验成功且旧插件已停止后原子切换登记，再删除旧包；任何失败保留旧登记及代码。不同包抢占命令或覆盖用户手动 link 的目录均拒绝。`plugin remove` 删除托管包并解除登记，保留 data/cache；对于本地 link 仅解除登记。`link/unlink` 保留用于开发，relink 托管包不会丢失归属记录。自动更新、任意 tarball/本地/SSH 安装源和服务托管不在当前范围。
+再次 install 同名托管包会在独立目录准备，校验成功且旧插件已停止后原子切换登记，再删除旧包；提交前失败保留旧登记及代码；登记原子切换后立即转移新目录归属，锁、临时文件及旧包的后置清理异常只报告诊断，不删除已登记的新包。不同包抢占命令或覆盖用户手动 link 的目录均拒绝。`plugin remove` 删除托管包并解除登记，保留 data/cache；对于本地 link 仅解除登记。`link/unlink` 保留用于开发，relink 托管包不会丢失归属记录。自动更新、任意 tarball/本地/SSH 安装源和服务托管不在当前范围。
 
 默认禁用安装脚本，`--trust` 仅选择可信运行，不自动允许构建。源码插件可通过 npm 标准 `prepare` hook 构建；用户显式提供 `--trust --allow-scripts` 后，安装及依赖脚本才可在当前用户权限下执行。该阶段在运行沙箱之外，失败回滚无法撤销脚本写到安装目录外的副作用；不猜测任意仓库的构建步骤。
 
@@ -58,7 +58,7 @@
 
 ## 环境与参数协议
 
-`OFFCKB_PLUGIN_CONTEXT` 指向本次临时 JSON，包含 API/offckb 版本、调用目录、输出格式、插件专属 data/cache 目录、链身份及系统脚本快照。不会复制完整 settings 或账户私钥。字段详情以[插件指南](plugins.md#context-and-output)为准。
+`OFFCKB_PLUGIN_CONTEXT` 指向本次临时 JSON，包含 API/offckb 版本、调用目录、输出格式、插件专属 data/cache 目录、链身份及系统脚本快照。data/cache 以完整包名的 SHA-256 为稳定目录键，跨版本及安装保留，不按命令或 installation.id 分配；不同包复用命令不会继承数据，旧实验的命令目录不自动认领。包名是本地命名空间，不是发布者身份认证。不会复制完整 settings 或账户私钥。字段详情以[插件指南](plugins.md#context-and-output)为准。
 
 - 无 `devnet-read` 授权时 RPC 字段为空；有授权时只暴露宿主只读网关，原始 URL 和认证留在宿主。
 - 链元数据由托管 CKB 本地 `list-hashes` 提供，限时三秒；缺失或失败降级为 `unknown`，必要时附脱敏诊断。需要链身份的插件自行决定是否拒绝，并验证 RPC genesis。
@@ -81,7 +81,7 @@
 
 沙箱模式默认只读运行所需的系统/包文件和上下文，只能经专属 data/cache/临时目录回写宿主。两种模式都清除调用者的凭据、代理、SSH agent、Node preload 和模块查找环境。能力请求必须在 link 时逐项授权；声明增加权限后旧登记失效，需重新授权。持久目录不得通过符号链接变成下次调用的新授权。
 
-只读 RPC 网关只接受白名单方法、受限大小的 JSON-RPC POST 和最多 200 条的全只读批次；混入写方法整批拒绝。沙箱模式网络默认关闭，网页服务通过宿主桥接，不赋予任意 Internet、loopback 或 bind 权限。可信模式的能力只限制宿主主动提供的接口，不能阻止插件另行读取密钥、修改文件、连接节点或联网；启动提权的 offckb 也会使可信子进程获得同等权限。
+只读 RPC 网关只接受白名单方法、受限大小的 JSON-RPC POST 和最多 200 条的全只读批次；每个网关最多 16 个连接、4 个并发请求，自连接接受起整体限时 5 秒，禁用 keep-alive，关闭或断连会取消上游请求及未读响应；混入写方法整批拒绝。沙箱模式网络默认关闭，网页服务通过宿主桥接，不赋予任意 Internet、loopback 或 bind 权限。可信模式的能力只限制宿主主动提供的接口，不能阻止插件另行读取密钥、修改文件、连接节点或联网；启动提权的 offckb 也会使可信子进程获得同等权限。
 
 OS 沙箱当前只支持 macOS/Linux，分别使用 sandbox-exec 和 bubblewrap，要求 Node 22.21+（22.x）或 24.5+。可信模式沿用核心 Node 20+ 要求，并检查插件自身 engines。Windows 原生提供可信执行；不接入有机器级安装影响及公开网络旁路的 sandbox-runtime Windows alpha 后端，不把 WSL 作为使用前提，也不承诺已验证 WSL 沙箱。[固定版本后端说明](https://github.com/anthropics/sandbox-runtime/blob/v0.0.81/README.md#known-limitations)。任何第三方插件的存在都不是启用或禁用平台的依据。
 

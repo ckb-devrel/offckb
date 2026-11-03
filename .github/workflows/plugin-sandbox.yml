@@ -8,12 +8,18 @@ on:
 
 jobs:
   native-sandbox:
-    name: Native sandbox on ${{ matrix.os }}
+    name: Native sandbox on ${{ matrix.os }} / Node ${{ matrix.node }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-latest]
+        include:
+          - os: macos-latest
+            node: 24.x
+          - os: ubuntu-latest
+            node: 24.x
+          - os: ubuntu-latest
+            node: 22.21.0
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -21,7 +27,7 @@ jobs:
           version: 10
       - uses: actions/setup-node@v4
         with:
-          node-version: 24.x
+          node-version: ${{ matrix.node }}
       - name: Install Linux sandbox prerequisites
         if: runner.os == 'Linux'
         run: |

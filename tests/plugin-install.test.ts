@@ -2,6 +2,9 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { randomUUID } from 'crypto';
+import childProcess, { ChildProcess } from 'child_process';
+import { EventEmitter } from 'events';
+import { PassThrough } from 'stream';
 import { parsePluginInstallSpec, installPlugin, resolveNpmCli } from '../src/plugins/install';
 import {
   acquirePlugin,
@@ -9,6 +12,7 @@ import {
   linkPlugin,
   listPlugins,
   pluginPackagesPath,
+  pluginStoragePaths,
   removePlugin,
   unlinkPlugin,
 } from '../src/plugins/store';
@@ -21,6 +25,7 @@ beforeEach(() => {
   process.env.OFFCKB_PLUGIN_HOME = path.join(directory, 'home');
 });
 afterEach(() => {
+  jest.restoreAllMocks();
   if (previousHome === undefined) delete process.env.OFFCKB_PLUGIN_HOME;
   else process.env.OFFCKB_PLUGIN_HOME = previousHome;
   fs.rmSync(directory, { recursive: true, force: true });
@@ -88,7 +93,7 @@ function managed(version = '1.0.0', permissions: string[] = [], name = 'test-pro
 it('replaces a managed package only after validation and while stopped, preserving data/cache', () => {
   const first = managed();
   commitPluginInstallation(first.directory, first.installation, new Set(), { trust: true });
-  const data = path.join(process.env.OFFCKB_PLUGIN_HOME!, 'data/probe/saved');
+  const data = path.join(pluginStoragePaths(first.installation.name).data, 'saved');
   fs.mkdirSync(path.dirname(data), { recursive: true });
   fs.writeFileSync(data, 'keep');
   const lease = acquirePlugin('probe');
@@ -117,6 +122,100 @@ it('replaces a managed package only after validation and while stopped, preservi
   removePlugin('probe');
   expect(fs.existsSync(second.root)).toBe(false);
   expect(fs.readFileSync(data, 'utf8')).toBe('keep');
+});
+
+function mockNpmPackage() {
+  return jest.spyOn(childProcess, 'spawn').mockImplementation((_command, _args, options) => {
+    const root = String(options?.cwd);
+    const packageDirectory = path.join(root, 'node_modules/test-probe');
+    fs.mkdirSync(packageDirectory, { recursive: true });
+    fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ dependencies: { 'test-probe': '1.1.0' } }));
+    fs.writeFileSync(path.join(root, 'package-lock.json'), JSON.stringify({ packages: {} }));
+    fs.writeFileSync(
+      path.join(packageDirectory, 'package.json'),
+      JSON.stringify({
+        name: 'test-probe',
+        version: '1.1.0',
+        offckb: { apiVersion: 1, command: 'probe', entry: 'cli.cjs' },
+      }),
+    );
+    fs.writeFileSync(path.join(packageDirectory, 'cli.cjs'), '');
+    const child = Object.assign(new EventEmitter(), { stdout: new PassThrough(), stderr: new PassThrough() });
+    process.nextTick(() => child.emit('close', 0));
+    return child as ChildProcess;
+  });
+}
+
+it.each(['close', 'unlink', 'temporary', 'old-package'])(
+  'never deletes the newly registered installation after a post-commit %s cleanup failure',
+  async (failure) => {
+    const previous = managed();
+    commitPluginInstallation(previous.directory, previous.installation, new Set(), { trust: true });
+    mockNpmPackage();
+    const lock = path.join(process.env.OFFCKB_PLUGIN_HOME!, 'registry.lock');
+    const open = fs.openSync;
+    let lockFd: number | undefined;
+    jest.spyOn(fs, 'openSync').mockImplementation((file, flags, mode) => {
+      const fd = open(file, flags, mode);
+      if (String(file) === lock) lockFd = fd;
+      return fd;
+    });
+    const close = fs.closeSync;
+    jest.spyOn(fs, 'closeSync').mockImplementation((fd) => {
+      close(fd);
+      if (failure === 'close' && fd === lockFd) throw new Error('injected close failure');
+    });
+    const unlink = fs.unlinkSync;
+    jest.spyOn(fs, 'unlinkSync').mockImplementation((file) => {
+      if (failure === 'unlink' && String(file) === lock) throw new Error('injected unlink failure');
+      unlink(file);
+    });
+    const rm = fs.rmSync;
+    jest.spyOn(fs, 'rmSync').mockImplementation((file, options) => {
+      if (
+        (failure === 'temporary' && String(file).endsWith('.tmp')) ||
+        (failure === 'old-package' && String(file) === previous.root)
+      )
+        throw new Error('injected cleanup failure');
+      rm(file, options);
+    });
+    const result = await installPlugin('test-probe@1.1.0', new Set(), { trust: true });
+    expect(fs.existsSync(result.plugin.entry)).toBe(true);
+    expect(listPlugins(new Set())[0]).toMatchObject({
+      state: 'available',
+      directory: result.plugin.directory,
+      version: '1.1.0',
+    });
+    expect(fs.existsSync(previous.root)).toBe(failure === 'old-package');
+  },
+);
+
+it('removes only the uncommitted candidate when the registry rename fails', async () => {
+  const previous = managed();
+  commitPluginInstallation(previous.directory, previous.installation, new Set(), { trust: true });
+  mockNpmPackage();
+  jest.spyOn(fs, 'renameSync').mockImplementation(() => {
+    throw new Error('injected registry rename failure');
+  });
+  await expect(installPlugin('test-probe@1.1.0', new Set(), { trust: true })).rejects.toThrow(
+    'registry rename failure',
+  );
+  expect(listPlugins(new Set())[0]).toMatchObject({ version: '1.0.0', directory: previous.directory });
+  expect(fs.readdirSync(pluginPackagesPath())).toEqual([previous.installation.id]);
+});
+
+it('transfers installation ownership immediately after the atomic registry switch', () => {
+  const previous = managed();
+  commitPluginInstallation(previous.directory, previous.installation, new Set(), {});
+  const candidate = managed('1.1.0');
+  const committed = jest.fn(() => {
+    expect(listPlugins(new Set())[0].directory).toBe(candidate.directory);
+    expect(fs.existsSync(previous.root)).toBe(true);
+    expect(fs.existsSync(path.join(process.env.OFFCKB_PLUGIN_HOME!, 'registry.lock'))).toBe(true);
+  });
+  commitPluginInstallation(candidate.directory, candidate.installation, new Set(), {}, committed);
+  expect(committed).toHaveBeenCalledTimes(1);
+  expect(fs.existsSync(previous.root)).toBe(false);
 });
 
 it('does not replace/delete an external link or a different package that uses the same command', () => {

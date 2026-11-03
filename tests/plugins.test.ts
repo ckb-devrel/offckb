@@ -3,7 +3,14 @@ import os from 'os';
 import path from 'path';
 import { Command } from 'commander';
 import { readPluginManifest, assertPluginCompatible } from '../src/plugins/manifest';
-import { acquirePlugin, linkPlugin, listPlugins, unlinkPlugin } from '../src/plugins/store';
+import {
+  acquirePlugin,
+  linkPlugin,
+  listPlugins,
+  unlinkPlugin,
+  removePlugin,
+  pluginStoragePaths,
+} from '../src/plugins/store';
 import { createPluginContext } from '../src/plugins/context';
 import { registerPluginManagement } from '../src/plugins/cli';
 
@@ -11,6 +18,7 @@ const mockRunPlugin = jest.fn().mockResolvedValue(undefined);
 const mockInstallPlugin = jest.fn();
 const mockResolveScripts = jest.fn();
 const mockExecFileSync = jest.fn();
+const mockAssertSandboxSupported = jest.fn();
 const mockSettings = {
   devnet: { configPath: '', rpcUrl: 'http://127.0.0.1:18114', rpcProxyPort: 38114 },
   bins: { defaultCKBVersion: 'test' },
@@ -28,6 +36,7 @@ jest.mock('child_process', () => ({
 }));
 jest.mock('../src/util/daemon', () => ({ resolveCliEntry: () => '/current/offckb.js' }));
 jest.mock('../src/plugins/run', () => ({ runPlugin: (...args: unknown[]) => mockRunPlugin(...args) }));
+jest.mock('../src/plugins/sandbox', () => ({ assertSandboxSupported: () => mockAssertSandboxSupported() }));
 jest.mock('../src/plugins/install', () => ({ installPlugin: (...args: unknown[]) => mockInstallPlugin(...args) }));
 
 let directory: string;
@@ -57,6 +66,7 @@ beforeEach(() => {
   mockResolveScripts.mockReset();
   mockExecFileSync.mockReset().mockReturnValue('test hashes');
   mockRunPlugin.mockClear();
+  mockAssertSandboxSupported.mockReset();
   mockInstallPlugin.mockReset().mockResolvedValue({
     plugin: { command: 'installed', name: 'installed', version: '1.0.0', directory: '/installed', permissions: [] },
     source: { kind: 'npm', requested: 'installed', resolved: 'installed@1.0.0' },
@@ -234,9 +244,63 @@ it('refuses persistent storage symlinks instead of granting their targets on the
   const plugin = readPluginManifest(makePlugin());
   const home = process.env.OFFCKB_PLUGIN_HOME!;
   fs.mkdirSync(path.join(home, 'data'), { recursive: true });
-  fs.symlinkSync(directory, path.join(home, 'data', plugin.command));
+  fs.symlinkSync(directory, pluginStoragePaths(plugin.name).data);
   expect(() => createPluginContext(plugin, false)).toThrow(/storage must be a real directory/);
   expect(fs.readdirSync(path.join(home, 'tmp'))).toEqual([]);
+});
+
+it('retains storage for the same package across updates but never assigns it to another package using its command', () => {
+  const first = readPluginManifest(makePlugin('probe', { name: '@scope/package-a' }));
+  linkPlugin(first.directory, new Set());
+  const context = createPluginContext(first, false);
+  const owner = JSON.parse(fs.readFileSync(context.file, 'utf8')).plugin;
+  fs.writeFileSync(path.join(owner.dataPath, 'secret'), 'private data');
+  fs.writeFileSync(path.join(owner.cachePath, 'secret'), 'private cache');
+  context.dispose();
+  removePlugin('probe');
+  // Earlier experimental command-keyed storage has no trustworthy owner and is not adopted.
+  const legacy = path.join(process.env.OFFCKB_PLUGIN_HOME!, 'data/probe');
+  fs.mkdirSync(legacy);
+  fs.writeFileSync(path.join(legacy, 'legacy-secret'), 'do not adopt');
+  const other = readPluginManifest(makePlugin('probe', { name: '@scope/package-b' }));
+  linkPlugin(other.directory, new Set());
+  const replacement = createPluginContext(other, false);
+  const stranger = JSON.parse(fs.readFileSync(replacement.file, 'utf8')).plugin;
+  expect(stranger.dataPath).not.toBe(owner.dataPath);
+  expect(stranger.cachePath).not.toBe(owner.cachePath);
+  expect(fs.readdirSync(stranger.dataPath)).toEqual([]);
+  expect(fs.readdirSync(stranger.cachePath)).toEqual([]);
+  replacement.dispose();
+  removePlugin('probe');
+  const updated = readPluginManifest(makePlugin('renamed', { name: first.name, version: '1.1.0' }));
+  linkPlugin(updated.directory, new Set());
+  const upgrade = createPluginContext(updated, false);
+  const returning = JSON.parse(fs.readFileSync(upgrade.file, 'utf8')).plugin;
+  expect(returning.dataPath).toBe(owner.dataPath);
+  expect(returning.cachePath).toBe(owner.cachePath);
+  expect(fs.readFileSync(path.join(returning.dataPath, 'secret'), 'utf8')).toBe('private data');
+  expect(fs.readFileSync(path.join(returning.cachePath, 'secret'), 'utf8')).toBe('private cache');
+  expect(fs.existsSync(path.join(returning.dataPath, 'legacy-secret'))).toBe(false);
+  expect(fs.readFileSync(path.join(legacy, 'legacy-secret'), 'utf8')).toBe('do not adopt');
+  upgrade.dispose();
+});
+
+it('reports unavailable sandbox execution in list/dispatch without blocking trusted tools or repair', async () => {
+  linkPlugin(makePlugin('sandboxed'), new Set());
+  linkPlugin(makePlugin('trusted'), new Set(), { trust: true });
+  mockAssertSandboxSupported.mockImplementation(() => {
+    throw new Error('Sandbox unsupported on this platform/Node');
+  });
+  const program = new Command();
+  const plugins = registerPluginManagement(program);
+  const invocation = plugins.prepare(['node', 'offckb', 'sandboxed']);
+  await expect(program.parseAsync(invocation.argv)).rejects.toThrow('Sandbox unsupported');
+  expect(mockRunPlugin).not.toHaveBeenCalled();
+  await program.parseAsync(plugins.prepare(['node', 'offckb', 'plugin', 'list']).argv);
+  await program.parseAsync(plugins.prepare(['node', 'offckb', 'trusted']).argv);
+  expect(mockRunPlugin).toHaveBeenCalledWith('trusted', [], false, 7070);
+  await program.parseAsync(plugins.prepare(['node', 'offckb', 'plugin', 'unlink', 'sandboxed']).argv);
+  expect(listPlugins(new Set()).map((p) => p.command)).toEqual(['trusted']);
 });
 
 it('represents an uninitialized chain as unknown and does not run CKB', () => {

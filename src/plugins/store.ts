@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { dataPath } from '../cfg/setting';
 import { logger } from '../util/logger';
 import {
@@ -59,6 +59,15 @@ export interface PluginInfo {
 
 export function pluginHome(): string {
   return path.resolve(process.env.OFFCKB_PLUGIN_HOME || path.join(dataPath, 'plugins'));
+}
+
+/** Package identity survives upgrades and command changes, but never transfers to another package. */
+export function pluginStoragePaths(name: string): { data: string; cache: string } {
+  const identity = createHash('sha256').update(name).digest('hex');
+  return {
+    data: path.join(pluginHome(), 'data', identity),
+    cache: path.join(pluginHome(), 'cache', identity),
+  };
 }
 
 function registryPath(): string {
@@ -175,18 +184,33 @@ function withRegistryLock<T>(action: () => T): T {
     fs.writeFileSync(fd, String(process.pid));
     return action();
   } finally {
-    fs.closeSync(fd);
-    fs.unlinkSync(lock);
+    // Cleanup cannot turn a completed registry commit into a failed transaction, or mask
+    // the original error. Attempt both operations even when closing the descriptor fails.
+    try {
+      fs.closeSync(fd);
+    } catch {
+      logger.warn(`Plugin registry lock close failed at ${lock}.`);
+    }
+    try {
+      fs.unlinkSync(lock);
+    } catch {
+      logger.warn(`Plugin registry lock cleanup failed at ${lock}; confirm the writer stopped before removing it.`);
+    }
   }
 }
 
-function writeRegistry(registry: Registry): void {
+function writeRegistry(registry: Registry, onCommit?: () => void): void {
   const temporary = `${registryPath()}.${randomUUID()}.tmp`;
   try {
     fs.writeFileSync(temporary, JSON.stringify(registry, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
     fs.renameSync(temporary, registryPath());
+    onCommit?.();
   } finally {
-    fs.rmSync(temporary, { force: true });
+    try {
+      fs.rmSync(temporary, { force: true });
+    } catch {
+      logger.warn(`Plugin registry temporary-file cleanup failed at ${temporary}.`);
+    }
   }
 }
 
@@ -204,7 +228,7 @@ function assertNotRunning(command: string): void {
   }
 }
 
-export function listPlugins(reserved: ReadonlySet<string>): PluginInfo[] {
+export function listPlugins(reserved: ReadonlySet<string>, checkMode?: (mode: PluginMode) => void): PluginInfo[] {
   return Object.entries(readRegistry().plugins).map(
     ([command, { directory, permissions, readPaths, trusted, installation }]) => {
       const base = {
@@ -233,6 +257,7 @@ export function listPlugins(reserved: ReadonlySet<string>): PluginInfo[] {
       };
       try {
         assertPluginCompatible(plugin);
+        checkMode?.(base.mode);
         return { ...info, state: 'available' };
       } catch (error) {
         return { ...info, state: 'incompatible', error: (error as Error).message };
@@ -302,6 +327,7 @@ export function commitPluginInstallation(
   installation: PluginInstallation,
   reserved: ReadonlySet<string>,
   options: PluginLinkOptions,
+  onCommit?: () => void,
 ): PluginManifest {
   let previousRoot: string | undefined;
   const plugin = withRegistryLock(() => {
@@ -337,7 +363,8 @@ export function commitPluginInstallation(
     if (installationRoot(entry) === previousRoot)
       throw new Error('A replacement must use a fresh installation directory');
     registry.plugins[candidate.command] = entry;
-    writeRegistry(registry);
+    // Ownership transfers at rename, before any lock or old-package cleanup can fail.
+    writeRegistry(registry, onCommit);
     return candidate;
   });
   cleanupInstallation(previousRoot);

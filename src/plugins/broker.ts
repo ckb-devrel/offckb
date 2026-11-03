@@ -26,6 +26,10 @@ const READ_METHODS = new Set([
   'get_raw_tx_pool',
 ]);
 
+const RPC_MAX_CONNECTIONS = 16;
+const RPC_MAX_CONCURRENT = 4;
+const RPC_DEADLINE_MS = 5000;
+
 async function listen(server: net.Server, port: number): Promise<number> {
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
@@ -47,7 +51,26 @@ export async function createReadRpcBroker(source: string): Promise<{ url: string
       : undefined;
   target.username = '';
   target.password = '';
-  const server = http.createServer(async (req, res) => {
+  const sockets = new Set<net.Socket>();
+  const pending = new Set<AbortController>();
+  let closed = false;
+  const server = http.createServer({ maxHeaderSize: 8192 }, async (req, res) => {
+    res.setHeader('Connection', 'close');
+    if (closed || pending.size >= RPC_MAX_CONCURRENT) {
+      res.writeHead(503).end();
+      req.resume();
+      return;
+    }
+    const controller = new AbortController();
+    pending.add(controller);
+    const release = () => {
+      controller.abort();
+      pending.delete(controller);
+      res.removeListener('close', release);
+      res.removeListener('finish', release);
+    };
+    res.once('close', release);
+    res.once('finish', release);
     try {
       if (req.method !== 'POST' || req.url !== '/' || !req.headers['content-type']?.startsWith('application/json')) {
         res.writeHead(405).end();
@@ -81,7 +104,7 @@ export async function createReadRpcBroker(source: string): Promise<{ url: string
       const response = await fetch(target, {
         method: 'POST',
         redirect: 'error',
-        signal: AbortSignal.timeout(5000),
+        signal: controller.signal,
         headers: { 'Content-Type': 'application/json', ...(authorization ? { Authorization: authorization } : {}) },
         body: JSON.stringify(
           Array.isArray(body)
@@ -102,21 +125,46 @@ export async function createReadRpcBroker(source: string): Promise<{ url: string
       }
       res.writeHead(response.status, { 'Content-Type': 'application/json' }).end(Buffer.concat(result));
     } catch {
-      if (!res.headersSent) res.writeHead(502, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Devnet read request failed' }));
+      if (!res.destroyed) {
+        if (!res.headersSent) res.writeHead(502, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Devnet read request failed' }));
+      }
+    } finally {
+      // Also cancel unread/oversized upstream response bodies, not only failed fetches.
+      controller.abort();
+      if (res.destroyed || res.writableFinished) release();
     }
   });
+  server.maxRequestsPerSocket = 1;
+  server.maxHeadersCount = 32;
+  server.on('connection', (socket) => {
+    if (closed || sockets.size >= RPC_MAX_CONNECTIONS) return socket.destroy();
+    sockets.add(socket);
+    // A wall-clock deadline starts before headers; slow headers/bodies and upstreams
+    // cannot retain a connection by dripping bytes or exploiting keep-alive.
+    const deadline = setTimeout(() => socket.destroy(), RPC_DEADLINE_MS);
+    socket.once('close', () => {
+      clearTimeout(deadline);
+      sockets.delete(socket);
+    });
+  });
+  server.on('connect', (_req, socket) => socket.destroy());
+  server.on('upgrade', (_req, socket) => socket.destroy());
+  const close = () => {
+    closed = true;
+    for (const controller of pending) controller.abort();
+    for (const socket of sockets) socket.destroy();
+    server.closeAllConnections();
+    server.close();
+  };
   try {
     const port = await listen(server, 0);
     return {
       url: `http://127.0.0.1:${port}`,
-      close: () => {
-        server.closeAllConnections();
-        server.close();
-      },
+      close,
     };
   } catch (error) {
-    server.close();
+    close();
     throw error;
   }
 }

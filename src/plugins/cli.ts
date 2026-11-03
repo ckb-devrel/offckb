@@ -3,6 +3,11 @@ import { logger } from '../util/logger';
 import { linkPlugin, listPlugins, unlinkPlugin, removePlugin, PluginLinkOptions } from './store';
 import { runPlugin } from './run';
 import { installPlugin } from './install';
+import { assertSandboxSupported } from './sandbox';
+
+function checkMode(mode: 'sandbox' | 'trusted'): void {
+  if (mode === 'sandbox') assertSandboxSupported();
+}
 
 function registrationOptions(command: Command): Command {
   return command
@@ -93,7 +98,7 @@ export function registerPluginManagement(program: Command): {
     .command('list')
     .description('List linked plugins and compatibility diagnostics without executing them')
     .action(() => {
-      const plugins = listPlugins(reserved());
+      const plugins = listPlugins(reserved(), checkMode);
       for (const plugin of plugins)
         logger.info(
           `${plugin.command}: ${plugin.state} [${plugin.mode}]${plugin.source ? ` (${plugin.source.resolved})` : ''}${plugin.error ? ` — ${plugin.error}` : ''}`,
@@ -139,7 +144,7 @@ export function registerPluginManagement(program: Command): {
       // A broken registry must not break core commands, including help and repair commands.
       let plugins: ReturnType<typeof listPlugins> = [];
       try {
-        plugins = listPlugins(reserved());
+        plugins = listPlugins(reserved(), checkMode);
       } catch (error) {
         if (selected && !reserved().has(selected)) throw error;
       }

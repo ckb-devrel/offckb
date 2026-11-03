@@ -176,7 +176,7 @@ try {
     running.child.send('SIGINT');
     assert.equal(await running.closed, 130, running.stderr);
   }
-  const data = path.join(home, 'data/installed-probe/saved');
+  const data = path.join(home, 'data', createHash('sha256').update(packageName).digest('hex'), 'saved');
   fs.writeFileSync(data, 'keep');
   const updated = JSON.parse((await invoke(['--json', 'plugin', 'install', packageName, '--trust'])).stdout);
   assert.equal(updated.source.resolved, `${packageName}@1.2.0`);
