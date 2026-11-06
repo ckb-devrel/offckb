@@ -71,10 +71,18 @@ export function parseSubscriptionMessage(line: string): { subscriptionId?: strin
     return { subscriptionId: message.result };
   }
 
-  // Notification: {"jsonrpc":"2.0","method":"subscribe","params":{"result":{...entry},"subscription":"<id>"}}
+  // CKB may JSON-encode the log entry inside params.result; accept both
+  // that string payload and structured object payloads.
   if (message.method === 'subscribe' && message.params != null && typeof message.params === 'object') {
     const params = message.params as Record<string, unknown>;
-    const result = params.result;
+    let result: unknown = params.result;
+    if (typeof result === 'string') {
+      try {
+        result = JSON.parse(result);
+      } catch {
+        return null;
+      }
+    }
     if (result != null && typeof result === 'object') {
       const entry = result as Record<string, unknown>;
       if (typeof entry.message === 'string' && typeof entry.target === 'string') {
