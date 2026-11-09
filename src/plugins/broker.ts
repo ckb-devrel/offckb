@@ -56,12 +56,20 @@ export async function createReadRpcBroker(
   target.password = '';
   const sockets = new Set<net.Socket>();
   const pending = new Set<AbortController>();
+  const requestVersions = new WeakMap<net.Socket, number>();
   let closed = false;
   const server = http.createServer({ maxHeaderSize: 8192 }, async (req, res) => {
-    // Let the sandbox proxy drain large responses before the socket closes. This is
-    // a short grace period, not a persistent keep-alive channel.
+    const socket = req.socket;
+    const requestVersion = (requestVersions.get(socket) ?? 0) + 1;
+    requestVersions.set(socket, requestVersion);
+    // Let the sandbox proxy drain large responses before the socket closes. Close
+    // only the latest response's idle socket, never a subsequent request's socket.
     res.setHeader('Connection', 'keep-alive');
-    res.once('finish', () => setTimeout(() => res.socket?.end(), 100).unref());
+    res.once('finish', () =>
+      setTimeout(() => {
+        if (!socket.destroyed && requestVersions.get(socket) === requestVersion) socket.end();
+      }, 100).unref(),
+    );
     if (closed || pending.size >= RPC_MAX_CONCURRENT) {
       res.writeHead(503).end();
       req.resume();

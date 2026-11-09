@@ -92,6 +92,70 @@ it('length-delimits large JSON-RPC responses so proxies need not rely on FIN', a
   }
 });
 
+it('drains and closes the latest idle socket without cutting off a subsequent request', async () => {
+  let calls = 0;
+  const upstream = http.createServer(async (req, res) => {
+    for await (const _chunk of req) {
+      // Drain the request before responding.
+    }
+    if (++calls === 2) await new Promise((resolve) => setTimeout(resolve, 200));
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ jsonrpc: '2.0', id: 1, result: '0x0' }));
+  });
+  await new Promise((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+  const broker = await createReadRpcBroker(`http://127.0.0.1:${(upstream.address() as net.AddressInfo).port}`);
+  const socket = net.connect(Number(new URL(broker.url).port), '127.0.0.1');
+  await new Promise((resolve) => socket.once('connect', resolve));
+  const started = Date.now();
+  const closed = new Promise<number>((resolve) => socket.once('end', () => resolve(Date.now())));
+  let received = Buffer.alloc(0);
+  const request = () =>
+    new Promise<string>((resolve, reject) => {
+      const onData = (chunk: Buffer) => {
+        received = Buffer.concat([received, chunk]);
+        const headerEnd = received.indexOf('\r\n\r\n');
+        if (headerEnd < 0) return;
+        const length = Number(/\r\nContent-Length: (\d+)\r\n/i.exec(received.subarray(0, headerEnd).toString())?.[1]);
+        const total = headerEnd + 4 + length;
+        if (!Number.isInteger(length) || received.length < total) return;
+        cleanup();
+        resolve(received.subarray(0, total).toString());
+      };
+      const onEnd = () => {
+        cleanup();
+        reject(new Error('Socket closed before a complete response arrived'));
+      };
+      const onError = (error: Error) => {
+        cleanup();
+        reject(error);
+      };
+      const cleanup = () => {
+        socket.removeListener('data', onData);
+        socket.removeListener('end', onEnd);
+        socket.removeListener('error', onError);
+      };
+      socket.on('data', onData);
+      socket.once('end', onEnd);
+      socket.once('error', onError);
+      const payload = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'get_tip_block_number', params: [] });
+      socket.write(
+        `POST / HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(payload)}\r\n\r\n${payload}`,
+      );
+    });
+  try {
+    expect(await request()).toContain('0x0');
+    // The second upstream response outlives the first response's 100ms timer.
+    expect(await request()).toContain('0x0');
+    expect(await within(closed, 2000)).toBeGreaterThanOrEqual(started + 200);
+    expect(calls).toBe(2);
+  } finally {
+    broker.close();
+    socket.destroy();
+    upstream.closeAllConnections();
+    upstream.close();
+  }
+}, 5000);
+
 it('bounds concurrent RPC work and connections, and cancels in-flight upstream reads when closed', async () => {
   let seen = 0;
   let cancelled = 0;
