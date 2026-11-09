@@ -106,15 +106,15 @@ it('bounds concurrent RPC work and connections, and cancels in-flight upstream r
   const upstream = http.createServer((req, res) => {
     req.resume();
     res.once('close', () => {
-      if (++cancelled === 4) stopped();
+      if (++cancelled === 8) stopped();
     });
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.write('{'); // An unfinished upstream body holds a concurrency slot.
-    if (++seen === 4) ready();
+    if (++seen === 8) ready();
   });
   await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve));
   const broker = await createReadRpcBroker(`http://127.0.0.1:${(upstream.address() as net.AddressInfo).port}`);
-  const clients = Array.from({ length: 4 }, () =>
+  const clients = Array.from({ length: 8 }, () =>
     readCall(broker.url).then(
       () => false,
       () => true,
@@ -124,7 +124,7 @@ it('bounds concurrent RPC work and connections, and cancels in-flight upstream r
   try {
     await within(allStarted, 3000);
     expect((await readCall(broker.url)).status).toBe(503);
-    expect(seen).toBe(4);
+    expect(seen).toBe(8);
     let rejected!: () => void;
     const connectionRefused = new Promise<void>((resolve) => {
       rejected = resolve;
@@ -139,7 +139,7 @@ it('bounds concurrent RPC work and connections, and cancels in-flight upstream r
     await within(connectionRefused, 2000); // No header deadline has elapsed; the connection cap rejected it.
     broker.close();
     await within(allCancelled, 2000);
-    expect(await Promise.all(clients)).toEqual([true, true, true, true]);
+    expect(await Promise.all(clients)).toEqual([true, true, true, true, true, true, true, true]);
   } finally {
     broker.close();
     for (const socket of sockets) socket.destroy();

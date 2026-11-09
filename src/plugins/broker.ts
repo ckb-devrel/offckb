@@ -27,7 +27,7 @@ const READ_METHODS = new Set([
 ]);
 
 const RPC_MAX_CONNECTIONS = 16;
-const RPC_MAX_CONCURRENT = 4;
+const RPC_MAX_CONCURRENT = 8;
 const RPC_DEADLINE_MS = 5000;
 
 async function listen(server: net.Server, port: number): Promise<number> {
