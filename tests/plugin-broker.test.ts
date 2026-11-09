@@ -68,6 +68,30 @@ it('only forwards read RPC calls and keeps upstream credentials inside the host'
   }
 });
 
+it('length-delimits large JSON-RPC responses so proxies need not rely on FIN', async () => {
+  const payload = { jsonrpc: '2.0', id: 1, result: `0x${'ab'.repeat(2_000_000)}` };
+  const upstream = http.createServer((req, res) => {
+    req.resume();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(payload));
+  });
+  await new Promise((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+  const broker = await createReadRpcBroker(`http://127.0.0.1:${(upstream.address() as net.AddressInfo).port}`);
+  try {
+    const response = await fetch(broker.url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'get_tip_block_number', params: [] }),
+    });
+    expect(response.headers.get('content-length')).toBe(String(JSON.stringify(payload).length));
+    expect(await response.json()).toEqual(payload);
+  } finally {
+    broker.close();
+    upstream.closeAllConnections();
+    upstream.close();
+  }
+});
+
 it('bounds concurrent RPC work and connections, and cancels in-flight upstream reads when closed', async () => {
   let seen = 0;
   let cancelled = 0;
@@ -139,7 +163,7 @@ it('expires slow headers, incomplete bodies and stalled upstreams with the same 
     res.write('{');
   });
   await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve));
-  const broker = await createReadRpcBroker(`http://127.0.0.1:${(upstream.address() as net.AddressInfo).port}`);
+  const broker = await createReadRpcBroker(`http://127.0.0.1:${(upstream.address() as net.AddressInfo).port}`, 100);
   const slow = [
     'POST / HTTP/1.1\r\nHost: 127',
     'POST / HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: 1000\r\n\r\n{',
