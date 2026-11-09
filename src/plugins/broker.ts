@@ -27,7 +27,7 @@ const READ_METHODS = new Set([
 ]);
 
 const RPC_MAX_CONNECTIONS = 16;
-const RPC_MAX_CONCURRENT = 4;
+const RPC_MAX_CONCURRENT = 8;
 const RPC_DEADLINE_MS = 5000;
 
 async function listen(server: net.Server, port: number): Promise<number> {
@@ -42,7 +42,10 @@ async function listen(server: net.Server, port: number): Promise<number> {
 }
 
 /** Only fixed read methods reach the configured CKB endpoint; credentials remain in the host. */
-export async function createReadRpcBroker(source: string): Promise<{ url: string; close: () => void }> {
+export async function createReadRpcBroker(
+  source: string,
+  deadlineMs = RPC_DEADLINE_MS,
+): Promise<{ url: string; close: () => void }> {
   const target = new URL(source);
   if (!['http:', 'https:'].includes(target.protocol)) throw new Error('Sandbox devnet RPC requires HTTP(S)');
   const authorization =
@@ -53,9 +56,20 @@ export async function createReadRpcBroker(source: string): Promise<{ url: string
   target.password = '';
   const sockets = new Set<net.Socket>();
   const pending = new Set<AbortController>();
+  const requestVersions = new WeakMap<net.Socket, number>();
   let closed = false;
   const server = http.createServer({ maxHeaderSize: 8192 }, async (req, res) => {
-    res.setHeader('Connection', 'close');
+    const socket = req.socket;
+    const requestVersion = (requestVersions.get(socket) ?? 0) + 1;
+    requestVersions.set(socket, requestVersion);
+    // Let the sandbox proxy drain large responses before the socket closes. Close
+    // only the latest response's idle socket, never a subsequent request's socket.
+    res.setHeader('Connection', 'keep-alive');
+    res.once('finish', () =>
+      setTimeout(() => {
+        if (!socket.destroyed && requestVersions.get(socket) === requestVersion) socket.end();
+      }, 100).unref(),
+    );
     if (closed || pending.size >= RPC_MAX_CONCURRENT) {
       res.writeHead(503).end();
       req.resume();
@@ -123,7 +137,12 @@ export async function createReadRpcBroker(source: string): Promise<{ url: string
         if (responseSize > 16 * 1024 * 1024) throw new Error('RPC response too large');
         result.push(Buffer.from(chunk));
       }
-      res.writeHead(response.status, { 'Content-Type': 'application/json' }).end(Buffer.concat(result));
+      const payload = Buffer.concat(result);
+      // A length-delimited response does not depend on the sandbox proxy flushing
+      // every tail chunk before it forwards the connection's FIN.
+      res
+        .writeHead(response.status, { 'Content-Type': 'application/json', 'Content-Length': payload.length })
+        .end(payload);
     } catch {
       if (!res.destroyed) {
         if (!res.headersSent) res.writeHead(502, { 'Content-Type': 'application/json' });
@@ -135,14 +154,13 @@ export async function createReadRpcBroker(source: string): Promise<{ url: string
       if (res.destroyed || res.writableFinished) release();
     }
   });
-  server.maxRequestsPerSocket = 1;
   server.maxHeadersCount = 32;
   server.on('connection', (socket) => {
     if (closed || sockets.size >= RPC_MAX_CONNECTIONS) return socket.destroy();
     sockets.add(socket);
     // A wall-clock deadline starts before headers; slow headers/bodies and upstreams
     // cannot retain a connection by dripping bytes or exploiting keep-alive.
-    const deadline = setTimeout(() => socket.destroy(), RPC_DEADLINE_MS);
+    const deadline = setTimeout(() => socket.destroy(), deadlineMs);
     socket.once('close', () => {
       clearTimeout(deadline);
       sockets.delete(socket);
