@@ -305,8 +305,9 @@ class UnifiedLogger {
   }
 }
 
-// Create a default instance for global use
-const logger = UnifiedLogger.create({ showLevel: false });
+// Settings may be read during module initialization, before runCli enables
+// JSON mode. Format those early diagnostics consistently with the CLI flag.
+const logger = UnifiedLogger.create({ showLevel: false, jsonMode: process.argv.slice(2).includes('--json') });
 
 export { logger, UnifiedLogger };
 export type { LoggerOptions, LogLevel };

@@ -43,28 +43,51 @@ describe('parseSubscriptionMessage', () => {
     });
   });
 
-  it('parses a log notification into an entry', () => {
+  it.each(['object', 'JSON string'])('parses a log notification with a %s result', (format) => {
+    const entry = {
+      message:
+        'script group: Byte32(0xafa75b18ff86fe7e188169be16b3279833ceeb197b0d14abf23ff2b005199f8d) DEBUG OUTPUT: hello\nsecond line',
+      level: 'DEBUG',
+      target: 'ckb_script::verify',
+      date: '2026-07-29 11:40:01.500 +00:00',
+    };
     const line = JSON.stringify({
       jsonrpc: '2.0',
       method: 'subscribe',
       params: {
-        result: {
-          message: 'script group: 0xabcd DEBUG OUTPUT: hello',
-          level: 'DEBUG',
-          target: 'ckb-script',
-          date: '2026-07-29 11:40:01.500 +00:00',
-        },
+        result: format === 'object' ? entry : JSON.stringify(entry),
         subscription: '0x49af',
       },
     });
-    expect(parseSubscriptionMessage(line)).toEqual({
-      entry: {
-        message: 'script group: 0xabcd DEBUG OUTPUT: hello',
-        level: 'DEBUG',
-        target: 'ckb-script',
-        date: '2026-07-29 11:40:01.500 +00:00',
-      },
+    expect(parseSubscriptionMessage(line)).toEqual({ entry });
+  });
+
+  it.each(['object', 'JSON string'])('defaults optional fields for a %s result', (format) => {
+    const entry = { message: 'hello', target: 'ckb-script' };
+    const line = JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'subscribe',
+      params: { result: format === 'object' ? entry : JSON.stringify(entry), subscription: '0xsub' },
     });
+    expect(parseSubscriptionMessage(line)).toEqual({ entry: { ...entry, level: '', date: '' } });
+  });
+
+  it.each([
+    'not json',
+    '{"message":',
+    'null',
+    'true',
+    '42',
+    '[]',
+    '"another string"',
+    '{}',
+    '{"message":"hello"}',
+    '{"message":42,"target":"ckb-script"}',
+    '{"message":"hello","target":false}',
+  ])('ignores malformed or invalid encoded results: %s', (result) => {
+    expect(
+      parseSubscriptionMessage(JSON.stringify({ jsonrpc: '2.0', method: 'subscribe', params: { result } })),
+    ).toBeNull();
   });
 
   it('returns null for garbage and unrelated messages', () => {
@@ -76,33 +99,37 @@ describe('parseSubscriptionMessage', () => {
 describe('subscribeToNodeLogs', () => {
   beforeEach(() => {
     mockConnect.mockReset();
-    mockConnect.mockImplementation((...args: unknown[]) =>
-      (realConnect as (...a: unknown[]) => net.Socket)(...args),
-    );
+    mockConnect.mockImplementation((...args: unknown[]) => (realConnect as (...a: unknown[]) => net.Socket)(...args));
   });
 
-  it('subscribes over TCP and emits log entries until closed', async () => {
+  it.each(['object', 'JSON string'])('streams %s results over TCP until closed', async (format) => {
+    const entry = {
+      message: 'script group: Byte32(0xabcd) DEBUG OUTPUT: hello\nsecond line',
+      level: 'DEBUG',
+      target: 'ckb_script::verify',
+      date: '2026-07-29 11:40:01.500 +00:00',
+    };
     const server = net.createServer((socket) => {
       socket.on('data', (data) => {
         const request = JSON.parse(data.toString().trim());
         expect(request.method).toBe('subscribe');
         expect(request.params).toEqual(['log']);
         socket.write(JSON.stringify({ jsonrpc: '2.0', result: '0xsub', id: request.id }) + '\n');
-        socket.write(
+        // An invalid encoded result must not stop later valid notifications.
+        socket.write(JSON.stringify({ method: 'subscribe', params: { result: '{broken' } }) + '\n');
+        const notification =
           JSON.stringify({
             jsonrpc: '2.0',
             method: 'subscribe',
             params: {
-              result: {
-                message: 'hello',
-                level: 'DEBUG',
-                target: 'ckb-script',
-                date: '2026-07-29 11:40:01.500 +00:00',
-              },
+              result: format === 'object' ? entry : JSON.stringify(entry),
               subscription: '0xsub',
             },
-          }) + '\n',
-        );
+          }) + '\n';
+        // Exercise buffering across partial TCP reads as well as NDJSON framing.
+        const split = Math.floor(notification.length / 2);
+        socket.write(notification.slice(0, split));
+        setTimeout(() => socket.write(notification.slice(split)), 10);
       });
     });
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -121,9 +148,7 @@ describe('subscribeToNodeLogs', () => {
     server.close();
 
     expect(errors).toEqual([]);
-    expect(entries).toEqual([
-      { message: 'hello', level: 'DEBUG', target: 'ckb-script', date: '2026-07-29 11:40:01.500 +00:00' },
-    ]);
+    expect(entries).toEqual([entry]);
   });
 
   it('retries briefly then reports an error when the node is unreachable', async () => {
@@ -147,10 +172,15 @@ describe('subscribeToNodeLogs', () => {
     const socket = new FakeSocket();
     mockConnect.mockReturnValue(socket as unknown as net.Socket);
     const errors: Error[] = [];
-    const sub = subscribeToNodeLogs('127.0.0.1:18114', () => {}, (err) => errors.push(err), {
-      maxAttempts: 3,
-      retryDelayMs: 30,
-    });
+    const sub = subscribeToNodeLogs(
+      '127.0.0.1:18114',
+      () => {},
+      (err) => errors.push(err),
+      {
+        maxAttempts: 3,
+        retryDelayMs: 30,
+      },
+    );
 
     socket.emit('connect');
     expect(socket.written.join('')).toContain('"subscribe"');
@@ -167,10 +197,15 @@ describe('subscribeToNodeLogs', () => {
     const socket = new FakeSocket();
     mockConnect.mockReturnValue(socket as unknown as net.Socket);
     const clearTimeoutSpy = jest.spyOn(global, 'clearTimeout');
-    const sub = subscribeToNodeLogs('127.0.0.1:18114', () => {}, () => {}, {
-      maxAttempts: 5,
-      retryDelayMs: 50,
-    });
+    const sub = subscribeToNodeLogs(
+      '127.0.0.1:18114',
+      () => {},
+      () => {},
+      {
+        maxAttempts: 5,
+        retryDelayMs: 50,
+      },
+    );
 
     try {
       // The first attempt fails before ever connecting, so a retry is pending.
