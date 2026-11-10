@@ -1,6 +1,15 @@
 const mockBalanceOf = jest.fn();
 const mockLogsCommand = jest.fn();
+const mockListPlugins = jest.fn();
+const mockRunPlugin = jest.fn();
 const jsonMode = { value: false };
+
+jest.mock('../src/plugins/store', () => ({
+  listPlugins: (...args: unknown[]) => mockListPlugins(...args),
+  linkPlugin: jest.fn(),
+  unlinkPlugin: jest.fn(),
+}));
+jest.mock('../src/plugins/run', () => ({ runPlugin: (...args: unknown[]) => mockRunPlugin(...args) }));
 
 jest.mock('../src/cmd/node', () => ({ startNode: jest.fn(), stopNode: jest.fn() }));
 jest.mock('../src/cmd/accounts', () => ({ accounts: jest.fn() }));
@@ -75,6 +84,8 @@ function captureStderr() {
 describe('CLI error output', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockListPlugins.mockReturnValue([]);
+    mockRunPlugin.mockResolvedValue(undefined);
     jsonMode.value = false;
     process.exitCode = undefined;
   });
@@ -144,5 +155,62 @@ describe('CLI error output', () => {
     await runCli(['node', 'offckb', 'balance', 'ckt1qaddress']);
 
     expect(mockBalanceOf).toHaveBeenCalledWith('ckt1qaddress', expect.anything());
+  });
+
+  it('does not append a core JSON result after delegating to a plugin', async () => {
+    mockListPlugins.mockReturnValue([{ command: 'probe', state: 'available', directory: '/unused' }]);
+    const { runCli } = loadCli();
+    await runCli(['node', 'offckb', '--json', 'probe', '--', '--json', '--json', '--path', 'a b']);
+    expect(mockRunPlugin).toHaveBeenCalledWith('probe', ['--json', '--json', '--path', 'a b'], true, 7070);
+    const { logger } = require('../src/util/logger');
+    expect(logger.result).not.toHaveBeenCalled();
+    expect(mockFailure).not.toHaveBeenCalled();
+  });
+
+  it('does not promote --json from the plugin argument suffix', async () => {
+    mockListPlugins.mockReturnValue([{ command: 'probe', state: 'available', directory: '/unused' }]);
+    const { runCli } = loadCli();
+    await runCli(['node', 'offckb', 'probe', '--json']);
+    expect(mockRunPlugin).toHaveBeenCalledWith('probe', ['--json'], false, 7070);
+    expect(jsonMode.value).toBe(false);
+  });
+
+  it('refreshes plugin commands across runCli calls without duplicate help entries or stale arguments', async () => {
+    mockListPlugins.mockReturnValue([
+      { command: 'probe', state: 'available', directory: '/unused' },
+      { command: 'other-tool', state: 'available', directory: '/unused' },
+    ]);
+    const { runCli } = loadCli();
+    await runCli(['node', 'offckb', 'probe', 'first']);
+    await runCli(['node', 'offckb', 'probe', 'second']);
+    expect(mockRunPlugin.mock.calls).toEqual([
+      ['probe', ['first'], false, 7070],
+      ['probe', ['second'], false, 7070],
+    ]);
+
+    let help = '';
+    const stdout = jest.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+      help += String(chunk);
+      return true;
+    });
+    try {
+      await runCli(['node', 'offckb', '--help']);
+    } finally {
+      stdout.mockRestore();
+    }
+    for (const command of ['probe', 'other-tool', 'plugin', 'balance']) {
+      expect(help.match(new RegExp(`^\\s+${command}(?:\\s|$)`, 'gm'))).toHaveLength(1);
+    }
+    expect(mockRunPlugin).toHaveBeenCalledTimes(2);
+    expect(mockFailure).not.toHaveBeenCalled();
+  });
+
+  it('parses a valued core option before the plugin boundary and resets it between invocations', async () => {
+    mockListPlugins.mockReturnValue([{ command: 'probe', state: 'available', directory: '/unused' }]);
+    const { runCli } = loadCli();
+    await runCli(['node', 'offckb', '--plugin-port', '0', '--json', 'probe', '--plugin-port', '123']);
+    expect(mockRunPlugin).toHaveBeenLastCalledWith('probe', ['--plugin-port', '123'], true, 0);
+    await runCli(['node', 'offckb', 'probe']);
+    expect(mockRunPlugin).toHaveBeenLastCalledWith('probe', [], false, 7070);
   });
 });

@@ -4,7 +4,8 @@ import * as path from 'path';
 import yaml from 'js-yaml';
 import { defaultSettings, Settings } from '../src/cfg/setting';
 import { fiberNodePaths } from '../src/fiber/paths';
-import { generateNodeConfig, mergeNodeConfig } from '../src/fiber/config-gen';
+import { generateNodeConfig, customConfig, defaultConfigFile, validateNodeConfig } from '../src/fiber/config-gen';
+import { newNodeEntry } from '../src/fiber/nodes-yml';
 import { FiberChainScripts } from '../src/fiber/scripts';
 
 const tempRoots: string[] = [];
@@ -83,7 +84,7 @@ describe('generateNodeConfig', () => {
   it('replaces chain-related fields and keeps unknown ones', () => {
     const { settings, testnetConfigPath } = fixture();
     const configFile = generateNodeConfig({
-      node: { id: 2, config: {} },
+      node: newNodeEntry(2),
       chainScripts: chainScripts(),
       testnetConfigPath,
       settings,
@@ -107,7 +108,15 @@ describe('generateNodeConfig', () => {
     expect(config.fiber.future_field_from_new_fnn).toBe('keep-me');
 
     expect(config.rpc.listening_addr).toBe('127.0.0.1:21715');
-    expect(config.rpc.enabled_modules).toEqual(['channel', 'payment', 'graph', 'info', 'invoice', 'peer', 'watchtower']);
+    expect(config.rpc.enabled_modules).toEqual([
+      'channel',
+      'payment',
+      'graph',
+      'info',
+      'invoice',
+      'peer',
+      'watchtower',
+    ]);
     expect(config.rpc.cors_enabled).toBe(false);
 
     expect(config.ckb.rpc_url).toBe('http://127.0.0.1:8114');
@@ -117,36 +126,33 @@ describe('generateNodeConfig', () => {
     expect(config.services).toEqual(['fiber', 'rpc', 'ckb']);
   });
 
-  it('merges per-node config recursively and replaces lists', () => {
+  it('does not overwrite user configuration, and compares parsed values', () => {
     const { settings, testnetConfigPath } = fixture();
-    const configFile = generateNodeConfig({
-      node: {
-        id: 1,
-        config: {
-          fiber: { auto_accept_channel_ckb_funding_amount: 99, announced_node_name: 'custom-name' },
-          rpc: { enabled_modules: ['info'] },
-        },
-      },
-      chainScripts: chainScripts(),
-      testnetConfigPath,
-      settings,
-    });
-    const config = yaml.load(fs.readFileSync(configFile, 'utf8')) as Record<string, any>;
-    expect(config.fiber.auto_accept_channel_ckb_funding_amount).toBe(99);
-    expect(config.fiber.announced_node_name).toBe('custom-name');
-    // managed values merged around the override stay
-    expect(config.fiber.chain).toBe('../../../specs/dev.toml');
-    // lists replace
-    expect(config.rpc.enabled_modules).toEqual(['info']);
+    const node = newNodeEntry(1);
+    const file = generateNodeConfig({ node, chainScripts: chainScripts(), testnetConfigPath, settings });
+    const initial = fs.readFileSync(file, 'utf8');
+    fs.writeFileSync(file, `# comment\n${initial}`);
+    expect(customConfig(node, settings)).toBe('no');
+    const config = yaml.load(initial) as any;
+    config.services.push('lsp');
+    config.lsp = { enabled: true };
+    fs.writeFileSync(file, yaml.dump(config));
+    const before = fs.readFileSync(file);
+    generateNodeConfig({ node, chainScripts: chainScripts(), testnetConfigPath, settings });
+    expect(fs.readFileSync(file)).toEqual(before);
+    expect(customConfig(node, settings)).toBe('yes');
+    expect(() => validateNodeConfig(node, chainScripts(), settings)).not.toThrow();
+    config.rpc.enabled_modules = ['info'];
+    fs.writeFileSync(file, yaml.dump(config));
+    expect(() => validateNodeConfig(node, chainScripts(), settings)).toThrow('rpc.enabled_modules');
   });
 });
 
-describe('mergeNodeConfig', () => {
-  it('merges objects deeply and replaces scalars and arrays', () => {
-    const merged = mergeNodeConfig(
-      { a: { b: 1, c: [1, 2], d: { e: 1 } }, x: 1 },
-      { a: { c: [3], d: { f: 2 } }, y: 2 },
-    );
-    expect(merged).toEqual({ a: { b: 1, c: [3], d: { e: 1, f: 2 } }, x: 1, y: 2 });
-  });
+it('reports unknown for a damaged baseline without blocking the active configuration', () => {
+  const { settings, testnetConfigPath } = fixture();
+  const node = newNodeEntry(1);
+  generateNodeConfig({ node, chainScripts: chainScripts(), testnetConfigPath, settings });
+  fs.writeFileSync(defaultConfigFile(1, settings), '{}');
+  expect(customConfig(node, settings)).toBe('unknown');
+  expect(() => validateNodeConfig(node, chainScripts(), settings)).not.toThrow();
 });

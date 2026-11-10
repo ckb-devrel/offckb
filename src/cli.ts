@@ -20,6 +20,7 @@ import { printSystemScripts } from './cmd/system-scripts';
 import { transferAll } from './cmd/transfer-all';
 import {
   fiberCleanCommand,
+  fiberInit,
   fiberLogs,
   fiberStart,
   fiberStatusCommand,
@@ -35,6 +36,7 @@ import { logger } from './util/logger';
 import { installBrokenPipeHandlers } from './util/shutdown';
 import { Network } from './type/base';
 import { status } from './cmd/status';
+import { coreCommandIndex, registerPluginManagement } from './plugins/cli';
 
 const version = require('../package.json').version;
 const description = require('../package.json').description;
@@ -95,13 +97,17 @@ const nodeCommand = program
   .option('--fiber', 'Also start Fiber (FNN) nodes on the devnet (plain local chain only)')
   .option('--fnn-version <fnnVersion>', 'Specify the FNN version to use with --fiber')
   .option('--fnn-binary-path <fnnBinaryPath>', 'Specify a locally built FNN binary to use with --fiber')
-  .option('--fiber-nodes <count>', 'Number of FNN nodes to start with --fiber (1-16, default 2)', (value: string) => {
-    const parsed = Number(value);
-    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 16) {
-      throw new InvalidArgumentError('--fiber-nodes must be an integer between 1 and 16');
-    }
-    return parsed;
-  })
+  .option(
+    '--fiber-nodes <count>',
+    'Initial FNN node count (1-16, default 2); add nodes with fiber init',
+    (value: string) => {
+      const parsed = Number(value);
+      if (!Number.isInteger(parsed) || parsed < 1 || parsed > 16) {
+        throw new InvalidArgumentError('--fiber-nodes must be an integer between 1 and 16');
+      }
+      return parsed;
+    },
+  )
   .action(
     async (
       version: string,
@@ -139,15 +145,47 @@ nodeCommand
 const fiberCommand = program.command('fiber').description('Manage Fiber (FNN) nodes on the local devnet');
 
 fiberCommand
+  .command('init [FNN-Version]')
+  .description('Prepare Fiber configs and keys without starting FNN (optional before start)')
+  .addOption(
+    new Option('--nodes <count>', 'Prepare node ids 1 through N (1-16, first-use default 2)')
+      .argParser((value: string) => {
+        const count = Number(value);
+        if (!Number.isInteger(count) || count < 1 || count > 16)
+          throw new InvalidArgumentError('--nodes must be between 1 and 16');
+        return count;
+      })
+      .conflicts('add'),
+  )
+  .option('--add', 'Append one new node to an existing environment')
+  .option('-b, --binary-path <binaryPath>', 'FNN binary to select when first preparing the environment')
+  .addOption(
+    new Option('--account-index <index>', 'Built-in funding account for --add')
+      .argParser((value: string) => {
+        const index = Number(value);
+        if (!Number.isInteger(index) || index < 0)
+          throw new InvalidArgumentError('--account-index must be a non-negative integer');
+        return index;
+      })
+      .conflicts('randomAccount'),
+  )
+  .option('--random-account', 'Generate an unfunded account for --add')
+  .action(fiberInit);
+
+fiberCommand
   .command('start [FNN-Version]')
   .description('Start Fiber (FNN) nodes on the running devnet CKB')
-  .option('--nodes <count>', 'Total number of FNN nodes (1-16, default 2)', (value: string) => {
-    const parsed = Number(value);
-    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 16) {
-      throw new InvalidArgumentError('--nodes must be an integer between 1 and 16');
-    }
-    return parsed;
-  })
+  .option(
+    '--nodes <count>',
+    'Initial node count (1-16, default 2); existing environments retain their node list',
+    (value: string) => {
+      const parsed = Number(value);
+      if (!Number.isInteger(parsed) || parsed < 1 || parsed > 16) {
+        throw new InvalidArgumentError('--nodes must be an integer between 1 and 16');
+      }
+      return parsed;
+    },
+  )
   .option('-b, --binary-path <binaryPath>', 'Specify a locally built FNN binary path to use')
   .option('--daemon', 'Run the fiber nodes in the background as a daemon')
   .action(async (version: string | undefined, options: FiberStartOptions) => {
@@ -277,8 +315,8 @@ program
 
 program
   .command('clean')
-  .description('Clean the devnet data, need to stop running the chain first')
-  .option('-d, --data', 'Only remove chain data, keep devnet config files')
+  .description('Reset the devnet (deletes data); stop the chain first')
+  .option('-d, --data', 'Delete chain and Fiber stores, keep configs, accounts and keys')
   .action((options: { data?: boolean }) => clean(options));
 program
   .command('accounts')
@@ -434,6 +472,8 @@ devnetCommand
   .option('--dry-run', 'Run source/spec/database preflight without replacing the current devnet')
   .action(devnetFork);
 
+const plugins = registerPluginManagement(program);
+
 function normalizeGlobalJsonFlag(argv: string[]): string[] {
   const jsonRequested = argv.slice(2).includes('--json');
   if (!jsonRequested) return argv;
@@ -452,19 +492,26 @@ function configureCommanderErrors(command: Command) {
 
 export async function runCli(argv: string[] = process.argv): Promise<void> {
   installBrokenPipeHandlers();
-  const normalizedArgv = normalizeGlobalJsonFlag(argv);
-  if (normalizedArgv.includes('--json')) logger.setJsonMode(true);
-
-  if (!normalizedArgv.slice(2).length) {
-    program.outputHelp();
-    return;
-  }
-
-  configureCommanderErrors(program);
-
   try {
+    const commandIndex = coreCommandIndex(program, argv);
+    if (argv.slice(2, commandIndex === -1 ? argv.length : commandIndex).includes('--json')) logger.setJsonMode(true);
+    // Determine the plugin boundary before the legacy global flag normalization.
+    // Only core arguments may participate in --json promotion.
+    const invocation = plugins.prepare(argv);
+    const normalizedArgv = normalizeGlobalJsonFlag(invocation.argv);
+    if (normalizedArgv.includes('--json')) logger.setJsonMode(true);
+    if (!normalizedArgv.slice(2).length) {
+      program.outputHelp();
+      return;
+    }
+    configureCommanderErrors(program);
     await program.parseAsync(normalizedArgv);
-    if (logger.isJsonMode() && !logger.hasResult() && (process.exitCode == null || process.exitCode === 0)) {
+    if (
+      !invocation.delegated() &&
+      logger.isJsonMode() &&
+      !logger.hasResult() &&
+      (process.exitCode == null || process.exitCode === 0)
+    ) {
       logger.result({ command: activeCommand, completed: true });
     }
   } catch (error) {

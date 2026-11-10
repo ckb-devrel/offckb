@@ -4,16 +4,13 @@ import { ccc } from '@ckb-ccc/core';
 import { callJsonRpc } from '../util/json-rpc';
 import { logger } from '../util/logger';
 import { readSettings, Settings } from '../cfg/setting';
-import { fiberNodePaths, fiberRpcUrl, fiberRpcPort, fiberP2pPort, fiberAccountIndex } from './paths';
-import { ensureNodesYml, FiberNodeEntry } from './nodes-yml';
-import {
-  ensureNodeKeyMaterial,
-  fiberNodeAccount,
-  readNodePassword,
-  fiberPublicKeyFromSecret,
-  readFiberNodeSecretKey,
-} from './accounts';
-import { generateNodeConfig } from './config-gen';
+import { fiberNodePaths, fiberRpcUrl, fiberRpcPort, fiberP2pPort } from './paths';
+import { FiberNodeEntry, resolveNodeFile } from './nodes-yml';
+import { initializeFiberEnvironment } from './init';
+import { FiberAuthError, FiberRpcAuth } from './auth';
+import { resolveFundingAccount, readNodePassword, fiberPublicKeyFromSecret, readFiberNodeSecretKey } from './accounts';
+import { customConfig, readNodeConfig } from './config-gen';
+import { isMapping } from './files';
 import { FiberChainScripts } from './scripts';
 import { fnnNodeInfo, fnnConnectPeer, fnnListPeers, checkPortFree, FnnNodeInfo } from './rpc';
 import { lockMatches } from './status';
@@ -35,6 +32,9 @@ export interface FnnProcessHandle {
   rpcUrl: string;
   dir: string;
   logFile: string;
+  configFile?: string;
+  rpcAuth?: FiberRpcAuth;
+  entry?: FiberNodeEntry;
 }
 
 export interface FiberEnvironment {
@@ -97,7 +97,16 @@ function spawnFnn(node: FiberNodeEntry, fnnPath: string, settings: Settings): Fn
   fs.mkdirSync(paths.dir, { recursive: true });
   const logFd = fs.openSync(paths.logFile, 'a');
   const password = readNodePassword(node.id, settings);
-  const child = spawn(fnnPath, ['-d', paths.dir], {
+  const configFile = resolveNodeFile(node.config_file, settings);
+  const config = readNodeConfig(node, settings);
+  const rpcAuth =
+    isMapping(config.rpc) && config.rpc.biscuit_public_key
+      ? { tokenFile: resolveNodeFile(node.rpc_token_file, settings) }
+      : undefined;
+  logger.info(
+    `Starting Fiber node ${node.id}${customConfig(node, settings) === 'yes' ? ' [custom config]' : ''}: ${fnnPath}, config ${configFile}`,
+  );
+  const child = spawn(fnnPath, ['-c', configFile, '-d', paths.dir], {
     stdio: ['ignore', logFd, logFd],
     env: {
       ...process.env,
@@ -114,7 +123,16 @@ function spawnFnn(node: FiberNodeEntry, fnnPath: string, settings: Settings): Fn
   // The child's stdio owns the fd now; close our copy so the file is only
   // held open by the FNN process.
   closeFileDescriptors(logFd);
-  return { id: node.id, process: child, rpcUrl: fiberRpcUrl(node.id), dir: paths.dir, logFile: paths.logFile };
+  return {
+    id: node.id,
+    process: child,
+    rpcUrl: fiberRpcUrl(node.id),
+    dir: paths.dir,
+    logFile: paths.logFile,
+    configFile,
+    rpcAuth,
+    entry: node,
+  };
 }
 
 async function waitForAllNodeInfo(nodes: FnnProcessHandle[], timeoutMs: number): Promise<Map<number, FnnNodeInfo>> {
@@ -139,10 +157,11 @@ async function waitForAllNodeInfo(nodes: FnnProcessHandle[], timeoutMs: number):
       }
       const node = nodes.find((n) => n.id === id)!;
       try {
-        const info = await fnnNodeInfo(node.rpcUrl, 2000);
+        const info = await fnnNodeInfo(node.rpcUrl, 2000, node.rpcAuth);
         infos.set(id, info);
         pending.delete(id);
-      } catch {
+      } catch (error) {
+        if (error instanceof FiberAuthError) throw new FiberStartupError(`Fiber node ${id}: ${error.message}`, nodes);
         // RPC not up yet; keep polling while the child is alive.
       }
     }
@@ -217,12 +236,12 @@ async function assertNodeIdentitiesAndFunds(
       );
     }
 
-    const account = fiberNodeAccount(node.id);
+    const account = resolveFundingAccount(node.entry!.account);
     const expectedLock = account.lockScript;
     const actualLock = info.default_funding_lock_script;
     if (!lockMatches(actualLock, expectedLock)) {
       throw new FiberStartupError(
-        `Fiber node ${node.id} funds account mismatch: expected built-in account #${fiberAccountIndex(node.id)} ` +
+        `Fiber node ${node.id} funds account mismatch: expected ${account.address} ` +
           `(lock args ${expectedLock.args}) but the node reports ${JSON.stringify(actualLock)}.`,
         nodes,
       );
@@ -237,15 +256,8 @@ async function assertNodeIdentitiesAndFunds(
         nodes,
       );
     }
-    if (balance <= BigInt(0)) {
-      throw new FiberStartupError(
-        `Fiber node ${node.id}'s CKB account #${fiberAccountIndex(node.id)} has no available CKB. ` +
-          'Fund the account before starting Fiber.',
-        nodes,
-      );
-    }
     logger.info(
-      `Fiber node ${node.id}: account #${fiberAccountIndex(node.id)} balance ${ccc.fixedPointToString(balance)} CKB.`,
+      `Fiber node ${node.id}: funding address ${account.address}, balance ${ccc.fixedPointToString(balance)} CKB${balance === BigInt(0) ? ' (balance is 0, waiting for funding)' : ''}.`,
     );
   }
 }
@@ -260,7 +272,7 @@ async function connectFiberPeers(nodes: FnnProcessHandle[], nodeInfos: Map<numbe
       throw new FiberStartupError(`FNN node ${peer.id} did not announce a connectable address.`, nodes);
     }
     try {
-      await fnnConnectPeer(first.rpcUrl, address);
+      await fnnConnectPeer(first.rpcUrl, address, true, 10000, first.rpcAuth);
     } catch (error) {
       throw new FiberStartupError(
         `Failed to connect fiber node ${first.id} to node ${peer.id} at ${address}: ${(error as Error).message}`,
@@ -271,7 +283,7 @@ async function connectFiberPeers(nodes: FnnProcessHandle[], nodeInfos: Map<numbe
   // connect_peer returns once dialing starts; give the P2P handshake a moment
   // to settle, then verify once with list_peers.
   await new Promise((resolve) => setTimeout(resolve, 3000));
-  const peers = await fnnListPeers(first.rpcUrl);
+  const peers = await fnnListPeers(first.rpcUrl, 3000, first.rpcAuth);
   if (peers.length < rest.length) {
     throw new FiberStartupError(
       `Fiber node ${first.id} has ${peers.length} peer(s) after connect_peer, expected at least ${rest.length}.`,
@@ -282,8 +294,8 @@ async function connectFiberPeers(nodes: FnnProcessHandle[], nodeInfos: Map<numbe
 }
 
 export interface StartFiberEnvironmentOptions {
-  fnnPath: string;
-  testnetConfigPath: string;
+  version?: string;
+  binaryPath?: string;
   chainScripts: FiberChainScripts;
   nodeCount?: number;
   settings?: Settings;
@@ -291,12 +303,12 @@ export interface StartFiberEnvironmentOptions {
 
 /**
  * The shared Fiber startup flow used by both `offckb fiber start` and
- * `offckb node --fiber`: regenerate node configs from the current chain
+ * `offckb node --fiber`: reuse initialized node configs on the current chain
  * spec, spawn all FNNs with their own logs, wait for their RPCs, verify the
  * chain/identity/account checks and interconnect the nodes. On any failure
  * the FNNs started here are stopped again.
  *
- * Signal handlers are installed BEFORE the first FNN spawn and stay until
+ * Signal handlers cover initialization and stay until
  * the environment is ready: a Ctrl+C during the startup window (RPC waits
  * can stretch to ~90s) stops the partially started nodes and drops the
  * `starting` runtime record instead of orphaning the FNNs and wedging every
@@ -306,21 +318,6 @@ export interface StartFiberEnvironmentOptions {
 export async function startFiberEnvironment(options: StartFiberEnvironmentOptions): Promise<FiberEnvironment> {
   const settings = options.settings ?? readSettings();
   assertNoLiveFiberManager(settings);
-
-  const nodes = ensureNodesYml(options.nodeCount, settings);
-  for (const node of nodes) {
-    const { created } = ensureNodeKeyMaterial(node.id, settings);
-    if (created) {
-      logger.info(`Fiber node ${node.id}: provisioned new CKB key and password.`);
-    }
-    generateNodeConfig({
-      node,
-      chainScripts: options.chainScripts,
-      testnetConfigPath: options.testnetConfigPath,
-      settings,
-    });
-  }
-  await assertFiberPortsFree(nodes);
 
   // Spawn incrementally: if a later spawn fails (e.g. mkdir/open EACCES or
   // ENOSPC), the children started so far must not be left running without a
@@ -355,9 +352,18 @@ export async function startFiberEnvironment(options: StartFiberEnvironmentOption
   };
 
   try {
+    const manifest = await initializeFiberEnvironment(
+      { nodes: options.nodeCount, version: options.version, binaryPath: options.binaryPath },
+      options.chainScripts,
+      settings,
+      true,
+    );
+    const nodes = manifest.nodes;
+    await assertFiberPortsFree(nodes);
+
     try {
       for (const node of nodes) {
-        handles.push(spawnFnn(node, options.fnnPath, settings));
+        handles.push(spawnFnn(node, manifest.fnn.binary_path, settings));
       }
     } catch (error) {
       await stopFiberNodes(handles, settings);
@@ -372,11 +378,17 @@ export async function startFiberEnvironment(options: StartFiberEnvironmentOption
         pid: handle.process.pid ?? 0,
         dir: handle.dir,
         rpcUrl: handle.rpcUrl,
+        configFile: handle.configFile,
+        tokenFile: resolveNodeFile(handle.entry!.rpc_token_file, settings),
+        authEnabled: handle.rpcAuth != null,
+        accountIndex: handle.entry!.account.type === 'builtin' ? handle.entry!.account.index : undefined,
+        fundingAddress: resolveFundingAccount(handle.entry!.account).address,
+        fundingLock: resolveFundingAccount(handle.entry!.account).lockScript,
+        customConfig: customConfig(handle.entry!, settings),
       })),
     };
-    writeRuntime(runtime, settings);
-
     try {
+      writeRuntime(runtime, settings);
       const nodeInfos = await waitForAllNodeInfo(handles, FNN_RPC_TIMEOUT_MS);
       await assertChainConsistency(handles, nodeInfos, options.chainScripts.genesisHash, settings);
       await assertNodeIdentitiesAndFunds(handles, nodeInfos, settings);

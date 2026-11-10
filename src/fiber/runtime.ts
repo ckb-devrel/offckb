@@ -4,12 +4,20 @@ import { runtimeJsonPath } from './paths';
 import { readSettings, Settings } from '../cfg/setting';
 import { isProcessAlive } from '../util/daemon';
 import { logger } from '../util/logger';
+import type { CustomConfig } from './config-gen';
 
 export interface RuntimeNodeInfo {
   id: number;
   pid: number;
   dir: string;
   rpcUrl: string;
+  configFile?: string;
+  tokenFile?: string;
+  authEnabled?: boolean;
+  accountIndex?: number;
+  fundingAddress?: string;
+  fundingLock?: { codeHash: string; hashType: string; args: string };
+  customConfig?: CustomConfig;
 }
 
 export interface FiberRuntime {
@@ -45,6 +53,13 @@ export function readRuntime(settings: Settings = readSettings()): FiberRuntime |
         pid: Number(node.pid),
         dir: String(node.dir),
         rpcUrl: String(node.rpcUrl),
+        configFile: node.configFile,
+        tokenFile: node.tokenFile,
+        authEnabled: node.authEnabled,
+        accountIndex: node.accountIndex,
+        fundingAddress: node.fundingAddress,
+        fundingLock: node.fundingLock,
+        customConfig: node.customConfig,
       })),
     };
   } catch {

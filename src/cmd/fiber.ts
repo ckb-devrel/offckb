@@ -8,12 +8,14 @@ import { startFiberEnvironment, stopFiberNodes, FiberEnvironment } from '../fibe
 import { startFiberDaemon, stopFiber } from '../fiber/daemon';
 import { fiberStatus } from '../fiber/status';
 import { fiberClean, FiberCleanOptions } from '../fiber/clean';
-import { fiberAccountIndex, fiberNodePaths, FIBER_DAEMON_PID_FILE, fiberDaemonPaths } from '../fiber/paths';
+import { fiberNodePaths, FIBER_DAEMON_PID_FILE, fiberDaemonPaths } from '../fiber/paths';
 import { readNodesYml } from '../fiber/nodes-yml';
 import { readLogTail, followLogFile } from '../devnet/log-file';
 import { cleanupPidFile } from '../util/daemon';
 import { enterGracefulShutdown } from '../util/shutdown';
 import * as fs from 'fs';
+import { initializeFiberEnvironment, FiberInitOptions } from '../fiber/init';
+import { resolveFundingAccount } from '../fiber/accounts';
 
 export interface FiberStartOptions {
   nodes?: number;
@@ -37,7 +39,7 @@ export function printFiberSummary(env: FiberEnvironment) {
     const info = env.nodeInfos.get(node.id);
     const version = info ? `${info.version} (${(info.commit_hash || '').slice(0, 7) || 'unknown commit'})` : 'unknown';
     logger.info(
-      `  node ${node.id}: FNN ${version}, RPC ${node.rpcUrl}, account #${fiberAccountIndex(node.id)}, log: ${node.logFile}`,
+      `  node ${node.id}: FNN ${version}, RPC ${node.rpcUrl}, funding ${node.entry ? resolveFundingAccount(node.entry.account).address : 'unknown'}, log: ${node.logFile}`,
     );
   }
 }
@@ -110,7 +112,6 @@ export async function fiberStart(version: string | undefined, options: FiberStar
   try {
     await assertCkbEnvReadyForFiber(settings);
 
-    const fnn = await resolveFnnBinary({ version, binaryPath: options.binaryPath }, settings);
     let chainScripts;
     try {
       chainScripts = resolveFiberChainScripts();
@@ -124,8 +125,8 @@ export async function fiberStart(version: string | undefined, options: FiberStar
     }
 
     const env = await startFiberEnvironment({
-      fnnPath: fnn.fnnPath,
-      testnetConfigPath: fnn.testnetConfigPath,
+      version,
+      binaryPath: options.binaryPath,
       chainScripts,
       nodeCount: options.nodes,
       settings,
@@ -146,6 +147,31 @@ export async function fiberStart(version: string | undefined, options: FiberStar
   } catch (error) {
     lock.release();
     throw error;
+  }
+}
+
+export async function fiberInit(version: string | undefined, options: FiberInitOptions) {
+  const settings = readSettings();
+  assertPlainDevnet(settings);
+  const lock = acquireEnvLock('offckb fiber init');
+  try {
+    await assertCkbEnvReadyForFiber(settings);
+    const manifest = await initializeFiberEnvironment({ ...options, version }, resolveFiberChainScripts(), settings);
+    logger.success(`Fiber environment prepared (${manifest.nodes.length} nodes); no new FNN processes started.`);
+    logger.result({
+      command: 'fiber.init',
+      binaryPath: manifest.fnn.binary_path,
+      nodes: manifest.nodes.map((node) => ({
+        id: node.id,
+        configFile: node.config_file,
+        rpcTokenFile: node.rpc_token_file,
+        accountType: node.account.type,
+        accountIndex: node.account.type === 'builtin' ? node.account.index : undefined,
+        fundingAddress: resolveFundingAccount(node.account).address,
+      })),
+    });
+  } finally {
+    lock.release();
   }
 }
 

@@ -1,10 +1,14 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import crypto from 'crypto';
+import { newNodeEntry } from '../src/fiber/nodes-yml';
 import { defaultSettings, Settings } from '../src/cfg/setting';
 import { fiberNodePaths } from '../src/fiber/paths';
 import {
   ensureNodeKeyMaterial,
+  assertNodeFundingKey,
+  resolveFundingAccount,
   fiberNodeAccount,
   fiberPublicKeyFromSecret,
   readFiberNodeSecretKey,
@@ -94,4 +98,40 @@ describe('fiber identity key', () => {
     fs.writeFileSync(paths.fiberSkFile, Buffer.alloc(32, 7));
     expect(readFiberNodeSecretKey(1, settings)).toEqual(Buffer.alloc(32, 7));
   });
+});
+
+it('derives the same funding lock when importing a built-in private key as a random account', () => {
+  const builtin = fiberNodeAccount(1);
+  const imported = resolveFundingAccount({ type: 'random', key: builtin.privkey });
+  expect(imported.lockScript).toEqual(builtin.lockScript);
+  expect(() => resolveFundingAccount({ type: 'random', key: `0x${'0'.repeat(64)}` })).toThrow('private key');
+});
+it('validates raw and FNN-encrypted keys and rejects changed bindings/passwords', () => {
+  const settings = fixture();
+  const node = { ...newNodeEntry(1), initialized: true };
+  ensureNodeKeyMaterial(1, settings);
+  expect(() => assertNodeFundingKey(node, settings)).not.toThrow();
+  const salt = crypto.randomBytes(16);
+  const nonce = crypto.randomBytes(12);
+  const key = crypto.scryptSync(readNodePassword(1, settings), salt, 32, {
+    N: 131072,
+    r: 8,
+    p: 1,
+    maxmem: 256 * 1024 * 1024,
+  });
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, nonce);
+  const ciphertext = Buffer.concat([
+    cipher.update(Buffer.from(fiberNodeAccount(1).privkey.slice(2), 'hex')),
+    cipher.final(),
+  ]);
+  fs.writeFileSync(
+    fiberNodePaths(1, settings).ckbKeyFile,
+    Buffer.concat([Buffer.from([0]), salt, nonce, ciphertext, cipher.getAuthTag()]),
+  );
+  expect(() => assertNodeFundingKey(node, settings)).not.toThrow();
+  expect(() => assertNodeFundingKey({ ...node, account: { type: 'builtin', index: 4 } }, settings)).toThrow(
+    'does not match',
+  );
+  fs.writeFileSync(fiberNodePaths(1, settings).passwordFile, 'wrong password');
+  expect(() => assertNodeFundingKey(node, settings)).toThrow('cannot decrypt');
 });
