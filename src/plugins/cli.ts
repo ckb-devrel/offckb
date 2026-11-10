@@ -76,7 +76,7 @@ export function registerPluginManagement(program: Command): {
   const install = registrationOptions(
     management
       .command('install <source>')
-      .description('Install or replace a plugin from npm or github:owner/repo[#ref]'),
+      .description('Install from npm/GitHub, tool:<name>, or a local/HTTPS tool descriptor (.json)'),
   )
     .option('--allow-scripts', 'Allow npm install/build scripts outside the runtime sandbox (requires --trust)', false)
     .action(async (source: string, options: PluginLinkOptions & { allowScripts: boolean }) => {
