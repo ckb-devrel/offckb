@@ -74,7 +74,13 @@ export function parseToolDescriptor(value: unknown, requireAssets = false): Tool
     new Set(tool.permissions).size !== tool.permissions.length
   )
     throw new Error('Invalid binary tool permissions');
-  const execution = tool.execution ?? { args: [], env: {} };
+  const rawExecution = tool.execution ?? { args: [], env: {} };
+  if (typeof rawExecution !== 'object' || Array.isArray(rawExecution))
+    throw new Error('Invalid binary tool arguments or environment bindings');
+  const execution = {
+    args: rawExecution.args === undefined ? [] : rawExecution.args,
+    env: rawExecution.env === undefined ? {} : rawExecution.env,
+  };
   if (
     !Array.isArray(execution.args) ||
     execution.args.length > 128 ||

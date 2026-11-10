@@ -67,6 +67,33 @@ it('ships a valid ckb-cli descriptor with pinned official assets, not an implici
 });
 
 it.each([
+  [undefined, { args: [], env: {} }],
+  [null, { args: [], env: {} }],
+  [{}, { args: [], env: {} }],
+  [{ args: ['--example'] }, { args: ['--example'], env: {} }],
+  [{ env: { TOOL_HOME: '${plugin.dataPath}' } }, { args: [], env: { TOOL_HOME: '${plugin.dataPath}' } }],
+])('defaults omitted execution fields independently: %j', (execution, expected) => {
+  expect(parseToolDescriptor({ ...descriptor(), execution }).execution).toEqual(expected);
+});
+
+it.each([
+  false,
+  0,
+  '',
+  'invalid',
+  [],
+  { args: null },
+  { args: '--example' },
+  { env: null },
+  { env: [] },
+  { env: false },
+])('rejects malformed execution values rather than defaulting them: %j', (execution) => {
+  expect(() => parseToolDescriptor({ ...descriptor(), execution })).toThrow(
+    'Invalid binary tool arguments or environment bindings',
+  );
+});
+
+it.each([
   { version: null },
   { version: 'latest' },
   { command: '../escape' },
