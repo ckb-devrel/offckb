@@ -42,3 +42,4 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: node scripts/plugin-sandbox-smoke.mjs
+      - run: node scripts/plugin-binary-smoke.mjs --sandbox

@@ -11,6 +11,7 @@ import { logger } from '../util/logger';
 import { readJsonFile, readPluginManifest } from './manifest';
 import { commitPluginInstallation, PluginLinkOptions, PluginSource, pluginPackagesPath } from './store';
 import { signalPluginChild } from './process';
+import { installBinaryTool, isToolSource } from './tool-install';
 
 const PACKAGE_NAME = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
 
@@ -161,6 +162,7 @@ export async function installPlugin(
   reserved: ReadonlySet<string>,
   options: PluginLinkOptions & { allowScripts?: boolean } = {},
 ): Promise<{ plugin: ReturnType<typeof readPluginManifest>; source: PluginSource }> {
+  if (isToolSource(input)) return installBinaryTool(input, reserved, options);
   const source = parsePluginInstallSpec(input);
   if (options.allowScripts && !options.trust)
     throw new Error(
