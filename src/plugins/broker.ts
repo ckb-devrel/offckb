@@ -24,6 +24,11 @@ const READ_METHODS = new Set([
   'get_block_economic_state',
   'tx_pool_info',
   'get_raw_tx_pool',
+  'local_node_info',
+  'get_consensus',
+  'sync_state',
+  'get_peers',
+  'get_overview',
 ]);
 
 const RPC_MAX_CONNECTIONS = 16;
@@ -107,7 +112,11 @@ export async function createReadRpcBroker(
         calls.length === 0 ||
         calls.length > 200 ||
         calls.some(
-          (call) => !call || call.jsonrpc !== '2.0' || !READ_METHODS.has(call.method) || !Array.isArray(call.params),
+          (call) =>
+            !call ||
+            call.jsonrpc !== '2.0' ||
+            !READ_METHODS.has(call.method) ||
+            (call.params != null && !Array.isArray(call.params)),
         )
       ) {
         res
@@ -122,8 +131,13 @@ export async function createReadRpcBroker(
         headers: { 'Content-Type': 'application/json', ...(authorization ? { Authorization: authorization } : {}) },
         body: JSON.stringify(
           Array.isArray(body)
-            ? calls.map((call) => ({ jsonrpc: '2.0', id: call.id ?? null, method: call.method, params: call.params }))
-            : { jsonrpc: '2.0', id: body.id ?? null, method: body.method, params: body.params },
+            ? calls.map((call) => ({
+                jsonrpc: '2.0',
+                id: call.id ?? null,
+                method: call.method,
+                params: call.params ?? [],
+              }))
+            : { jsonrpc: '2.0', id: body.id ?? null, method: body.method, params: body.params ?? [] },
         ),
       });
       const result: Buffer[] = [];

@@ -15,7 +15,7 @@ import {
 } from './manifest';
 
 export interface PluginSource {
-  kind: 'npm' | 'github';
+  kind: 'npm' | 'github' | 'binary';
   requested: string;
   resolved: string;
 }
@@ -132,7 +132,7 @@ function isInstallation(value: PluginInstallation): boolean {
     typeof value.name === 'string' &&
     typeof value.allowScripts === 'boolean' &&
     !!value.source &&
-    ['npm', 'github'].includes(value.source.kind) &&
+    ['npm', 'github', 'binary'].includes(value.source.kind) &&
     typeof value.source.requested === 'string' &&
     typeof value.source.resolved === 'string'
   );

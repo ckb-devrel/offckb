@@ -24,6 +24,47 @@ function readCall(url: string) {
   });
 }
 
+it('normalizes Rust clients null or omitted params without accepting objects or ungranted methods', async () => {
+  const seen: unknown[] = [];
+  const upstream = http.createServer(async (req, res) => {
+    let body = '';
+    for await (const chunk of req) body += chunk;
+    seen.push(JSON.parse(body));
+    res.end(JSON.stringify({ jsonrpc: '2.0', id: 0, result: '0x2a' }));
+  });
+  await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+  const broker = await createReadRpcBroker(`http://127.0.0.1:${(upstream.address() as net.AddressInfo).port}`);
+  const call = { jsonrpc: '2.0', id: 0, method: 'get_tip_block_number' };
+  const send = (body: unknown) =>
+    fetch(broker.url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  try {
+    expect((await send({ ...call, params: null })).status).toBe(200);
+    expect((await send(call)).status).toBe(200);
+    expect((await send([{ ...call, params: null }, call])).status).toBe(200);
+    for (const params of [{}, 0, false]) expect((await send({ ...call, params })).status).toBe(403);
+    expect(
+      (
+        await send([
+          { ...call, params: null },
+          { ...call, method: 'clear_banned_addresses' },
+        ])
+      ).status,
+    ).toBe(403);
+    expect(seen).toEqual([
+      { ...call, params: [] },
+      { ...call, params: [] },
+      [
+        { ...call, params: [] },
+        { ...call, params: [] },
+      ],
+    ]);
+  } finally {
+    broker.close();
+    upstream.closeAllConnections();
+    upstream.close();
+  }
+});
+
 it('only forwards read RPC calls and keeps upstream credentials inside the host', async () => {
   const seen: Array<{ authorization?: string; body: string }> = [];
   const upstream = http.createServer(async (req, res) => {
@@ -45,6 +86,11 @@ it('only forwards read RPC calls and keeps upstream credentials inside the host'
         body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params: [] }),
       });
     expect((await call('get_tip_block_number')).status).toBe(200);
+    expect((await call('local_node_info')).status).toBe(200);
+    expect((await call('get_consensus')).status).toBe(200);
+    expect((await call('sync_state')).status).toBe(200);
+    expect((await call('get_peers')).status).toBe(200);
+    expect((await call('get_overview')).status).toBe(200);
     expect((await call('send_transaction')).status).toBe(403);
     expect((await fetch(broker.url)).status).toBe(405);
     const read = { jsonrpc: '2.0', id: 2, method: 'get_block_by_number', params: ['0x0'] };
@@ -57,9 +103,9 @@ it('only forwards read RPC calls and keeps upstream credentials inside the host'
     expect((await batch([read, { ...read, method: 'send_transaction' }])).status).toBe(403);
     expect((await batch([])).status).toBe(403);
     expect((await batch(Array(201).fill(read))).status).toBe(403);
-    expect(seen).toHaveLength(1); // Mixed/oversized batches must forward no partial calls.
+    expect(seen).toHaveLength(6); // Mixed/oversized batches must forward no partial calls.
     expect((await batch([read, read])).status).toBe(200);
-    expect(seen).toHaveLength(2);
+    expect(seen).toHaveLength(7);
     expect(seen[0].authorization).toBe(`Basic ${Buffer.from('user:secret').toString('base64')}`);
   } finally {
     broker.close();

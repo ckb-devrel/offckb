@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import semver from 'semver';
+import { parseToolDescriptor, ToolExecution } from './tool-descriptor';
 
 export const PLUGIN_PERMISSIONS = ['devnet-read', 'project-deployment', 'serve'] as const;
 export type PluginPermission = (typeof PLUGIN_PERMISSIONS)[number];
@@ -15,6 +16,8 @@ export interface PluginManifest {
   entry: string;
   node?: string;
   permissions: PluginPermission[];
+  runtime?: 'binary';
+  execution?: ToolExecution;
 }
 
 export function isPluginCommand(value: unknown): value is string {
@@ -29,6 +32,29 @@ export function readJsonFile(file: string): unknown {
 
 export function readPluginManifest(directory: string): PluginManifest {
   const root = fs.realpathSync(directory);
+  const toolFile = path.join(root, 'offckb-tool.json');
+  if (fs.existsSync(toolFile)) {
+    const tool = parseToolDescriptor(readJsonFile(toolFile));
+    const entry = fs.realpathSync(path.resolve(root, tool.entry));
+    const relative = path.relative(root, entry);
+    if (!relative || relative.startsWith(`..${path.sep}`) || relative === '..' || path.isAbsolute(relative))
+      throw new Error('Binary entry must stay inside the plugin directory');
+    if (!fs.statSync(entry).isFile()) throw new Error('Binary entry must be a regular file');
+    if (process.platform === 'win32' && !entry.toLowerCase().endsWith('.exe'))
+      throw new Error('Windows binary entries must be .exe files');
+    fs.accessSync(entry, process.platform === 'win32' ? fs.constants.F_OK : fs.constants.X_OK);
+    return {
+      directory: root,
+      name: tool.name,
+      version: tool.version,
+      command: tool.command,
+      description: tool.description,
+      entry,
+      runtime: 'binary',
+      execution: tool.execution,
+      permissions: tool.permissions,
+    };
+  }
   const pkg = readJsonFile(path.join(root, 'package.json')) as Record<string, unknown>;
   const declaration = pkg?.offckb as Record<string, unknown> | undefined;
   if (!pkg || typeof pkg.name !== 'string' || !pkg.name.trim() || !semver.valid(String(pkg.version))) {
