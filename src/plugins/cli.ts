@@ -1,12 +1,50 @@
-import { Command, InvalidArgumentError } from 'commander';
+import { Command, CommanderError, InvalidArgumentError } from 'commander';
+import { confirm } from '@inquirer/prompts';
 import { logger } from '../util/logger';
-import { linkPlugin, listPlugins, unlinkPlugin, removePlugin, PluginLinkOptions } from './store';
+import { linkPlugin, listPlugins, unlinkPlugin, removePlugin, PluginLinkOptions, PluginSource } from './store';
+import { PluginManifest, PluginPermission } from './manifest';
 import { runPlugin } from './run';
 import { installPlugin } from './install';
 import { assertSandboxSupported } from './sandbox';
 
 function checkMode(mode: 'sandbox' | 'trusted'): void {
   if (mode === 'sandbox') assertSandboxSupported();
+}
+
+const permissionDescriptions: Record<PluginPermission, string> = {
+  'devnet-read': 'Query the devnet through a read-only RPC gateway',
+  'project-deployment': 'Read deployment/ in the project where you run the plugin',
+  serve: 'Serve a web interface on 127.0.0.1 through the host',
+};
+
+async function confirmInstallPermissions(
+  plugin: PluginManifest,
+  source: PluginSource,
+  trusted: boolean,
+  previousPermissions: readonly PluginPermission[],
+): Promise<boolean> {
+  process.stderr.write(
+    `\n${plugin.command} (${plugin.name}@${plugin.version}) requests permissions:\n` +
+      `Source: ${source.resolved}\n` +
+      `Mode: ${trusted ? 'trusted — runs with your user permissions, without OS isolation; these grants only control host-provided interfaces' : 'sandbox'}\n\n` +
+      plugin.permissions
+        .map(
+          (permission) =>
+            `  ${permission}${previousPermissions.length ? (previousPermissions.includes(permission) ? ' [approved]' : ' [NEW]') : ''}: ${permissionDescriptions[permission]}\n`,
+        )
+        .join('') +
+      '\n',
+  );
+  try {
+    return await confirm(
+      { message: 'Allow these permissions and finish installation?', default: false },
+      { input: process.stdin, output: process.stderr },
+    );
+  } catch (error) {
+    if (error instanceof Error && error.name === 'ExitPromptError')
+      throw new CommanderError(130, 'plugin.install.cancelled', 'Plugin installation cancelled');
+    throw error;
+  }
 }
 
 function registrationOptions(command: Command): Command {
@@ -76,11 +114,32 @@ export function registerPluginManagement(program: Command): {
   const install = registrationOptions(
     management
       .command('install <source>')
-      .description('Install from npm/GitHub, tool:<name>, or a local/HTTPS tool descriptor (.json)'),
+      .description(
+        'Install from npm/GitHub (terminal permission prompt), tool:<name>, or a local/HTTPS tool descriptor (.json)',
+      ),
   )
     .option('--allow-scripts', 'Allow npm install/build scripts outside the runtime sandbox (requires --trust)', false)
     .action(async (source: string, options: PluginLinkOptions & { allowScripts: boolean }) => {
-      const installed = await installPlugin(source, reserved(), options);
+      const interactive =
+        process.stdin.isTTY &&
+        process.stdout.isTTY &&
+        process.stderr.isTTY &&
+        !process.env.CI &&
+        !program.opts().json &&
+        !logger.isJsonMode() &&
+        !options.allow?.length;
+      const installed = await installPlugin(source, reserved(), {
+        ...options,
+        ...(interactive
+          ? {
+              confirmPermissions: (
+                plugin: PluginManifest,
+                provenance: PluginSource,
+                previousPermissions: readonly PluginPermission[] = [],
+              ) => confirmInstallPermissions(plugin, provenance, options.trust === true, previousPermissions),
+            }
+          : {}),
+      });
       const plugin = installed.plugin;
       logger.info(`Installed ${plugin.command} (${installed.source.resolved}); run offckb ${plugin.command}`);
       if (options.trust)

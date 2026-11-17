@@ -13,7 +13,10 @@ import {
 } from '../src/plugins/store';
 import { createPluginContext } from '../src/plugins/context';
 import { registerPluginManagement } from '../src/plugins/cli';
+import { logger } from '../src/util/logger';
 
+const mockConfirm = jest.fn();
+jest.mock('@inquirer/prompts', () => ({ confirm: (...args: unknown[]) => mockConfirm(...args) }));
 const mockRunPlugin = jest.fn().mockResolvedValue(undefined);
 const mockInstallPlugin = jest.fn();
 const mockResolveScripts = jest.fn();
@@ -447,4 +450,117 @@ it('does not carry install-script consent or grants into a later install in the 
     expect.any(Set),
     expect.objectContaining({ trust: false, allowScripts: false, allow: [], read: [] }),
   );
+});
+
+describe('interactive installation permission consent', () => {
+  const streams = [process.stdin, process.stdout, process.stderr];
+  const ttyDescriptors = streams.map((stream) => Object.getOwnPropertyDescriptor(stream, 'isTTY'));
+  const previousCI = process.env.CI;
+
+  beforeEach(() => {
+    for (const stream of streams) Object.defineProperty(stream, 'isTTY', { configurable: true, value: true });
+    delete process.env.CI;
+    jest.spyOn(logger, 'isJsonMode').mockReturnValue(false);
+    mockConfirm.mockReset().mockResolvedValue(true);
+  });
+
+  afterEach(() => {
+    streams.forEach((stream, index) => {
+      const descriptor = ttyDescriptors[index];
+      if (descriptor) Object.defineProperty(stream, 'isTTY', descriptor);
+      else delete stream.isTTY;
+    });
+    if (previousCI === undefined) delete process.env.CI;
+    else process.env.CI = previousCI;
+    jest.restoreAllMocks();
+  });
+
+  it.each([false, true])('shows the source, permissions and execution mode (trusted: %s)', async (trusted) => {
+    const program = new Command();
+    const plugins = registerPluginManagement(program);
+    const args = ['node', 'offckb', 'plugin', 'install', 'test-probe', ...(trusted ? ['--trust'] : [])];
+    await program.parseAsync(plugins.prepare(args).argv);
+    const options = mockInstallPlugin.mock.calls[0][2];
+    expect(options).toMatchObject({ trust: trusted, allowScripts: false, allow: [] });
+    const write = jest.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const plugin = readPluginManifest(
+      makePlugin('probe', {
+        offckb: { permissions: ['devnet-read', 'project-deployment', 'serve'] },
+      }),
+    );
+    await expect(
+      options.confirmPermissions(plugin, {
+        kind: 'github',
+        requested: 'github:owner/repo#v1',
+        resolved: 'github:owner/repo#fixed-commit',
+      }),
+    ).resolves.toBe(true);
+    const output = write.mock.calls.map(([chunk]) => String(chunk)).join('');
+    expect(output).toContain('Source: github:owner/repo#fixed-commit');
+    expect(output).toContain(trusted ? 'Mode: trusted' : 'Mode: sandbox');
+    if (trusted) expect(output).toContain('without OS isolation');
+    expect(output).toContain('devnet-read: Query the devnet through a read-only RPC gateway');
+    expect(output).toContain('project-deployment: Read deployment/ in the project where you run the plugin');
+    expect(output).toContain('serve: Serve a web interface on 127.0.0.1 through the host');
+    expect(mockConfirm).toHaveBeenCalledTimes(1);
+    expect(mockConfirm).toHaveBeenCalledWith(
+      { message: 'Allow these permissions and finish installation?', default: false },
+      { input: process.stdin, output: process.stderr },
+    );
+  });
+
+  it.each(['stdin', 'stdout', 'stderr', 'ci', 'json', 'logger-json', 'explicit-grants'])(
+    'does not offer interactive consent for %s',
+    async (mode) => {
+      if (mode === 'ci') process.env.CI = 'true';
+      if (mode === 'logger-json') jest.mocked(logger.isJsonMode).mockReturnValue(true);
+      const streamIndex = ['stdin', 'stdout', 'stderr'].indexOf(mode);
+      if (streamIndex !== -1)
+        Object.defineProperty(streams[streamIndex], 'isTTY', { configurable: true, value: false });
+      const program = new Command().option('--json');
+      const plugins = registerPluginManagement(program);
+      const args = [
+        'node',
+        'offckb',
+        ...(mode === 'json' ? ['--json'] : []),
+        'plugin',
+        'install',
+        'test-probe',
+        ...(mode === 'explicit-grants' ? ['--allow', 'serve'] : []),
+      ];
+      await program.parseAsync(plugins.prepare(args).argv);
+      expect(mockInstallPlugin.mock.calls[0][2].confirmPermissions).toBeUndefined();
+      expect(mockConfirm).not.toHaveBeenCalled();
+    },
+  );
+
+  it('marks added capabilities separately from already approved capabilities', async () => {
+    const program = new Command();
+    const plugins = registerPluginManagement(program);
+    await program.parseAsync(plugins.prepare(['node', 'offckb', 'plugin', 'install', 'test-probe']).argv);
+    const write = jest.spyOn(process.stderr, 'write').mockReturnValue(true);
+    await mockInstallPlugin.mock.calls[0][2].confirmPermissions(
+      readPluginManifest(makePlugin('probe', { offckb: { permissions: ['devnet-read', 'serve'] } })),
+      { kind: 'npm', requested: 'test-probe', resolved: 'test-probe@1.0.0' },
+      ['devnet-read'],
+    );
+    const output = write.mock.calls.map(([chunk]) => String(chunk)).join('');
+    expect(output).toContain('devnet-read [approved]');
+    expect(output).toContain('serve [NEW]');
+    expect(mockConfirm).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns an interruption exit status when the user presses Ctrl+C', async () => {
+    const program = new Command();
+    const plugins = registerPluginManagement(program);
+    await program.parseAsync(plugins.prepare(['node', 'offckb', 'plugin', 'install', 'test-probe']).argv);
+    jest.spyOn(process.stderr, 'write').mockReturnValue(true);
+    mockConfirm.mockRejectedValue(Object.assign(new Error('interrupted'), { name: 'ExitPromptError' }));
+    await expect(
+      mockInstallPlugin.mock.calls[0][2].confirmPermissions(
+        readPluginManifest(makePlugin('probe', { offckb: { permissions: ['serve'] } })),
+        { kind: 'npm', requested: 'test-probe', resolved: 'test-probe@1.0.0' },
+      ),
+    ).rejects.toMatchObject({ exitCode: 130, code: 'plugin.install.cancelled' });
+  });
 });

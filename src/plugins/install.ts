@@ -8,8 +8,15 @@ import semver from 'semver';
 import { LIFETIME_SIGNALS, LifetimeSignal, signalExitCode } from '../util/child-lifetime';
 import { enterGracefulShutdown } from '../util/shutdown';
 import { logger } from '../util/logger';
-import { readJsonFile, readPluginManifest } from './manifest';
-import { commitPluginInstallation, PluginLinkOptions, PluginSource, pluginPackagesPath } from './store';
+import { PluginManifest, PluginPermission, readJsonFile, readPluginManifest } from './manifest';
+import {
+  commitPluginInstallation,
+  PluginLinkOptions,
+  PluginRegistrationOptions,
+  PluginSource,
+  pluginPackagesPath,
+  reviewPluginPermissions,
+} from './store';
 import { signalPluginChild } from './process';
 import { installBinaryTool, isToolSource } from './tool-install';
 
@@ -21,6 +28,27 @@ export interface PluginInstallSpec {
   spec: string;
   name?: string;
   repository?: string;
+}
+
+export interface PluginInstallOptions extends PluginLinkOptions {
+  allowScripts?: boolean;
+  /** CLI-only consent hook for capabilities not covered by a previous managed installation. */
+  confirmPermissions?: (
+    plugin: PluginManifest,
+    source: PluginSource,
+    previousPermissions: readonly PluginPermission[],
+  ) => Promise<boolean>;
+}
+
+function npmPackageLocation(resolved: string | undefined): string | undefined {
+  if (!resolved) return;
+  try {
+    const url = new URL(resolved);
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) return;
+    return new URL('.', url).href;
+  } catch {
+    return;
+  }
 }
 
 /** Deliberately accept registry packages and HTTPS GitHub repositories, not arbitrary npm spec protocols. */
@@ -160,7 +188,7 @@ async function runNpm(spec: string, directory: string, allowScripts: boolean): P
 export async function installPlugin(
   input: string,
   reserved: ReadonlySet<string>,
-  options: PluginLinkOptions & { allowScripts?: boolean } = {},
+  options: PluginInstallOptions = {},
 ): Promise<{ plugin: ReturnType<typeof readPluginManifest>; source: PluginSource }> {
   if (isToolSource(input)) return installBinaryTool(input, reserved, options);
   const source = parsePluginInstallSpec(input);
@@ -210,7 +238,38 @@ export async function installPlugin(
       if (!commit) throw new Error('npm did not record a fixed GitHub commit in the lockfile');
       resolved = `github:${source.repository}#${commit}`;
     }
-    const provenance: PluginSource = { kind: source.kind, requested: source.requested, resolved };
+    const packageLocation =
+      source.kind === 'npm' ? npmPackageLocation(lock.packages?.[`node_modules/${names[0]}`]?.resolved) : undefined;
+    const provenance: PluginSource = {
+      kind: source.kind,
+      requested: source.requested,
+      resolved,
+      ...(packageLocation ? { packageLocation } : {}),
+    };
+    let registrationOptions: PluginRegistrationOptions = options;
+    if (plugin.permissions.length && !options.allow?.length) {
+      // Snapshot the reviewed grants. The commit rereads the manifest and must still
+      // reject any capabilities added while the user was considering the prompt.
+      const allow = [...plugin.permissions];
+      const review = reviewPluginPermissions(plugin, provenance);
+      const previousPermissions = review?.permissions ?? [];
+      const added = allow.filter((permission) => !previousPermissions.includes(permission));
+      if (
+        added.length &&
+        options.confirmPermissions &&
+        !(await options.confirmPermissions(plugin, provenance, previousPermissions))
+      )
+        throw new CommanderError(
+          1,
+          'plugin.install.cancelled',
+          'Plugin installation cancelled; the previous plugin is unchanged',
+        );
+      // Without a prompt or an existing grant, leave validation to the strict commit check.
+      if (!added.length || options.confirmPermissions) {
+        registrationOptions = { ...options, allow, ...(review ? { permissionReview: review } : {}) };
+        if (!added.length) logger.info(`Reusing approved permissions for ${plugin.command} (same package and source)`);
+      }
+    }
     const registered = commitPluginInstallation(
       directory,
       {
@@ -220,7 +279,7 @@ export async function installPlugin(
         allowScripts: options.allowScripts === true,
       },
       reserved,
-      options,
+      registrationOptions,
       () => {
         committed = true;
       },
