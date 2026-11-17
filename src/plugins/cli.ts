@@ -25,7 +25,7 @@ async function confirmInstallPermissions(
 ): Promise<boolean> {
   process.stderr.write(
     `\n${plugin.command} (${plugin.name}@${plugin.version}) requests permissions:\n` +
-      `Source: ${source.resolved}\n` +
+      `Source: ${source.resolved}${source.packageLocation ? ` (${source.packageLocation})` : ''}\n` +
       `Mode: ${trusted ? 'trusted — runs with your user permissions, without OS isolation; these grants only control host-provided interfaces' : 'sandbox'}\n\n` +
       plugin.permissions
         .map(

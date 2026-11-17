@@ -509,6 +509,35 @@ describe('interactive installation permission consent', () => {
     );
   });
 
+  it('distinguishes npm download locations for the same version and preserves legacy source output', async () => {
+    const program = new Command();
+    const plugins = registerPluginManagement(program);
+    await program.parseAsync(plugins.prepare(['node', 'offckb', 'plugin', 'install', 'test-probe']).argv);
+    const write = jest.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const plugin = readPluginManifest(makePlugin('probe', { offckb: { permissions: ['serve'] } }));
+    const sourceLines: string[] = [];
+    for (const packageLocation of [
+      undefined,
+      'https://registry.example.test/test-probe/-/',
+      'https://other.example.test/mirror/test-probe/-/',
+    ]) {
+      write.mockClear();
+      await mockInstallPlugin.mock.calls[0][2].confirmPermissions(plugin, {
+        kind: 'npm',
+        requested: 'test-probe',
+        resolved: 'test-probe@1.0.0',
+        packageLocation,
+      });
+      const output = write.mock.calls.map(([chunk]) => String(chunk)).join('');
+      const sourceLine = output.split('\n').find((line) => line.startsWith('Source:'))!;
+      expect(sourceLine).toContain('Source: test-probe@1.0.0');
+      if (packageLocation) expect(sourceLine).toContain(packageLocation);
+      else expect(sourceLine).toBe('Source: test-probe@1.0.0');
+      sourceLines.push(sourceLine);
+    }
+    expect(new Set(sourceLines).size).toBe(3);
+  });
+
   it.each(['stdin', 'stdout', 'stderr', 'ci', 'json', 'logger-json', 'explicit-grants'])(
     'does not offer interactive consent for %s',
     async (mode) => {
