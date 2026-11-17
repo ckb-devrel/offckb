@@ -18,6 +18,16 @@ export interface PluginSource {
   kind: 'npm' | 'github' | 'binary';
   requested: string;
   resolved: string;
+  /** Credential-free directory of npm's locked package URL; absent in older registrations. */
+  packageLocation?: string;
+}
+export interface PluginPermissionReview {
+  installationId: string;
+  permissions: PluginPermission[];
+  source: PluginSource;
+}
+export interface PluginRegistrationOptions extends PluginLinkOptions {
+  permissionReview?: PluginPermissionReview;
 }
 export interface PluginInstallation {
   id: string;
@@ -134,8 +144,38 @@ function isInstallation(value: PluginInstallation): boolean {
     !!value.source &&
     ['npm', 'github', 'binary'].includes(value.source.kind) &&
     typeof value.source.requested === 'string' &&
-    typeof value.source.resolved === 'string'
+    typeof value.source.resolved === 'string' &&
+    (value.source.packageLocation === undefined || typeof value.source.packageLocation === 'string')
   );
+}
+
+function samePermissionSource(first: PluginSource, second: PluginSource): boolean {
+  if (first.kind !== second.kind) return false;
+  if (first.kind === 'npm') return !!first.packageLocation && first.packageLocation === second.packageLocation;
+  if (first.kind !== 'github') return false;
+  const repository = (source: PluginSource) =>
+    /^github:([a-z0-9-]+\/[a-z0-9._-]+)#[a-f0-9]{40}$/i.exec(source.resolved)?.[1].toLowerCase();
+  const previous = repository(first);
+  return !!previous && previous === repository(second);
+}
+
+/** Reuse only an existing managed package's grants, never another package's or source's. */
+export function reviewPluginPermissions(
+  plugin: PluginManifest,
+  source: PluginSource,
+): PluginPermissionReview | undefined {
+  const previous = readRegistry().plugins[plugin.command];
+  if (
+    !previous?.installation ||
+    previous.installation.name !== plugin.name ||
+    !samePermissionSource(previous.installation.source, source)
+  )
+    return;
+  return {
+    installationId: previous.installation.id,
+    permissions: [...previous.permissions],
+    source: previous.installation.source,
+  };
 }
 
 /** Store only an identifier; never recursively delete a caller-supplied installation path. */
@@ -326,7 +366,7 @@ export function commitPluginInstallation(
   directory: string,
   installation: PluginInstallation,
   reserved: ReadonlySet<string>,
-  options: PluginLinkOptions,
+  options: PluginRegistrationOptions,
   onCommit?: () => void,
 ): PluginManifest {
   let previousRoot: string | undefined;
@@ -343,6 +383,15 @@ export function commitPluginInstallation(
     const previous = Object.prototype.hasOwnProperty.call(registry.plugins, candidate.command)
       ? registry.plugins[candidate.command]
       : undefined;
+    const review = options.permissionReview;
+    if (
+      review &&
+      (!previous?.installation ||
+        previous.installation.id !== review.installationId ||
+        !samePermissionSource(previous.installation.source, review.source) ||
+        [...previous.permissions].sort().join(',') !== [...review.permissions].sort().join(','))
+    )
+      throw new Error('Plugin authorization changed during installation; retry to review the current grants');
     if (previous && (!previous.installation || previous.installation.name !== candidate.name))
       throw new Error(`Plugin command ${candidate.command} is already linked; remove/unlink it explicitly first`);
     if (
