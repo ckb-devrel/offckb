@@ -359,6 +359,59 @@ describe('CKBDebuggerInstaller', () => {
     expect(fs.readFileSync(shimPath, 'utf-8')).toBe(userScript);
   });
 
+  it('puts a real ckb-debugger.exe next to the .cmd shim on Windows', async () => {
+    // A shell-less spawn('ckb-debugger') (as in ckb-testtool) finds an .exe on
+    // PATH but never a .cmd file.
+    mockHost('win32', 'x64');
+    const winBinaryPath = path.join(mockDirs.toolsRoot, 'ckb-debugger.exe');
+    fs.mkdirSync(path.dirname(winBinaryPath), { recursive: true });
+    fs.writeFileSync(winBinaryPath, fakeBinaryPayload('0.208.0'));
+    const binDir = path.join(root, 'bin');
+    fs.mkdirSync(binDir, { recursive: true });
+    mockSpawnSync.mockImplementation((cmd: string) => {
+      if (cmd === 'where') {
+        return {
+          status: 0,
+          stdout: `${path.join(binDir, 'offckb')}\r\n${path.join(binDir, 'offckb.cmd')}\r\n`,
+          stderr: '',
+        };
+      }
+      return { status: 0, stdout: 'ckb-debugger 0.208.0\n', stderr: '' };
+    });
+
+    await CKBDebuggerInstaller.install();
+    // A second run (upgrade or another `offckb create`) refreshes it in place.
+    await CKBDebuggerInstaller.install();
+
+    const exePath = path.join(binDir, 'ckb-debugger.exe');
+    expect(fs.existsSync(path.join(binDir, 'ckb-debugger.cmd'))).toBe(true);
+    expect(fs.readFileSync(exePath)).toEqual(fs.readFileSync(winBinaryPath));
+    expect(fs.existsSync(`${exePath}.offckb`)).toBe(true);
+    expect(fs.readdirSync(binDir).filter((f) => f.endsWith('.tmp'))).toEqual([]);
+  });
+
+  it('does not replace a ckb-debugger.exe that offckb did not create', async () => {
+    mockHost('win32', 'x64');
+    const winBinaryPath = path.join(mockDirs.toolsRoot, 'ckb-debugger.exe');
+    fs.mkdirSync(path.dirname(winBinaryPath), { recursive: true });
+    fs.writeFileSync(winBinaryPath, fakeBinaryPayload('0.208.0'));
+    const binDir = path.join(root, 'bin');
+    fs.mkdirSync(binDir, { recursive: true });
+    const exePath = path.join(binDir, 'ckb-debugger.exe');
+    fs.writeFileSync(exePath, 'user-built debugger');
+    mockSpawnSync.mockImplementation((cmd: string) => {
+      if (cmd === 'where') {
+        return { status: 0, stdout: `${path.join(binDir, 'offckb')}\r\n`, stderr: '' };
+      }
+      return { status: 0, stdout: 'ckb-debugger 0.208.0\n', stderr: '' };
+    });
+
+    await CKBDebuggerInstaller.install();
+
+    expect(fs.readFileSync(exePath, 'utf-8')).toBe('user-built debugger');
+    expect(fs.existsSync(`${exePath}.offckb`)).toBe(false);
+  });
+
   it('throws when the platform has no prebuilt asset', async () => {
     mockHost('freebsd', 'x64');
     await expect(CKBDebuggerInstaller.install()).rejects.toThrow(/no prebuilt binary/);
