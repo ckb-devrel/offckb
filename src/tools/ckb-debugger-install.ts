@@ -178,7 +178,11 @@ export class CKBDebuggerInstaller {
       this.ensurePathShim(binaryPath);
 
       logger.info(`✅ ckb-debugger installed successfully at ${binaryPath} (version ${version}).`);
-      logger.info('   To uninstall, remove the binary and the ckb-debugger shim next to the offckb binary.');
+      logger.info(
+        process.platform === 'win32'
+          ? '   To uninstall, remove the binary and, next to the offckb binary, ckb-debugger.cmd, ckb-debugger.exe and ckb-debugger.exe.offckb.'
+          : '   To uninstall, remove the binary and the ckb-debugger shim next to the offckb binary.',
+      );
       return { binaryPath, version, alreadyInstalled: false };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -365,28 +369,28 @@ export class CKBDebuggerInstaller {
       ? `${marker}\r\n@echo off\r\n"${binaryPath}" %*\r\n`
       : `#!/bin/sh\n${marker}\nexec "${binaryPath}" "$@"\n`;
 
+    let shimPath: string | null = null;
     try {
+      let foreign = false;
       if (fs.existsSync(targetPath)) {
         const existing = fs.readFileSync(targetPath, 'utf8');
         const legacyBody = isWindows ? '@echo off\noffckb debugger %*' : '#!/bin/sh\nexec offckb debugger "$@"';
         const isLegacyShim = existing.replace(/\r\n/g, '\n').replace(/\n$/, '') === legacyBody;
-        if (!existing.includes(marker) && !isLegacyShim) {
-          logger.warn(
-            `A file already exists at ${targetPath} that was not created by offckb; leaving it untouched. ` +
-              'Projects that call `ckb-debugger` directly will need it added to PATH manually.',
-          );
-          return null;
+        foreign = !existing.includes(marker) && !isLegacyShim;
+      }
+      if (foreign) {
+        logger.warn(
+          `A file already exists at ${targetPath} that was not created by offckb; leaving it untouched. ` +
+            'Projects that call `ckb-debugger` directly will need it added to PATH manually.',
+        );
+      } else {
+        fs.writeFileSync(targetPath, content);
+        if (!isWindows) {
+          fs.chmodSync(targetPath, 0o755);
         }
+        logger.info(`✅ ckb-debugger shim updated: ${targetPath}`);
+        shimPath = targetPath;
       }
-      fs.writeFileSync(targetPath, content);
-      if (!isWindows) {
-        fs.chmodSync(targetPath, 0o755);
-      }
-      logger.info(`✅ ckb-debugger shim updated: ${targetPath}`);
-      if (isWindows) {
-        this.ensureWindowsExe(binaryPath, path.dirname(targetPath));
-      }
-      return targetPath;
     } catch (error) {
       // A missing shim must not fail an otherwise successful install: the
       // binary is already in place and offckb can use it directly.
@@ -394,8 +398,13 @@ export class CKBDebuggerInstaller {
         `Could not write the ckb-debugger shim at ${targetPath}: ${(error as Error).message}. ` +
           'Projects that call `ckb-debugger` directly will need it added to PATH manually.',
       );
-      return null;
     }
+    // The .exe has its own ownership marker, so it is placed even when the
+    // .cmd shim is foreign or could not be written.
+    if (isWindows) {
+      this.ensureWindowsExe(binaryPath, path.dirname(targetPath));
+    }
+    return shimPath;
   }
 
   /**
@@ -415,8 +424,10 @@ export class CKBDebuggerInstaller {
     const exePath = path.join(dir, 'ckb-debugger.exe');
     const markerPath = `${exePath}.offckb`;
     const stagingPath = `${exePath}.${process.pid}.tmp`;
+    let hadExe = false;
     try {
-      if (fs.existsSync(exePath) && !fs.existsSync(markerPath)) {
+      hadExe = fs.existsSync(exePath);
+      if (hadExe && !fs.existsSync(markerPath)) {
         logger.warn(
           `A ckb-debugger.exe that was not created by offckb already exists at ${exePath}; leaving it untouched.`,
         );
@@ -428,12 +439,20 @@ export class CKBDebuggerInstaller {
       } catch {
         fs.copyFileSync(binaryPath, stagingPath);
       }
+      // The marker goes down before the .exe appears, so an offckb-placed .exe
+      // never lacks one; the catch below removes it if no .exe ends up there.
       fs.writeFileSync(markerPath, `offckb-managed copy of ${binaryPath}\r\n`);
       fs.renameSync(stagingPath, exePath);
+      // rename() is a no-op when both names are hard links to the same file
+      // (POSIX), which would leave the staging name behind.
+      fs.rmSync(stagingPath, { force: true });
       logger.info(`✅ ckb-debugger.exe updated: ${exePath}`);
       return exePath;
     } catch (error) {
       fs.rmSync(stagingPath, { force: true });
+      if (!hadExe && !fs.existsSync(exePath)) {
+        fs.rmSync(markerPath, { force: true });
+      }
       logger.warn(
         `Could not place ckb-debugger.exe at ${exePath}: ${(error as Error).message}. ` +
           'Tools that spawn `ckb-debugger` without a shell (such as ckb-testtool) may not find it.',

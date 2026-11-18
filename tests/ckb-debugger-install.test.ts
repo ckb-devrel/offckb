@@ -379,15 +379,93 @@ describe('CKBDebuggerInstaller', () => {
       return { status: 0, stdout: 'ckb-debugger 0.208.0\n', stderr: '' };
     });
 
-    await CKBDebuggerInstaller.install();
-    // A second run (upgrade or another `offckb create`) refreshes it in place.
-    await CKBDebuggerInstaller.install();
-
     const exePath = path.join(binDir, 'ckb-debugger.exe');
+    const tempFiles = (): string[] => fs.readdirSync(binDir).filter((f) => f.endsWith('.tmp'));
+
+    await CKBDebuggerInstaller.install();
     expect(fs.existsSync(path.join(binDir, 'ckb-debugger.cmd'))).toBe(true);
     expect(fs.readFileSync(exePath)).toEqual(fs.readFileSync(winBinaryPath));
     expect(fs.existsSync(`${exePath}.offckb`)).toBe(true);
+    expect(tempFiles()).toEqual([]);
+
+    // Another run with the same binary (e.g. another `offckb create`): the
+    // staging link and the .exe can be links to the same file, where POSIX
+    // rename() is a no-op; no staging file may be left behind.
+    await CKBDebuggerInstaller.install();
+    expect(fs.readFileSync(exePath)).toEqual(fs.readFileSync(winBinaryPath));
+    expect(tempFiles()).toEqual([]);
+
+    // An upgrade replaces the managed binary with a new file (as
+    // publishExtractedBinary does); the next run refreshes the .exe.
+    const upgraded = `${winBinaryPath}.new`;
+    fs.writeFileSync(upgraded, fakeBinaryPayload('0.209.0'));
+    fs.renameSync(upgraded, winBinaryPath);
+    await CKBDebuggerInstaller.install();
+    expect(fs.readFileSync(exePath, 'utf-8')).toBe(fakeBinaryPayload('0.209.0'));
+    expect(fs.existsSync(`${exePath}.offckb`)).toBe(true);
+    expect(tempFiles()).toEqual([]);
+  });
+
+  it('leaves no marker behind when placing ckb-debugger.exe fails on a first install', async () => {
+    mockHost('win32', 'x64');
+    const winBinaryPath = path.join(mockDirs.toolsRoot, 'ckb-debugger.exe');
+    fs.mkdirSync(path.dirname(winBinaryPath), { recursive: true });
+    fs.writeFileSync(winBinaryPath, fakeBinaryPayload('0.208.0'));
+    const binDir = path.join(root, 'bin');
+    fs.mkdirSync(binDir, { recursive: true });
+    const exePath = path.join(binDir, 'ckb-debugger.exe');
+    mockSpawnSync.mockImplementation((cmd: string) => {
+      if (cmd === 'where') {
+        return { status: 0, stdout: `${path.join(binDir, 'offckb')}\r\n`, stderr: '' };
+      }
+      return { status: 0, stdout: 'ckb-debugger 0.208.0\n', stderr: '' };
+    });
+    const realRename = fs.renameSync;
+    jest.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
+      if (to === exePath) {
+        throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+      }
+      return realRename(from, to);
+    });
+
+    await CKBDebuggerInstaller.install();
+
+    expect(fs.existsSync(exePath)).toBe(false);
+    // A stale marker would let offckb later replace a user's own .exe.
+    expect(fs.existsSync(`${exePath}.offckb`)).toBe(false);
     expect(fs.readdirSync(binDir).filter((f) => f.endsWith('.tmp'))).toEqual([]);
+  });
+
+  it('places ckb-debugger.exe even when the .cmd shim cannot be written', async () => {
+    mockHost('win32', 'x64');
+    const winBinaryPath = path.join(mockDirs.toolsRoot, 'ckb-debugger.exe');
+    fs.mkdirSync(path.dirname(winBinaryPath), { recursive: true });
+    fs.writeFileSync(winBinaryPath, fakeBinaryPayload('0.208.0'));
+    const binDir = path.join(root, 'bin');
+    fs.mkdirSync(binDir, { recursive: true });
+    const shimPath = path.join(binDir, 'ckb-debugger.cmd');
+    const oldShim = '@rem offckb-managed ckb-debugger shim\r\n@echo off\r\n"C:\\old\\ckb-debugger.exe" %*\r\n';
+    fs.writeFileSync(shimPath, oldShim);
+    mockSpawnSync.mockImplementation((cmd: string) => {
+      if (cmd === 'where') {
+        return { status: 0, stdout: `${path.join(binDir, 'offckb')}\r\n`, stderr: '' };
+      }
+      return { status: 0, stdout: 'ckb-debugger 0.208.0\n', stderr: '' };
+    });
+    const realWrite = fs.writeFileSync;
+    jest.spyOn(fs, 'writeFileSync').mockImplementation((file, data, options) => {
+      if (file === shimPath) {
+        throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+      }
+      return realWrite(file, data, options);
+    });
+
+    await CKBDebuggerInstaller.install();
+
+    const exePath = path.join(binDir, 'ckb-debugger.exe');
+    expect(fs.readFileSync(shimPath, 'utf-8')).toBe(oldShim);
+    expect(fs.readFileSync(exePath)).toEqual(fs.readFileSync(winBinaryPath));
+    expect(fs.existsSync(`${exePath}.offckb`)).toBe(true);
   });
 
   it('does not replace a ckb-debugger.exe that offckb did not create', async () => {
