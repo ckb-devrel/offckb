@@ -118,6 +118,7 @@ export function getVersionFromBinary(binPath: string): string | null {
   try {
     const versionOutput = execSync(`${encodeBinPathForTerminal(binPath)} --version`, {
       encoding: 'utf-8',
+      stdio: 'pipe',
     });
 
     const versionMatch = versionOutput.match(/(\d+\.\d+\.\d+(-rc\d+)?)/);
@@ -186,8 +187,14 @@ function isPortable(): boolean {
       cachedIsPortable = false;
     }
   } catch (error) {
-    // If cpu-features fails to load (e.g., on Windows without build tools), use portable binary
-    logger.warn('Failed to detect CPU features, using portable binary', error);
+    if ((error as NodeJS.ErrnoException)?.code === 'MODULE_NOT_FOUND') {
+      logger.info('CPU feature detection unavailable, using portable binary');
+    } else {
+      logger.warn(
+        'Failed to detect CPU features, using portable binary:',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
     cachedIsPortable = true;
   }
 
@@ -198,7 +205,7 @@ function buildCKBGithubReleasePackageName(version: string, opt: { os?: string; a
   const os = opt.os || getOS();
   const arch = opt.arch || getArch();
 
-  if (isPortable() && os !== 'pc-windows-msvc') {
+  if (os !== 'pc-windows-msvc' && isPortable()) {
     // portable binary is not available for windows
     return `ckb_v${version}_${arch}-${os}-portable`;
   } else {
@@ -214,7 +221,7 @@ function buildCKBGithubReleasePackageNameWithExtension(
   const arch = opt.arch || getArch();
   const extension = opt.ext || getExtension();
 
-  if (isPortable() && os !== 'pc-windows-msvc') {
+  if (os !== 'pc-windows-msvc' && isPortable()) {
     // portable binary is not available for windows
     return `ckb_v${version}_${arch}-${os}-portable.${extension}`;
   } else {
