@@ -44,6 +44,19 @@ export interface CkbDebuggerInstallResult {
   alreadyInstalled: boolean;
 }
 
+/**
+ * Remove a leftover file without letting a cleanup error escape: `force`
+ * only ignores a missing path, not EPERM/EACCES. Failures are logged at
+ * debug level.
+ */
+function bestEffortRm(target: string): void {
+  try {
+    fs.rmSync(target, { force: true });
+  } catch (error) {
+    logger.debug(`Could not remove ${target}: ${(error as Error).message}`);
+  }
+}
+
 function getBinaryName(): string {
   return process.platform === 'win32' ? 'ckb-debugger.exe' : 'ckb-debugger';
 }
@@ -445,13 +458,13 @@ export class CKBDebuggerInstaller {
       fs.renameSync(stagingPath, exePath);
       // rename() is a no-op when both names are hard links to the same file
       // (POSIX), which would leave the staging name behind.
-      fs.rmSync(stagingPath, { force: true });
+      bestEffortRm(stagingPath);
       logger.info(`✅ ckb-debugger.exe updated: ${exePath}`);
       return exePath;
     } catch (error) {
-      fs.rmSync(stagingPath, { force: true });
+      bestEffortRm(stagingPath);
       if (!hadExe && !fs.existsSync(exePath)) {
-        fs.rmSync(markerPath, { force: true });
+        bestEffortRm(markerPath);
       }
       logger.warn(
         `Could not place ckb-debugger.exe at ${exePath}: ${(error as Error).message}. ` +
