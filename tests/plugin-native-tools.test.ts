@@ -456,14 +456,17 @@ describe('native tool registrations', () => {
     commitTool();
     const outside = path.join(root, 'outside');
     fs.mkdirSync(outside, { recursive: true });
+    // Keep the real tool under the future symlink target so the registration
+    // stays valid: the assertion is that a refused removal deletes NOTHING.
+    fs.renameSync(pluginNativeDir(command), path.join(outside, 'my-tool'));
     fs.rmSync(path.join(home, 'native'), { recursive: true, force: true });
     fs.symlinkSync(outside, path.join(home, 'native'));
 
     expect(() => commitTool('v0.2.0')).toThrow('must not be a symlink');
     expect(() => removePlugin(command)).toThrow('must not be a symlink');
-    // Nothing was deleted or deregistered: the registration, the binary and
-    // the shims all survive a refused removal.
-    expect(fs.readdirSync(outside)).toEqual([]);
+    // Nothing was deleted, staged or deregistered: the outside directory
+    // holds exactly the original tool, and the registration is intact.
+    expect(fs.readdirSync(outside)).toEqual(['my-tool']);
     expect(getNativeBinaryPath(command)).not.toBeNull();
     expect(listPlugins(new Set())[0]).toMatchObject({ state: 'available', version: 'v0.1.0' });
   });
