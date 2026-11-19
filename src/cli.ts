@@ -410,8 +410,11 @@ program
   .command('install')
   .description('Install a tool binary used by offckb (e.g. the native ckb-debugger)')
   .addArgument(new Argument('<tool>', 'The tool to install').choices(['ckb-debugger']))
-  .action(async () => {
-    await CKBDebugger.installCKBDebuggerBinary();
+  .action(async (tool: string) => {
+    // The install alias goes through the same binary tool plugin registry as
+    // `offckb plugin install`, so every managed tool shares one lifecycle.
+    await CKBDebugger.installCKBDebuggerBinary(plugins.reserved());
+    void tool;
   });
 
 program
@@ -420,8 +423,12 @@ program
   .passThroughOptions()
   .allowUnknownOption()
   .helpOption(false) // Disable the default help option
-  .action(async () => {
-    return CKBDebugger.runWithArgs(process.argv.slice(2));
+  .action(async (...args: unknown[]) => {
+    // Commander already split the plugin arguments from the command name and
+    // consumed the `--` separator; passing raw process.argv would inject the
+    // literal `debugger` token into the binary's arguments.
+    const command = args[args.length - 1] as { args: string[] };
+    return CKBDebugger.runWithArgs(command.args);
   });
 
 program

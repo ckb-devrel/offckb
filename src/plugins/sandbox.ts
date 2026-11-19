@@ -5,6 +5,7 @@ import semver from 'semver';
 import { createRequire } from 'module';
 import { PluginManifest, PluginMode } from './manifest';
 import { PluginContext } from './context';
+import { nativeToolEnv } from './store';
 import { createHttpBridge, createReadRpcBroker } from './broker';
 
 export function assertSandboxSupported(): void {
@@ -48,6 +49,10 @@ export async function preparePluginExecution(
   mode: PluginMode = 'sandbox',
 ): Promise<{ command: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv; dispose: () => void }> {
   if (mode === 'sandbox') assertSandboxSupported();
+  // JS plugins must declare an entry; binary tools carry their own executable.
+  if (plugin.kind === 'js' && !plugin.entry) {
+    throw new Error(`${plugin.command} has no JavaScript entry`);
+  }
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ocp-')));
   const cleanup: Array<() => void> = [];
   const dispose = () => {
@@ -142,13 +147,20 @@ export async function preparePluginExecution(
     const toolEnv = Object.fromEntries(
       Object.entries(plugin.execution?.env || {}).map(([key, value]) => [key, bind(value)]),
     );
-    const command = plugin.runtime === 'binary' ? plugin.entry : process.execPath;
+    const command = plugin.kind === 'binary' ? plugin.entry! : process.execPath;
     const commandArgs =
-      plugin.runtime === 'binary'
+      plugin.kind === 'binary'
         ? [...(helpOnly ? [] : (plugin.execution?.args || []).map(bind)), ...args]
-        : [plugin.entry, ...args];
+        : [plugin.entry!, ...args];
     if (mode === 'trusted') {
-      return { command, args: commandArgs, cwd: plugin.directory, env: { ...env, ...toolEnv }, dispose };
+      // Managed binaries stay addressable by sibling tools through OFFCKB_TOOL_* too.
+      return {
+        command,
+        args: commandArgs,
+        cwd: plugin.directory,
+        env: { ...env, ...nativeToolEnv(), ...toolEnv },
+        dispose,
+      };
     }
     const externalRequire = createRequire(__filename);
     let runtimeDirectory: string;
