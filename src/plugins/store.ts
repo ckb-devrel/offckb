@@ -156,6 +156,7 @@ function readRegistry(): Registry {
             path.basename(entry.binary.path) !== entry.binary.binName)) ||
         (entry.binary !== undefined &&
           (entry.installation !== undefined ||
+            entry.trusted !== undefined ||
             entry.readPaths.length !== 0 ||
             entry.permissions.some((permission) => !PLUGIN_PERMISSIONS.includes(permission)))) ||
         (entry.kind !== undefined && (entry.kind === 'binary') !== (entry.binary !== undefined)),
@@ -397,8 +398,8 @@ export function listPlugins(reserved: ReadonlySet<string>, checkMode?: (mode: Pl
         command,
         directory,
         kind: (binary ? 'binary' : 'js') as 'binary' | 'js',
-        // Trust is a host authorization; without it a tool runs sandboxed where supported.
-        mode: trusted ? ('trusted' as const) : ('sandbox' as const),
+        // Binary tools always run natively; JS plugins run sandboxed unless trusted.
+        mode: binary || trusted ? ('trusted' as const) : ('sandbox' as const),
         ...(installation ? { source: installation.source } : {}),
         ...(binary ? { source: binary.source } : {}),
       };
@@ -607,7 +608,6 @@ export function commitNativeRegistration(
   command: string,
   record: NativeBinaryRecord,
   permissions: PluginPermission[],
-  trusted: { name: string; version: string } | undefined,
   reserved: ReadonlySet<string>,
   swapIntoPlace: () => void,
   rollbackSwap: () => void,
@@ -643,7 +643,6 @@ export function commitNativeRegistration(
       directory: pluginNativeDir(command),
       permissions: [...permissions].sort(),
       readPaths: [],
-      ...(trusted ? { trusted } : {}),
       binary: record,
       kind: 'binary',
     };
@@ -837,10 +836,11 @@ export function acquirePlugin(
     assertPluginCompatible(plugin);
     assertPermissions(plugin, entry.permissions);
     assertTrustedIdentity(plugin, entry.trusted);
-    // Trust is a host authorization for both plugin kinds: without it the
-    // tool runs in the OS sandbox where available; a binary tool trusted
-    // natively still passed the allowlist-gated installer.
-    const mode = entry.trusted ? 'trusted' : 'sandbox';
+    // Binary tools always run natively with the user's permissions: their
+    // primary channel is direct spawn, which no host sandbox can cover, so
+    // the host-delegated run matches reality. Declared permissions still
+    // gate host-provided interfaces (e.g. the read-RPC URL binding).
+    const mode = entry.binary || entry.trusted ? 'trusted' : 'sandbox';
     checkMode?.(mode);
     assertNotRunning(command);
     const file = leasePath(command);

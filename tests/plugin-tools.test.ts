@@ -115,7 +115,7 @@ it.each([
 it('installs a local descriptor, snapshots it, preserves storage on replacement, and removes managed files', async () => {
   const fetcher = mockDownload();
   const file = writeDescriptor();
-  const first = await installPlugin(file, new Set(), { trust: true });
+  const first = await installPlugin(file, new Set());
   expect(first.plugin.kind).toBe('binary');
   expect(first.source.kind).toBe('descriptor');
   expect(fs.readFileSync(first.plugin.entry!)).toEqual(bytes);
@@ -128,7 +128,7 @@ it('installs a local descriptor, snapshots it, preserves storage on replacement,
   writeDescriptor({ ...descriptor(), version: '1.1.0' });
   await expect(installPlugin(file, new Set(), { trust: true })).rejects.toThrow('running');
   lease.release();
-  const second = await installPlugin(file, new Set(), { trust: true });
+  const second = await installPlugin(file, new Set());
   // Replacement swaps the directory contents in place at the stable path;
   // the previous version and its managed files are gone.
   expect(second.plugin.directory).toBe(first.plugin.directory);
@@ -149,7 +149,7 @@ it('installs a third-party HTTPS descriptor through the same path, without npm o
     );
   const installed = await installPlugin('https://third-party.example/tool.json', new Set());
   expect(installed.source.requested).toBe('https://third-party.example/tool.json');
-  expect(listPlugins(new Set())[0]).toMatchObject({ mode: 'sandbox', state: 'available' });
+  expect(listPlugins(new Set())[0]).toMatchObject({ mode: 'trusted', state: 'available' });
   expect(fetcher).toHaveBeenCalledTimes(2);
 });
 

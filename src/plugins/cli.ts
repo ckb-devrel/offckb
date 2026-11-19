@@ -151,15 +151,20 @@ export function registerPluginManagement(program: Command): {
                 plugin: PluginManifest,
                 provenance: PluginSource,
                 previousPermissions: readonly PluginPermission[] = [],
-              ) => confirmInstallPermissions(plugin, provenance, options.trust === true, previousPermissions),
+              ) =>
+                confirmInstallPermissions(
+                  plugin,
+                  provenance,
+                  options.trust === true || plugin.kind === 'binary',
+                  previousPermissions,
+                ),
             }
           : {}),
       });
       const plugin = installed.plugin;
       logger.info(`Installed ${plugin.command} (${installed.source.resolved}); run offckb ${plugin.command}`);
       if (plugin.kind === 'binary') {
-        logger.warn('Binary tool: placed on PATH and exposed via `plugin which` / `plugin env`.');
-        if (options.trust) logger.warn('Trusted mode: it runs with your user permissions, without OS isolation.');
+        logger.warn('Binary tool: runs with your user permissions and is placed on PATH.');
         const stablePath = getNativeBinaryPath(plugin.command);
         if (stablePath) logger.info(`Stable path: ${stablePath} (export with: offckb plugin env)`);
       } else if (options.trust) {
@@ -171,7 +176,7 @@ export function registerPluginManagement(program: Command): {
         directory: plugin.directory,
         kind: plugin.kind,
         permissions: plugin.permissions,
-        mode: options.trust ? 'trusted' : 'sandbox',
+        mode: plugin.kind === 'binary' ? 'trusted' : options.trust ? 'trusted' : 'sandbox',
         source: installed.source,
       });
     });

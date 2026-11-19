@@ -7,7 +7,7 @@
 两套实现合并后的统一模型：
 
 - **载荷格式**：采用 #553 的 `offckb-tool.json` 描述符（`platforms` 每平台 pin 死 `url + sha256 + format + executable`，`execution` 支持 `${devnet.rpcUrl}`/`${plugin.dataPath}`/`${plugin.cachePath}`/`cwd` 绑定，`permissions` 声明宿主能力）。仓库根探测、`tool:`/本地/HTTPS descriptor 安装、bundled 工具全部使用此格式；旧 `offckb-plugin.json` 仍可读（兼容本 PR 合并前的安装）。
-- **注册与执行**：采用本 PR 的加固 native 注册（稳定路径 `<pluginHome>/native/<command>/`、锁内原子交换 + 回滚、source.id 语义、symlink fail-closed），所有来源（catalog / bundled / descriptor / github）统一到此模型。`offckb <tool>` 执行走统一管线：默认 **sandbox**（seatbelt/bubblewrap 可包裹原生二进制），`--trust` 显式原生执行——与 JS 插件的信任模型一致；PATH shim / `plugin which` / `plugin env` 提供 Issue #555 要求的机器直访通道（不受沙箱影响）。
+- **注册与执行**：采用本 PR 的加固 native 注册（稳定路径 `<pluginHome>/native/<command>/`、锁内原子交换 + 回滚、source.id 语义、symlink fail-closed），所有来源（catalog / bundled / descriptor / github）统一到此模型。`offckb <tool>` 执行时二进制**一律原生运行**（不设沙箱默认值）——理由：现阶段所有真实二进制都是无适配的纯工具，主要价值在安装与管理；且二进制的主消费通道是直访（shim/spawn），任何宿主沙箱都盖不到，给代跑通道单独设沙箱只会造成"直跑可以、offckb 跑却 permission denied"的行为不一致（Windows 上更甚）。声明的 `permissions` 保留但语义为 advisory：只控制宿主提供的接口（如 `${devnet.rpcUrl}` 注入），不构成访问上限——与 trusted JS 插件一致。PATH shim / `plugin which` / `plugin env` 提供 Issue #555 要求的机器直访通道。
 - **来源与信任**：catalog（一方 release 模板）与 bundled（随包 descriptor）隐式信任；显式本地/HTTPS descriptor 自证内容（pin 死 sha256，**总是重装**以重验内容，不做幂等跳过）；三方 GitHub 源（仓库根 `offckb-tool.json`）必须过**来源白名单**。声明了 `permissions` 的二进制工具同样需要显式 `--allow` 授权。
 - **迁移**：既有 ckb-debugger 离线收编、`offckb install ckb-debugger` 别名、旧 shim（内嵌 marker）由默认 plugin home 认领——全部保留。
 

@@ -73,8 +73,6 @@ export interface NativeInstallOptions {
   trustSource?: string;
   /** Capability grants for descriptors that declare permissions. */
   allow?: string[];
-  /** Explicitly trust the tool to run with the user's OS permissions. */
-  trust?: boolean;
   reserved: ReadonlySet<string>;
 }
 
@@ -597,9 +595,6 @@ export async function installNativeTool(
           `${resolvedPrefix}${planned.version}` + (planned.descriptorHash ? `#sha256:${planned.descriptorHash}` : ''),
       },
     };
-    // The trust record binds the manifest identity (name/version), matching
-    // how JS plugin trust records are validated on every acquire.
-    const trustedIdentity = options.trust ? { name: tool.name, version: tool.version ?? planned.version } : undefined;
 
     // Swap the staged directory into the stable path inside the registry
     // lock: a running old binary (EBUSY on Windows) aborts before the
@@ -611,7 +606,6 @@ export async function installNativeTool(
       tool.command,
       record,
       (options.allow ?? []) as PluginPermission[],
-      trustedIdentity,
       options.reserved,
       () => {
         if (fs.existsSync(nativeDir)) fs.renameSync(nativeDir, backup);

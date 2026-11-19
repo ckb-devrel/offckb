@@ -230,7 +230,6 @@ export async function installPlugin(
       requested: source.requested,
       sourceKind: 'catalog',
       allow: options.allow,
-      trust: options.trust,
       reserved,
     });
     return {
@@ -256,7 +255,6 @@ export async function installPlugin(
         sourceKind: 'github',
         trustSource: options.trustSource,
         allow: options.allow,
-        trust: options.trust,
         reserved,
       });
       return {

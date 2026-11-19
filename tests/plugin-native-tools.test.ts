@@ -106,7 +106,7 @@ describe('native tool registrations', () => {
 
   function commitTool(
     version = 'v0.1.0',
-    options: { reserved?: ReadonlySet<string>; command?: string; trusted?: boolean; permissions?: string[] } = {},
+    options: { reserved?: ReadonlySet<string>; command?: string; permissions?: string[] } = {},
   ): void {
     const toolCommand = options.command ?? command;
     const dir = pluginNativeDir(toolCommand);
@@ -140,7 +140,6 @@ describe('native tool registrations', () => {
         source: { kind: 'catalog', id: 'my-tool', requested: 'my-tool', resolved: `my-tool@${version}` },
       },
       (options.permissions ?? []) as never,
-      options.trusted ? { name: 'my-tool', version } : undefined,
       options.reserved ?? new Set(),
       () => {
         if (fs.existsSync(dir)) fs.renameSync(dir, backup);
@@ -167,15 +166,13 @@ describe('native tool registrations', () => {
     expect(info).toMatchObject({
       command,
       kind: 'binary',
-      // Like JS plugins, trust is explicit; the default mode is sandbox.
-      mode: 'sandbox',
+      // Binary tools always run natively with the user's permissions.
+      mode: 'trusted',
       state: 'available',
       name: 'my-tool',
       version: 'v0.1.0',
       source: { kind: 'catalog', id: 'my-tool', requested: 'my-tool', resolved: 'my-tool@v0.1.0' },
     });
-    commitTool('v0.1.0', { trusted: true });
-    expect(listPlugins(new Set())[0].mode).toBe('trusted');
     const binaryPath = path.join(pluginNativeDir(command), process.platform === 'win32' ? 'my-tool.exe' : 'my-tool');
     expect(getNativeBinaryPath(command)).toBe(binaryPath);
     expect(nativeToolEnv()).toEqual({ OFFCKB_TOOL_MY_TOOL: binaryPath });
@@ -193,7 +190,6 @@ describe('native tool registrations', () => {
           source: { kind: 'catalog', id: 'install', requested: 'install', resolved: 'install@v0.1.0' },
         },
         [],
-        undefined,
         new Set(['install']),
         () => undefined,
         () => undefined,
@@ -246,24 +242,15 @@ describe('native tool registrations', () => {
     expect(() => listPlugins(new Set())).toThrow('Invalid plugin registry');
   });
 
-  it('acquires binary tools with explicit trust and rejects tampered registration kinds', () => {
+  it('acquires binary tools as trusted and rejects tampered registration kinds', () => {
     commitTool();
-    // Default mode follows the JS plugin model: sandbox where supported.
+    // Binary tools always run natively: no sandbox runtime is ever required.
     const lease = acquirePlugin(command);
     try {
-      expect(lease.mode).toBe('sandbox');
+      expect(lease.mode).toBe('trusted');
       expect(lease.plugin.kind).toBe('binary');
     } finally {
       lease.release();
-    }
-    // An explicit trust record switches to trusted mode, and the identity
-    // is re-validated on every acquire.
-    commitTool('v0.1.0', { trusted: true });
-    const trustedLease = acquirePlugin(command);
-    try {
-      expect(trustedLease.mode).toBe('trusted');
-    } finally {
-      trustedLease.release();
     }
 
     // A JS-shaped registration whose directory later grows a binary

@@ -135,7 +135,7 @@ export async function extractToolBinary(archive: Buffer, asset: ToolAsset): Prom
 export async function installBinaryTool(
   input: string,
   reserved: ReadonlySet<string>,
-  options: PluginLinkOptions & { allowScripts?: boolean; trust?: boolean },
+  options: PluginLinkOptions & { allowScripts?: boolean },
 ): Promise<{ plugin: ReturnType<typeof readPluginManifest>; source: PluginSource | NativeSource }> {
   if (options.allowScripts) throw new Error('Binary tools do not support installation scripts');
   let value: unknown;
@@ -173,7 +173,6 @@ export async function installBinaryTool(
       requested: input.startsWith('tool:') || input.startsWith('https:') ? input : path.resolve(input),
       sourceKind,
       allow: tool.permissions,
-      trust: options.trust,
       reserved,
     },
   );
