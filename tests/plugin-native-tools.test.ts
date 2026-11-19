@@ -469,7 +469,7 @@ describe('native tool registrations', () => {
       fs.mkdirSync(path.dirname(target), { recursive: true });
       fs.writeFileSync(target, '#!/bin/sh\necho v1\n');
       ensureCommandShim(command, target);
-      const shimPath = path.join(binDir, 'my-tool');
+      const shimPath = path.join(binDir, process.platform === 'win32' ? 'my-tool.cmd' : 'my-tool');
       const ownedContent = fs.readFileSync(shimPath, 'utf8');
       // Another OFFCKB_PLUGIN_HOME (e.g. an isolated test env) must neither
       // overwrite nor delete this home's shim.
