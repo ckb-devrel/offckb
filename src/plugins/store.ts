@@ -23,6 +23,8 @@ export interface PluginSource {
 /** A binary tool installation source: the first-party catalog or an approved GitHub repository. */
 export interface NativeSource {
   kind: 'catalog' | 'github';
+  /** Stable package identity without version: catalog name, or lowercase owner/repo. Drives approval, idempotency and command-change detection. */
+  id: string;
   requested: string;
   resolved: string;
 }
@@ -53,6 +55,8 @@ interface Registration {
   installation?: PluginInstallation;
   /** Present exactly for binary tool plugins; mutually exclusive with installation/trusted. */
   binary?: NativeBinaryRecord;
+  /** Explicit discriminator written by this version; absent means inferred from `binary`. */
+  kind?: 'js' | 'binary';
 }
 interface Registry {
   apiVersion: 2;
@@ -141,7 +145,8 @@ function readRegistry(): Registry {
           (entry.installation !== undefined ||
             entry.trusted !== undefined ||
             entry.permissions.length !== 0 ||
-            entry.readPaths.length !== 0)),
+            entry.readPaths.length !== 0)) ||
+        (entry.kind !== undefined && (entry.kind === 'binary') !== (entry.binary !== undefined)),
     )
   )
     throw new Error(`Invalid plugin registry: ${registryPath()}`);
@@ -157,18 +162,27 @@ function isNativeBinary(command: string, value: NativeBinaryRecord): boolean {
     !value.version ||
     typeof value.path !== 'string' ||
     !path.isAbsolute(value.path) ||
+    // Reject non-canonical paths outright: no traversal, no redundant separators.
+    path.normalize(value.path) !== value.path ||
     !value.source ||
     !['catalog', 'github'].includes(value.source.kind) ||
+    typeof value.source.id !== 'string' ||
+    !value.source.id ||
     typeof value.source.requested !== 'string' ||
     typeof value.source.resolved !== 'string'
   )
     return false;
-  // The managed binary must live inside the registration directory, which in
-  // turn must be the command's directory under the native tools root, so the
-  // exposed path is always host-owned and never a caller-supplied location.
+  // The managed binary must live at exactly <plugin home>/native/<command>/<binName>,
+  // never a sibling prefix (native/my-tool-evil/...), so the exposed path is
+  // always host-owned and never a caller-supplied location.
+  const nativeDir = path.join(pluginNativeRoot(), command);
   const inside = path.relative(pluginNativeRoot(), value.path);
   if (inside.startsWith('..') || path.isAbsolute(inside)) return false;
-  return value.path.startsWith(path.join(pluginNativeRoot(), command) + path.sep);
+  if (path.dirname(value.path) !== nativeDir) return false;
+  // The directory that will hold the binary must not be a symlink: swap and
+  // cleanup operate on real directories only.
+  if (fs.existsSync(nativeDir) && fs.lstatSync(nativeDir).isSymbolicLink()) return false;
+  return true;
 }
 
 function isInstallation(value: PluginInstallation): boolean {
@@ -344,6 +358,11 @@ export function linkPlugin(
 ): PluginManifest {
   return withRegistryLock(() => {
     const plugin = readPluginManifest(directory);
+    // Binary tools are registered only by the native installer, which enforces
+    // the trusted-source allowlist; a local link must never bypass it.
+    if (plugin.kind !== 'js') {
+      throw new Error('Binary tool plugins are installed with: offckb plugin install <catalog-name|github:owner/repo>');
+    }
     assertPluginCompatible(plugin);
     assertPermissions(plugin, options.allow ?? []);
     if (options.allow?.some((permission) => !plugin.permissions.includes(permission as PluginPermission)))
@@ -376,6 +395,8 @@ export function unlinkPlugin(command: string): void {
     if (!Object.prototype.hasOwnProperty.call(registry.plugins, command))
       throw new Error(`Plugin ${command} is not linked`);
     if (registry.plugins[command].installation) throw new Error('Use plugin remove to uninstall a managed package');
+    if (registry.plugins[command].binary)
+      throw new Error('Use plugin remove to uninstall a binary tool; it also cleans the managed binary and shims');
     delete registry.plugins[command];
     writeRegistry(registry);
   });
@@ -391,6 +412,13 @@ export function commitPluginInstallation(
   let previousRoot: string | undefined;
   const plugin = withRegistryLock(() => {
     const candidate = readPluginManifest(directory);
+    // The npm install path only registers JS plugins; binary descriptors are
+    // handled by the native installer with its trusted-source allowlist.
+    if (candidate.kind !== 'js') {
+      throw new Error(
+        'Installed package declares a binary tool descriptor; install it as a binary tool source instead',
+      );
+    }
     assertPluginCompatible(candidate);
     assertPermissions(candidate, options.allow ?? []);
     if (options.allow?.some((permission) => !candidate.permissions.includes(permission as PluginPermission)))
@@ -464,12 +492,14 @@ export function removePlugin(command: string): void {
  * Binary tool registrations are trusted natively; catalog/GitHub source is recorded for display.
  * `swapIntoPlace` runs inside the registry lock, before the registry write, so a failed swap
  * (e.g. the old binary still running on Windows) never leaves a committed-but-missing tool.
+ * `rollbackSwap` restores the previous on-disk state when the registry write itself fails.
  */
 export function commitNativeRegistration(
   command: string,
   record: NativeBinaryRecord,
   reserved: ReadonlySet<string>,
   swapIntoPlace: () => void,
+  rollbackSwap: () => void,
 ): void {
   withRegistryLock(() => {
     if (!isPluginCommand(command)) throw new Error('Invalid plugin command');
@@ -480,10 +510,12 @@ export function commitNativeRegistration(
       : undefined;
     if (previous && !previous.binary)
       throw new Error(`Plugin command ${command} is already linked; remove/unlink it explicitly first`);
+    // Compare stable package identity (without version), matching the JS
+    // installation check: one package must not claim two commands.
     if (
       previous?.binary &&
       Object.entries(registry.plugins).some(
-        ([name, entry]) => name !== command && entry.binary?.source.resolved === record.source.resolved,
+        ([name, entry]) => name !== command && entry.binary?.source.id === record.source.id,
       )
     )
       throw new Error('This tool changed its command; remove its previous registration first');
@@ -494,8 +526,20 @@ export function commitNativeRegistration(
       permissions: [],
       readPaths: [],
       binary: record,
+      kind: 'binary',
     };
-    writeRegistry(registry);
+    try {
+      writeRegistry(registry);
+    } catch (error) {
+      // The on-disk tool already moved; put the previous directory back so
+      // paths and contents agree with the untouched registration.
+      try {
+        rollbackSwap();
+      } catch (rollbackError) {
+        logger.warn(`Registry write failed and the swap rollback also failed: ${(rollbackError as Error).message}`);
+      }
+      throw error;
+    }
   });
 }
 
@@ -652,10 +696,18 @@ export function acquirePlugin(
     if (!entry) throw new Error(`Plugin ${command} is no longer linked`);
     const plugin = readPluginManifest(entry.directory);
     if (plugin.command !== command) throw new Error('Plugin command changed; unlink and link the package again');
+    // The registration shape and the on-disk declaration must agree, so a
+    // swapped descriptor can never change how a registration executes.
+    if (Boolean(entry.binary) !== (plugin.kind === 'binary')) {
+      throw new Error('Plugin registration kind changed; remove and reinstall the tool');
+    }
     assertPluginCompatible(plugin);
     assertPermissions(plugin, entry.permissions);
     assertTrustedIdentity(plugin, entry.trusted);
-    const mode = entry.trusted ? 'trusted' : 'sandbox';
+    // Binary tools always run natively with the user's permissions; only JS
+    // plugins can be sandboxed. A binary tool must never be refused because
+    // the sandbox runtime is unavailable (e.g. Windows / older Node).
+    const mode = entry.binary || entry.trusted ? 'trusted' : 'sandbox';
     checkMode?.(mode);
     assertNotRunning(command);
     const file = leasePath(command);

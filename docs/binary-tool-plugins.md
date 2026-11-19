@@ -28,7 +28,7 @@ issue [#555 评论](https://github.com/ckb-devrel/offckb/issues/555#issuecomment
 
 ## 3. 注册表与声明扩展
 
-`Registration` 增加 `kind: 'js' | 'binary'`（缺省 `js`，registry apiVersion 升到 3，保留 v2 读取迁移）。binary 注册项跳过 entry/engines/permissions/context/lease 校验，改为记录：
+`Registration` 增加显式判别字段 `kind: 'js' | 'binary'`（缺省 `js`）；registry 保持 apiVersion 2，binary 注册项是新增的可选字段，与 JS 的 `installation` 互斥，校验强制 `kind` 与字段形状一致。binary 注册项跳过 entry/engines/permissions/context 校验，仍保留运行租约（lease），改为记录：
 
 ```json
 {
@@ -59,7 +59,8 @@ issue [#555 评论](https://github.com/ckb-devrel/offckb/issues/555#issuecomment
 ## 5. 统一接入：三条通道
 
 1. **稳定路径**：`<pluginHome>/native/<command>/<binName>`（`<pluginHome>` 默认 `<data>/plugins`，`OFFCKB_PLUGIN_HOME` 可隔离）。升级时在**同一路径**原子替换文件，路径终生不变。POSIX 上运行中的旧 inode 不受影响；Windows 上被占用则 EBUSY，在 registry 提交**之前**失败，旧版本保持可用，明确报错稍后重试。
-2. **PATH shim**：写在 offckb binary 旁边（该目录已在 PATH 上，零配置）；每个文件带 `.offckb` sidecar marker + 脚本内嵌 marker，外来文件（如用户 cargo 自装的同名二进制）永不覆盖；Windows 同时放真 `.exe`（hardlink，跨盘 fallback copy）。remove 时按 marker 清理，外来文件只警告。
+2. **PATH shim**：写在 offckb binary 旁边（该目录已在 PATH 上，零配置）；所有权由 `.offckb` sidecar marker 绑定**文件内容哈希**（command + sha256），stale marker 旁被用户替换的文件不会被覆盖或删除，symlink 永不认领；脚本另保留内嵌 marker 行作兼容识别。Windows 同时放真 `.exe`（hardlink，跨盘 fallback copy）。remove 时按 isOwned 重验哈希再清理，外来文件只警告。
+3. **事务性**：staged 目录在 registry 锁内交换（EBUSY 在提交前失败，旧版本完整可用）；registry 写失败时回滚目录交换，注册与磁盘始终一致；legacy 收编先拷贝后删除，任何失败不丢用户原有二进制。
 3. **env var + 查询**：
    ```sh
    offckb plugin which ckb-debugger [--json]   # 打印稳定路径
@@ -69,24 +70,24 @@ issue [#555 评论](https://github.com/ckb-devrel/offckb/issues/555#issuecomment
 
 ## 6. 信任模型与来源白名单
 
-二进制插件**只支持 trusted**：声明不能选模式，install 时必须显式 `--trust`（等价于今天"装到 PATH 上的任何原生工具"）。校验发生在安装期：B = 发布方 checksum fail-closed；A = npm integrity + 可选显式 SHA-256。不承诺 OS sandbox——沙箱只约束宿主委托的执行，而二进制的主要消费通道（第三方直接 spawn）本来就绕过宿主；macOS/Linux 后续如需可用 sandbox-runtime 包一层，但不作为安全承诺。
-
-与 JS 插件不同，二进制的 `--trust` 没有沙箱作安全默认值，且安装会**把可执行文件放上 PATH**——影响面是所有 shell 和所有按名字 spawn 它的工具，远大于跑一次 JS 插件。所以审批粒度不能只到"这次安装"，要提升到**来源**：
+二进制插件**只支持 trusted**：它没有沙箱默认值，安装会**把可执行文件放上 PATH**——影响面是所有 shell 和所有按名字 spawn 它的工具，远大于跑一次 JS 插件。所以审批粒度不能只到"这次安装"，要提升到**来源**：
 
 - **catalog 源（一方）**：随 offckb 发布的 descriptor，repo/版本/checksum 政策由团队维护，隐式在白名单内，安装无额外摩擦。这是宿主唯一内置的"白名单条目"，且只含一方工具。
 - **三方源**：一律要求显式审批，记录在用户本地的 allowlist（`<pluginHome>/trusted-sources.json`，沿用 registry 的 wx lock + 原子替换，0o600）。
 
 白名单规则：
 
-- 绑定**源身份**而不绑定版本：GitHub 精确到 `owner/repo` 串，npm 精确到 scope（`@myorg/*`）或包名。版本仍由每次 install pin（lockfile + resolved 记录）。**同源升级（`@latest`）不重复审批**——保住"易升级"诉求。
+- 绑定**源身份**（`source.id`：catalog 记 name、GitHub 记小写 `owner/repo`）而不绑定版本。版本仍由每次 install pin。**同源升级（`@latest`）不重复审批**——保住"易升级"诉求。
+- GitHub 源的 descriptor 声明的 `release.repo` 必须与安装源仓库一致，否则拒绝——白名单批准的是"你安装的这个仓库"，descriptor 不能把二进制指去别处扩大批准范围。
 - 同一 command 换源 = 新源须先审批 + 显式 reinstall。GitHub repo 改名/转移后源身份变化，自动要求重新审批——这是白送的安全属性。
 - 审批命令把后果打印清楚（"该源的二进制将以你的权限运行并放置到 PATH"），CI 场景可用 `--trust-source <source>` 把"add + install"合成一步。
+- 注册入口收敛：binary 只能由 native installer 注册（`plugin link` 与 npm 安装路径显式拒绝 binary descriptor），从入口上杜绝绕过白名单。
 - 明确**不做**的事：不做随 offckb 发布的全局三方认证列表（违反"宿主不内置第三方包列表"边界，且把上游可用性变成发布门槛）；不做远程发布者认证/attestation（沿用"包名是本地命名空间"的既有立场）。防篡改仅限文件权限——能写你 plugin home 的攻击者已能造成更大破坏。
 - JS 插件不适用来源白名单：它们有 sandbox 默认值，trust 已按 name/version 绑定，安全模型不同。
 
 ## 7. first-party catalog 与迁移
 
-宿主内置一小份**官方 descriptor 目录**（仅声明数据：repo、asset 命名、checksum 位置、minVersion，无内置代码路径），让 `offckb plugin install ckb-debugger@1.1.2` 开箱即用；目录即 §6 来源白名单内的一方源，第三方插件仍自生自灭，目录不背书第三方。`settings.tools.ckbDebugger.minVersion` 这类最低版本政策对 catalog 工具保留，descriptor 内可覆盖。
+宿主内置一小份**官方 descriptor 目录**（仅声明数据：repo、asset 命名、checksum 位置、minVersion，无内置代码路径），让 `offckb plugin install ckb-debugger@v1.1.2` 开箱即用；目录即 §6 来源白名单内的一方源，第三方插件仍自生自灭，目录不背书第三方。`settings.tools.ckbDebugger.minVersion` 这类最低版本政策对 catalog 工具保留，descriptor 内可覆盖。
 
 迁移路径（ckb-debugger 已按此落地）：
 
@@ -97,7 +98,7 @@ issue [#555 评论](https://github.com/ckb-devrel/offckb/issues/555#issuecomment
 ## 8. CLI surface
 
 ```sh
-offckb plugin install ckb-debugger@1.1.2     # catalog 名（精确 tag，重复安装零网络）
+offckb plugin install ckb-debugger@v1.1.2     # catalog 名（精确 tag，重复安装零网络）
 offckb plugin install ckb-debugger@latest    # 升级 = 再装一次：探远端 tag，不同则原子替换
 offckb plugin install ckb-debugger           # create 流程用：本地满足 minVersion 时离线短路
 offckb plugin install github:owner/repo#v1 --trust-source owner/repo   # 三方源：审批+安装一步

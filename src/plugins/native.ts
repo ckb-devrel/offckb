@@ -192,12 +192,14 @@ function moveIntoPlace(source: string, target: string): void {
 }
 
 function descriptorFor(entry: NativeToolDescriptor, tag: string, requested: string, sourceKind: 'catalog' | 'github') {
+  const id = sourceKind === 'catalog' ? entry.name : entry.release.repo.toLowerCase();
   const record: NativeBinaryRecord = {
     binName: nativeBinaryFileName(entry.binaryName),
     version: tag,
     path: path.join(pluginNativeDir(entry.command), nativeBinaryFileName(entry.binaryName)),
     source: {
       kind: sourceKind,
+      id,
       requested,
       resolved: sourceKind === 'catalog' ? `${entry.name}@${tag}` : `github:${entry.release.repo}#${tag}`,
     },
@@ -214,6 +216,22 @@ function descriptorFor(entry: NativeToolDescriptor, tag: string, requested: stri
     ...(entry.minVersion ? { minVersion: entry.minVersion } : {}),
   };
   return { record, descriptor };
+}
+
+/**
+ * The current user asked the reviewer to also check rendered asset/checksum
+ * names: they become URL path segments, so stay with a plain file basename.
+ */
+function assertSafeAssetName(name: string, what: string): void {
+  if (
+    name !== path.basename(name) ||
+    name.includes('..') ||
+    name.includes('/') ||
+    name.includes('\\') ||
+    /\{[^}]*\}/.test(name)
+  ) {
+    throw new Error(`Unsafe ${what} name rendered from the release template: ${name}`);
+  }
 }
 
 /**
@@ -253,11 +271,12 @@ export async function installNativeTool(
   if (!target) {
     throw new Error(`${entry.command} has no prebuilt binary for ${process.platform}/${process.arch}.`);
   }
+  const sourceId = options.sourceKind === 'catalog' ? entry.name : entry.release.repo.toLowerCase();
 
   const existing = getNativeRecord(entry.command);
 
   // Reinstalling an exact tag that is already registered never touches the network.
-  if (existing && ref !== 'latest' && existing.version === ref && existing.source.kind === options.sourceKind) {
+  if (existing && ref !== 'latest' && existing.version === ref && existing.source.id === sourceId) {
     ensureCommandShim(entry.command, existing.path);
     logger.info(`${entry.command} ${ref} is already installed at ${existing.path}.`);
     return { command: entry.command, version: ref, binaryPath: existing.path, alreadyInstalled: true, adopted: false };
@@ -284,7 +303,10 @@ export async function installNativeTool(
         const legacyVersion = getVersionFromBinary(legacyBinary);
         if (legacyVersion && (!entry.minVersion || isVersionAtLeast(legacyVersion, entry.minVersion))) {
           logger.info(`Adopting the existing ${entry.command} ${legacyVersion} installation...`);
-          moveIntoPlace(legacyBinary, stagedBinary);
+          // Copy, never move: if any later step fails, the user's working
+          // binary is still in place. The legacy directory is removed only
+          // after the registry commit succeeds.
+          fs.copyFileSync(legacyBinary, stagedBinary);
           if (process.platform !== 'win32') fs.chmodSync(stagedBinary, 0o755);
           adopted = true;
           tag = legacyVersion;
@@ -297,7 +319,7 @@ export async function installNativeTool(
       // doubles as the upgrade path; an already-current install only pays the
       // redirect probe below.
       tag = ref === 'latest' ? await resolveLatestTag(entry.release.repo) : ref;
-      if (existing && existing.version === tag && existing.source.kind === options.sourceKind) {
+      if (existing && existing.version === tag && existing.source.id === sourceId) {
         ensureCommandShim(entry.command, existing.path);
         logger.info(`${entry.command} ${tag} is already installed at ${existing.path}.`);
         return {
@@ -310,10 +332,13 @@ export async function installNativeTool(
       }
       tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `offckb-${entry.command}-`));
       const values = { tag, target, asset: renderTemplate(entry.release.asset, { tag, target }) };
+      assertSafeAssetName(values.asset, 'release asset');
+      const checksumName = renderTemplate(entry.release.checksum, values);
+      assertSafeAssetName(checksumName, 'checksum asset');
       const archivePath = path.join(tempDir, values.asset);
       await download(`https://github.com/${entry.release.repo}/releases/download/${tag}/${values.asset}`, archivePath);
       await verifyChecksum(
-        `https://github.com/${entry.release.repo}/releases/download/${tag}/${renderTemplate(entry.release.checksum, values)}`,
+        `https://github.com/${entry.release.repo}/releases/download/${tag}/${checksumName}`,
         archivePath,
       );
       const extractDir = path.join(tempDir, 'extracted');
@@ -352,17 +377,32 @@ export async function installNativeTool(
 
     // Swap the staged directory into the stable path inside the registry
     // lock: a running old binary (EBUSY on Windows) aborts before the
-    // registration changes, leaving the previous tool fully usable.
+    // registration changes, and a failed registry write rolls the swap back,
+    // leaving the previous tool fully usable.
     const backup = `${nativeDir}.backup-${process.pid}-${Date.now()}`;
-    commitNativeRegistration(entry.command, record, options.reserved, () => {
-      if (fs.existsSync(nativeDir)) fs.renameSync(nativeDir, backup);
-      try {
-        fs.renameSync(staging, nativeDir);
-      } catch (error) {
+    let swapped = false;
+    commitNativeRegistration(
+      entry.command,
+      record,
+      options.reserved,
+      () => {
+        if (fs.existsSync(nativeDir)) fs.renameSync(nativeDir, backup);
+        try {
+          fs.renameSync(staging, nativeDir);
+          swapped = true;
+        } catch (error) {
+          if (fs.existsSync(backup)) fs.renameSync(backup, nativeDir);
+          throw error;
+        }
+      },
+      () => {
+        // Registry write failed after a successful swap: restore the
+        // previous directory so the untouched registration stays truthful.
+        if (!swapped) return;
+        fs.rmSync(nativeDir, { recursive: true, force: true });
         if (fs.existsSync(backup)) fs.renameSync(backup, nativeDir);
-        throw error;
-      }
-    });
+      },
+    );
     try {
       fs.rmSync(backup, { recursive: true, force: true });
     } catch {

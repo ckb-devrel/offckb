@@ -1,4 +1,5 @@
 import { spawnSync } from 'child_process';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { logger } from '../util/logger';
@@ -26,15 +27,55 @@ export function shimMarkerPath(targetPath: string): string {
   return `${targetPath}.offckb`;
 }
 
+interface ShimMarker {
+  v: 1;
+  command: string;
+  /** SHA-256 of the shim file content at the time offckb wrote it. */
+  sha256: string;
+}
+
+function sha256OfFile(targetPath: string): string | null {
+  try {
+    return crypto.createHash('sha256').update(fs.readFileSync(targetPath)).digest('hex');
+  } catch {
+    return null;
+  }
+}
+
+function readMarker(targetPath: string): ShimMarker | null {
+  try {
+    const value = JSON.parse(fs.readFileSync(shimMarkerPath(targetPath), 'utf8')) as ShimMarker;
+    return value?.v === 1 && typeof value.command === 'string' && typeof value.sha256 === 'string' ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 function embeddedMarker(command: string): string {
   return process.platform === 'win32' ? `@rem offckb-managed ${command} shim` : `# offckb-managed ${command} shim`;
 }
 
+/**
+ * Ownership is claimed only when the file is exactly what offckb wrote: the
+ * sidecar marker records the content hash, so a stale marker left next to a
+ * file the user replaced never authorizes an overwrite or a delete. Files
+ * replaced by symlinks are never owned. Scripts written before sidecar
+ * markers existed are still recognized by their embedded marker comment.
+ */
 function isOwned(targetPath: string, command: string): boolean {
-  if (fs.existsSync(shimMarkerPath(targetPath))) return true;
+  let stats: fs.Stats;
   try {
-    const existing = fs.readFileSync(targetPath, 'utf8');
-    return existing.includes(embeddedMarker(command));
+    stats = fs.lstatSync(targetPath);
+  } catch {
+    return false;
+  }
+  if (stats.isSymbolicLink()) return false;
+  const digest = sha256OfFile(targetPath);
+  if (!digest) return false;
+  const marker = readMarker(targetPath);
+  if (marker) return marker.command === command && marker.sha256 === digest;
+  try {
+    return fs.readFileSync(targetPath, 'utf8').includes(embeddedMarker(command));
   } catch {
     return false;
   }
@@ -61,8 +102,11 @@ function publishFile(write: (stagingPath: string) => void, targetPath: string): 
   }
 }
 
-function claimOwnership(targetPath: string): void {
-  fs.writeFileSync(shimMarkerPath(targetPath), 'offckb-managed\n', { mode: 0o600 });
+function claimOwnership(targetPath: string, command: string): void {
+  const digest = sha256OfFile(targetPath);
+  if (!digest) throw new Error(`Could not hash the shim at ${targetPath}`);
+  const marker: ShimMarker = { v: 1, command, sha256: digest };
+  fs.writeFileSync(shimMarkerPath(targetPath), JSON.stringify(marker) + '\n', { mode: 0o600 });
 }
 
 /**
@@ -125,7 +169,7 @@ export function ensureCommandShim(command: string, binaryPath: string): string |
       }
       publishFile(target.write, target.path);
       try {
-        claimOwnership(target.path);
+        claimOwnership(target.path, command);
       } catch (error) {
         logger.warn(`Could not write the ownership marker for ${target.path}: ${(error as Error).message}.`);
       }
@@ -138,7 +182,7 @@ export function ensureCommandShim(command: string, binaryPath: string): string |
   return primary;
 }
 
-/** Remove offckb-owned shims only; foreign files are left in place. */
+/** Remove offckb-owned shims only; foreign files (and stale markers beside them) are left in place. */
 export function removeCommandShims(command: string): void {
   const directory = shimDirectory();
   if (!directory) return;
@@ -148,13 +192,11 @@ export function removeCommandShims(command: string): void {
     : [path.join(directory, command)];
   for (const target of candidates) {
     try {
-      if (fs.existsSync(shimMarkerPath(target))) {
-        fs.rmSync(shimMarkerPath(target), { force: true });
-        fs.rmSync(target, { force: true });
-      } else if (fs.existsSync(target) && isOwned(target, command)) {
-        // Embedded marker only (e.g. written before sidecar markers existed).
-        fs.rmSync(target, { force: true });
-      }
+      // Ownership re-verifies the recorded content hash, so a stale marker
+      // next to a file the user replaced never authorizes deletion.
+      if (!isOwned(target, command)) continue;
+      fs.rmSync(shimMarkerPath(target), { force: true });
+      fs.rmSync(target, { force: true });
     } catch (error) {
       logger.warn(`Could not remove the ${command} shim at ${target}: ${(error as Error).message}.`);
     }

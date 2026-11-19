@@ -22,8 +22,11 @@ jest.mock('child_process', () => ({
 
 import {
   addTrustedSource,
+  acquirePlugin,
   commitNativeRegistration,
+  commitPluginInstallation,
   getNativeBinaryPath,
+  linkPlugin,
   listNativeTools,
   listPlugins,
   listTrustedSources,
@@ -32,9 +35,9 @@ import {
   pluginNativeDir,
   removePlugin,
   removeTrustedSource,
+  unlinkPlugin,
 } from '../src/plugins/store';
-import { linkPlugin } from '../src/plugins/store';
-import { ensureCommandShim } from '../src/plugins/shims';
+import { ensureCommandShim, removeCommandShims, shimMarkerPath } from '../src/plugins/shims';
 
 let home: string;
 let root: string;
@@ -76,33 +79,49 @@ describe('trusted-source allowlist', () => {
 describe('native tool registrations', () => {
   const command = 'my-tool';
 
-  function commitTool(version = 'v0.1.0'): void {
+  function commitTool(version = 'v0.1.0', reserved: ReadonlySet<string> = new Set()): void {
     const dir = pluginNativeDir(command);
     const binName = process.platform === 'win32' ? 'my-tool.exe' : 'my-tool';
+    const staging = `${dir}.staging-test`;
+    const backup = `${dir}.backup-test`;
+    fs.mkdirSync(staging, { recursive: true });
+    fs.writeFileSync(path.join(staging, binName), `#!/bin/sh\necho my-tool ${version}\n`);
+    fs.writeFileSync(
+      path.join(staging, 'offckb-plugin.json'),
+      JSON.stringify({
+        apiVersion: 1,
+        kind: 'binary',
+        name: 'my-tool',
+        version,
+        command,
+        binary: { name: 'my-tool' },
+        release: { repo: 'owner/repo', asset: 'my-tool_{tag}_{target}.tar.gz', checksum: '{asset}-sha256.txt' },
+      }),
+    );
+    let swapped = false;
     commitNativeRegistration(
       command,
       {
         binName,
         version,
         path: path.join(dir, binName),
-        source: { kind: 'catalog', requested: 'my-tool', resolved: `my-tool@${version}` },
+        source: { kind: 'catalog', id: 'my-tool', requested: 'my-tool', resolved: `my-tool@${version}` },
       },
-      new Set(),
+      reserved,
       () => {
-        fs.mkdirSync(dir, { recursive: true });
-        fs.writeFileSync(path.join(dir, binName), '#!/bin/sh\necho my-tool\n');
-        fs.writeFileSync(
-          path.join(dir, 'offckb-plugin.json'),
-          JSON.stringify({
-            apiVersion: 1,
-            kind: 'binary',
-            name: 'my-tool',
-            version,
-            command,
-            binary: { name: 'my-tool' },
-            release: { repo: 'owner/repo', asset: 'my-tool_{tag}_{target}.tar.gz', checksum: '{asset}-sha256.txt' },
-          }),
-        );
+        if (fs.existsSync(dir)) fs.renameSync(dir, backup);
+        try {
+          fs.renameSync(staging, dir);
+          swapped = true;
+        } catch (error) {
+          if (fs.existsSync(backup)) fs.renameSync(backup, dir);
+          throw error;
+        }
+      },
+      () => {
+        if (!swapped) return;
+        fs.rmSync(dir, { recursive: true, force: true });
+        if (fs.existsSync(backup)) fs.renameSync(backup, dir);
       },
     );
   }
@@ -118,7 +137,7 @@ describe('native tool registrations', () => {
       state: 'available',
       name: 'my-tool',
       version: 'v0.1.0',
-      source: { kind: 'catalog', requested: 'my-tool', resolved: 'my-tool@v0.1.0' },
+      source: { kind: 'catalog', id: 'my-tool', requested: 'my-tool', resolved: 'my-tool@v0.1.0' },
     });
     const binaryPath = path.join(pluginNativeDir(command), process.platform === 'win32' ? 'my-tool.exe' : 'my-tool');
     expect(getNativeBinaryPath(command)).toBe(binaryPath);
@@ -134,7 +153,7 @@ describe('native tool registrations', () => {
           binName: 'install',
           version: 'v0.1.0',
           path: path.join(pluginNativeDir('install'), 'install'),
-          source: { kind: 'catalog', requested: 'install', resolved: 'install@v0.1.0' },
+          source: { kind: 'catalog', id: 'install', requested: 'install', resolved: 'install@v0.1.0' },
         },
         new Set(['install']),
         () => undefined,
@@ -169,7 +188,7 @@ describe('native tool registrations', () => {
               binName: 'my-tool',
               version: 'v0.1.0',
               path: path.join(dir, 'my-tool'),
-              source: { kind: 'catalog', requested: 'my-tool', resolved: 'my-tool@v0.1.0' },
+              source: { kind: 'catalog', id: 'my-tool', requested: 'my-tool', resolved: 'my-tool@v0.1.0' },
             },
           },
         },
@@ -177,6 +196,142 @@ describe('native tool registrations', () => {
     );
 
     expect(() => listPlugins(new Set())).toThrow('Invalid plugin registry');
+  });
+
+  it('acquires a binary tool as trusted and rejects tampered registration kinds', () => {
+    commitTool();
+    // A binary tool is trusted even though it carries no `trusted` record;
+    // it must never be refused for lack of a sandbox runtime.
+    const lease = acquirePlugin(command);
+    try {
+      expect(lease.mode).toBe('trusted');
+      expect(lease.plugin.kind).toBe('binary');
+    } finally {
+      lease.release();
+    }
+
+    // A JS-shaped registration whose directory later grows a binary
+    // descriptor must not silently change how it executes.
+    const jsRoot = path.join(root, 'js-tamper');
+    fs.mkdirSync(jsRoot);
+    fs.writeFileSync(path.join(jsRoot, 'entry.mjs'), '');
+    fs.writeFileSync(
+      path.join(jsRoot, 'package.json'),
+      JSON.stringify({ name: 'js-tamper', version: '1.0.0', offckb: { apiVersion: 1, command: 'js-tamper', entry: 'entry.mjs' } }),
+    );
+    linkPlugin(jsRoot, new Set());
+    // A valid binary descriptor appearing in a JS-linked directory must not
+    // silently change how the registration executes.
+    fs.writeFileSync(
+      path.join(jsRoot, 'offckb-plugin.json'),
+      JSON.stringify({
+        apiVersion: 1,
+        kind: 'binary',
+        name: 'js-tamper',
+        version: '1.0.0',
+        command: 'js-tamper',
+        binary: { name: 'js-tamper' },
+        release: { repo: 'owner/repo', asset: 'js-tamper_{tag}_{target}.tar.gz', checksum: '{tag}-sha256.txt' },
+      }),
+    );
+    fs.writeFileSync(path.join(jsRoot, 'js-tamper'), '#!/bin/sh\n');
+    expect(() => acquirePlugin('js-tamper')).toThrow('registration kind changed');
+  });
+
+  it('rejects local links and npm commits for binary descriptors', () => {
+    const binaryDir = path.join(root, 'linked-binary');
+    fs.mkdirSync(binaryDir);
+    fs.writeFileSync(path.join(binaryDir, 'tool'), '#!/bin/sh\n');
+    fs.writeFileSync(
+      path.join(binaryDir, 'offckb-plugin.json'),
+      JSON.stringify({
+        apiVersion: 1,
+        kind: 'binary',
+        name: 'linked-binary',
+        version: 'v0.1.0',
+        command: 'linked-binary',
+        binary: { name: 'tool' },
+        release: { repo: 'owner/repo', asset: 'tool_{tag}_{target}.tar.gz', checksum: '{tag}-sha256.txt' },
+      }),
+    );
+    // Without this guard, `plugin link` would bypass the trusted-source allowlist.
+    expect(() => linkPlugin(binaryDir, new Set())).toThrow('installed with: offckb plugin install');
+
+    expect(() =>
+      commitPluginInstallation(
+        binaryDir,
+        {
+          id: '11111111-2222-4333-8444-555555555555',
+          name: 'linked-binary',
+          source: { kind: 'npm', requested: 'linked-binary', resolved: 'linked-binary@0.1.0' },
+          allowScripts: false,
+        },
+        new Set(),
+        {},
+      ),
+    ).toThrow('binary tool descriptor');
+  });
+
+  it('routes binary tools to plugin remove instead of unlink', () => {
+    commitTool();
+    expect(() => unlinkPlugin(command)).toThrow('plugin remove');
+  });
+
+  it('rolls the directory swap back when the registry write fails', () => {
+    commitTool('v0.1.0');
+    const binName = process.platform === 'win32' ? 'my-tool.exe' : 'my-tool';
+    const dir = pluginNativeDir(command);
+    const before = fs.readFileSync(path.join(dir, binName), 'utf8');
+
+    // Fail precisely the atomic registry rename; the swap itself succeeds.
+    const realRename = fs.renameSync.bind(fs);
+    const renameSpy = jest.spyOn(fs, 'renameSync').mockImplementation(((...args: unknown[]) => {
+      if (String(args[1]).endsWith(`${path.sep}registry.json`)) {
+        throw new Error('injected registry write failure');
+      }
+      return (realRename as (...a: unknown[]) => unknown)(...args);
+    }) as typeof fs.renameSync);
+    try {
+      expect(() => commitTool('v0.2.0')).toThrow('injected registry write failure');
+    } finally {
+      renameSpy.mockRestore();
+    }
+    // The previous directory content is back, matching the untouched registration.
+    expect(fs.readFileSync(path.join(dir, binName), 'utf8')).toBe(before);
+    expect(getNativeBinaryPath(command)).toBe(path.join(dir, binName));
+    expect(listPlugins(new Set())[0]).toMatchObject({ state: 'available', version: 'v0.1.0' });
+    expect(fs.readdirSync(pluginNativeDir(command))).not.toEqual([]);
+  });
+
+  it('never treats a stale marker next to a replaced file as ownership', () => {
+    const binDir = path.join(root, 'bin-stale');
+    fs.mkdirSync(binDir);
+    fs.writeFileSync(path.join(binDir, 'offckb'), '');
+    mockSpawnSync.mockImplementation((cmd: string, args: unknown[], options: unknown) => {
+      if (cmd === 'which' || cmd === 'where') {
+        return { status: 0, stdout: `${path.join(binDir, 'offckb')}\n`, stderr: '' };
+      }
+      return jest.requireActual('child_process').spawnSync(cmd, args, options);
+    });
+    try {
+      const target = path.join(root, 'managed-stale', 'my-tool');
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, '#!/bin/sh\necho v1\n');
+      ensureCommandShim(command, target);
+      const shimPath = path.join(binDir, process.platform === 'win32' ? 'my-tool.cmd' : 'my-tool');
+      expect(fs.existsSync(shimPath)).toBe(true);
+
+      // The user replaces the shim with their own file; the sidecar is stale now.
+      fs.writeFileSync(shimPath, '#!/bin/sh\necho user-owned\n');
+      ensureCommandShim(command, target);
+      expect(fs.readFileSync(shimPath, 'utf8')).toBe('#!/bin/sh\necho user-owned\n');
+      removeCommandShims(command);
+      expect(fs.existsSync(shimPath)).toBe(true);
+      // The marker is only removed together with a file offckb actually owns.
+      expect(fs.existsSync(shimMarkerPath(shimPath))).toBe(true);
+    } finally {
+      mockSpawnSync.mockReset();
+    }
   });
 
   it('remove deletes the managed directory and only offckb-owned shims', () => {

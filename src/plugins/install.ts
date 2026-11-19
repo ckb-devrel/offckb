@@ -204,7 +204,12 @@ export async function installPlugin(
     });
     return {
       plugin: readPluginManifest(pluginNativeDir(result.command)),
-      source: { kind: 'catalog', requested: source.requested, resolved: `${entry.name}@${result.version}` },
+      source: {
+        kind: 'catalog',
+        id: entry.name,
+        requested: source.requested,
+        resolved: `${entry.name}@${result.version}`,
+      },
     };
   }
 
@@ -213,6 +218,15 @@ export async function installPlugin(
   if (source.kind === 'github') {
     const descriptor = await probeBinaryDescriptor(source.repository!, source.ref);
     if (descriptor) {
+      // The allowlist approves the repository being installed; a descriptor
+      // that points binaries at a different repository would silently widen
+      // that approval, so it is rejected outright.
+      if (descriptor.release.repo.toLowerCase() !== source.repository!.toLowerCase()) {
+        throw new Error(
+          `The binary descriptor in ${source.repository} pins binaries from ${descriptor.release.repo}. ` +
+            'Descriptor repo must match the installation source.',
+        );
+      }
       const result = await installNativeTool(descriptor, source.ref ?? 'latest', {
         requested: source.requested,
         sourceKind: 'github',
@@ -223,6 +237,7 @@ export async function installPlugin(
         plugin: readPluginManifest(pluginNativeDir(result.command)),
         source: {
           kind: 'github',
+          id: source.repository!.toLowerCase(),
           requested: source.requested,
           resolved: `github:${source.repository}#${result.version}`,
         },

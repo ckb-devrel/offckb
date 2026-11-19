@@ -158,7 +158,7 @@ describe('binary tool installation', () => {
     const { plugin, source } = await installPlugin('ckb-debugger', new Set(), {});
 
     expect(plugin.kind).toBe('binary');
-    expect(source).toEqual({ kind: 'catalog', requested: 'ckb-debugger', resolved: 'ckb-debugger@v1.1.2' });
+    expect(source).toEqual({ kind: 'catalog', id: 'ckb-debugger', requested: 'ckb-debugger', resolved: 'ckb-debugger@v1.1.2' });
     const binaryPath = path.join(pluginNativeDir('ckb-debugger'), BINARY_NAME);
     expect(plugin.directory).toBe(fs.realpathSync(pluginNativeDir('ckb-debugger')));
     expect(fs.existsSync(binaryPath)).toBe(true);
@@ -387,6 +387,36 @@ describe('third-party GitHub binary tools and the trusted-source allowlist', () 
 
     expect(source.resolved).toBe('github:someuser/my-tool#v0.1.0');
     expect(listTrustedSources()).toEqual(['someuser/my-tool']);
+  });
+
+  it('rejects a descriptor that pins binaries from a different repository', async () => {
+    await mockToolRelease('0.1.0');
+    requestFetch.mockImplementation(async () => ({
+      status: 200,
+      ok: true,
+      json: async () => ({ ...descriptor, release: { ...descriptor.release, repo: 'other/repo' } }),
+    }));
+    addTrustedSource('someuser/my-tool');
+
+    await expect(installPlugin('github:someuser/my-tool', new Set(), {})).rejects.toThrow(
+      /pins binaries from other\/repo/,
+    );
+    expect(getNativeBinaryPath('my-tool')).toBeNull();
+  });
+
+  it('keeps the legacy binary in place when the adoption commit fails', async () => {
+    probeVersion.current = '1.1.1';
+    const legacyDir = path.join(mockDirs.toolsRoot, 'ckb-debugger');
+    fs.mkdirSync(legacyDir, { recursive: true });
+    fs.writeFileSync(path.join(legacyDir, BINARY_NAME), fakeBinaryPayload('1.1.1'));
+
+    // A core-command conflict aborts the registry commit after staging.
+    await expect(installPlugin('ckb-debugger', new Set(['ckb-debugger']), {})).rejects.toThrow('core command');
+
+    // No data loss: the leftover install is untouched and no staging remains.
+    expect(fs.existsSync(path.join(legacyDir, BINARY_NAME))).toBe(true);
+    expect(fs.readdirSync(path.join(home, 'native')).filter((name) => name.includes('.staging-'))).toEqual([]);
+    expect(getNativeBinaryPath('ckb-debugger')).toBeNull();
   });
 
   it('treats a missing descriptor as a JS plugin source instead', async () => {

@@ -134,7 +134,10 @@ export function registerPluginManagement(program: Command): {
     .action((command: string) => {
       const binaryPath = getNativeBinaryPath(command);
       if (!binaryPath) throw new Error(`No installed binary tool named ${command}`);
-      logger.info(binaryPath);
+      // The path is the command's primary output: it must reach stdout even
+      // when LOG_LEVEL silences info logs, and must not corrupt the single
+      // JSON result line in --json mode.
+      if (!logger.isJsonMode()) process.stdout.write(`${binaryPath}\n`);
       logger.result({ command: 'plugin.which', plugin: command, path: binaryPath });
     });
   management
@@ -142,7 +145,11 @@ export function registerPluginManagement(program: Command): {
     .description('Print OFFCKB_TOOL_<COMMAND>=path lines for installed binary tools (eval or source)')
     .action(() => {
       const tools = listNativeTools();
-      for (const tool of tools) logger.info(`${tool.envName}=${JSON.stringify(tool.path)}`);
+      // Single-quote shell escaping keeps eval safe for any path character.
+      const quote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
+      if (!logger.isJsonMode()) {
+        for (const tool of tools) process.stdout.write(`${tool.envName}=${quote(tool.path)}\n`);
+      }
       logger.result({ command: 'plugin.env', tools });
     });
   const trust = management
@@ -164,7 +171,7 @@ export function registerPluginManagement(program: Command): {
     .description('List approved third-party binary tool sources')
     .action(() => {
       const sources = listTrustedSources();
-      for (const source of sources) logger.info(source);
+      if (!logger.isJsonMode()) for (const source of sources) process.stdout.write(`${source}\n`);
       logger.result({ command: 'plugin.trust.list', sources });
     });
   trust
