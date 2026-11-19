@@ -18,7 +18,8 @@
  *   3. Verify its SHA-256 digest against the published `-sha256.txt` (fail closed).
  *   4. Extract and publish the binary atomically under tools.rootFolder.
  *   5. Put a `ckb-debugger` shim next to the offckb binary so generated
- *      projects can find it on PATH.
+ *      projects can find it on PATH (on Windows also a `ckb-debugger.exe`,
+ *      since a shell-less spawn cannot run the `.cmd` shim).
  */
 
 import { spawnSync } from 'child_process';
@@ -41,6 +42,19 @@ export interface CkbDebuggerInstallResult {
   version: string | null;
   /** True when a usable binary was already installed and no download happened. */
   alreadyInstalled: boolean;
+}
+
+/**
+ * Remove a leftover file without letting a cleanup error escape: `force`
+ * only ignores a missing path, not EPERM/EACCES. Failures are logged at
+ * debug level.
+ */
+function bestEffortRm(target: string): void {
+  try {
+    fs.rmSync(target, { force: true });
+  } catch (error) {
+    logger.debug(`Could not remove ${target}: ${(error as Error).message}`);
+  }
 }
 
 function getBinaryName(): string {
@@ -177,7 +191,11 @@ export class CKBDebuggerInstaller {
       this.ensurePathShim(binaryPath);
 
       logger.info(`✅ ckb-debugger installed successfully at ${binaryPath} (version ${version}).`);
-      logger.info('   To uninstall, remove the binary and the ckb-debugger shim next to the offckb binary.');
+      logger.info(
+        process.platform === 'win32'
+          ? '   To uninstall, remove the binary and, next to the offckb binary, ckb-debugger.cmd, ckb-debugger.exe and ckb-debugger.exe.offckb.'
+          : '   To uninstall, remove the binary and the ckb-debugger shim next to the offckb binary.',
+      );
       return { binaryPath, version, alreadyInstalled: false };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -364,31 +382,93 @@ export class CKBDebuggerInstaller {
       ? `${marker}\r\n@echo off\r\n"${binaryPath}" %*\r\n`
       : `#!/bin/sh\n${marker}\nexec "${binaryPath}" "$@"\n`;
 
+    let shimPath: string | null = null;
     try {
+      let foreign = false;
       if (fs.existsSync(targetPath)) {
         const existing = fs.readFileSync(targetPath, 'utf8');
         const legacyBody = isWindows ? '@echo off\noffckb debugger %*' : '#!/bin/sh\nexec offckb debugger "$@"';
         const isLegacyShim = existing.replace(/\r\n/g, '\n').replace(/\n$/, '') === legacyBody;
-        if (!existing.includes(marker) && !isLegacyShim) {
-          logger.warn(
-            `A file already exists at ${targetPath} that was not created by offckb; leaving it untouched. ` +
-              'Projects that call `ckb-debugger` directly will need it added to PATH manually.',
-          );
-          return null;
+        foreign = !existing.includes(marker) && !isLegacyShim;
+      }
+      if (foreign) {
+        logger.warn(
+          `A file already exists at ${targetPath} that was not created by offckb; leaving it untouched. ` +
+            'Projects that call `ckb-debugger` directly will need it added to PATH manually.',
+        );
+      } else {
+        fs.writeFileSync(targetPath, content);
+        if (!isWindows) {
+          fs.chmodSync(targetPath, 0o755);
         }
+        logger.info(`✅ ckb-debugger shim updated: ${targetPath}`);
+        shimPath = targetPath;
       }
-      fs.writeFileSync(targetPath, content);
-      if (!isWindows) {
-        fs.chmodSync(targetPath, 0o755);
-      }
-      logger.info(`✅ ckb-debugger shim updated: ${targetPath}`);
-      return targetPath;
     } catch (error) {
       // A missing shim must not fail an otherwise successful install: the
       // binary is already in place and offckb can use it directly.
       logger.warn(
         `Could not write the ckb-debugger shim at ${targetPath}: ${(error as Error).message}. ` +
           'Projects that call `ckb-debugger` directly will need it added to PATH manually.',
+      );
+    }
+    // The .exe has its own ownership marker, so it is placed even when the
+    // .cmd shim is foreign or could not be written.
+    if (isWindows) {
+      this.ensureWindowsExe(binaryPath, path.dirname(targetPath));
+    }
+    return shimPath;
+  }
+
+  /**
+   * Windows only: put a real `ckb-debugger.exe` next to the `.cmd` shim.
+   *
+   * Node's child_process resolves a bare command name to an `.exe` on PATH,
+   * but never to a `.cmd` file unless a shell is used, and spawning a `.cmd`
+   * directly without a shell is refused since Node 18.20.2 / 20.12.2
+   * (CVE-2024-27980). ckb-testtool spawns `ckb-debugger` without a shell, so
+   * the `.cmd` shim alone leaves generated mock tests failing with
+   * "ckb-debugger not found". The `.exe` is a hard link to the installed
+   * binary, or a copy when linking fails (for example when npm's global
+   * folder is on another drive). A sidecar marker file records that offckb
+   * owns it, so a ckb-debugger.exe the user put there is never replaced.
+   */
+  private static ensureWindowsExe(binaryPath: string, dir: string): string | null {
+    const exePath = path.join(dir, 'ckb-debugger.exe');
+    const markerPath = `${exePath}.offckb`;
+    const stagingPath = `${exePath}.${process.pid}.tmp`;
+    let hadExe = false;
+    try {
+      hadExe = fs.existsSync(exePath);
+      if (hadExe && !fs.existsSync(markerPath)) {
+        logger.warn(
+          `A ckb-debugger.exe that was not created by offckb already exists at ${exePath}; leaving it untouched.`,
+        );
+        return null;
+      }
+      fs.rmSync(stagingPath, { force: true });
+      try {
+        fs.linkSync(binaryPath, stagingPath);
+      } catch {
+        fs.copyFileSync(binaryPath, stagingPath);
+      }
+      // The marker goes down before the .exe appears, so an offckb-placed .exe
+      // never lacks one; the catch below removes it if no .exe ends up there.
+      fs.writeFileSync(markerPath, `offckb-managed copy of ${binaryPath}\r\n`);
+      fs.renameSync(stagingPath, exePath);
+      // rename() is a no-op when both names are hard links to the same file
+      // (POSIX), which would leave the staging name behind.
+      bestEffortRm(stagingPath);
+      logger.info(`✅ ckb-debugger.exe updated: ${exePath}`);
+      return exePath;
+    } catch (error) {
+      bestEffortRm(stagingPath);
+      if (!hadExe && !fs.existsSync(exePath)) {
+        bestEffortRm(markerPath);
+      }
+      logger.warn(
+        `Could not place ckb-debugger.exe at ${exePath}: ${(error as Error).message}. ` +
+          'Tools that spawn `ckb-debugger` without a shell (such as ckb-testtool) may not find it.',
       );
       return null;
     }

@@ -42,23 +42,35 @@ Linking reads metadata; it does not execute the plugin, install dependencies or 
 
 ## Install, update and remove
 
-Use one offckb command; no manual npm install or link step is needed. These examples use placeholder package/repository names and assume the plugin declares `devnet-read` (add only capabilities it requests):
+Use one offckb command; no manual npm install or link step is needed. For npm/GitHub installs in an interactive terminal, omit `--allow` to review the plugin's requested capabilities and approve them together (default: no). These examples use placeholder package/repository names:
 
 ```sh
 # npm: package name, exact version, range or dist-tag; the result is pinned locally.
-offckb plugin install my-offckb-tool@1.2.3 --allow devnet-read
+offckb plugin install my-offckb-tool@1.2.3
 # GitHub: shorthand or HTTPS repository URL, optionally with a tag/branch/commit.
-offckb plugin install github:owner/repo#v1.2.3 --allow devnet-read
-offckb plugin install https://github.com/owner/repo --allow devnet-read
+offckb plugin install github:owner/repo#v1.2.3
+offckb plugin install https://github.com/owner/repo
 # Windows native execution, or explicitly trusted execution on other platforms:
-offckb plugin install my-offckb-tool --trust --allow devnet-read
+offckb plugin install my-offckb-tool --trust
 # Run the command declared by the installed package:
 offckb my-tool
 # Install a newer version as an atomic replacement of the same managed package:
-offckb plugin install my-offckb-tool@1.3.0 --trust --allow devnet-read
+offckb plugin install my-offckb-tool@1.3.0 --trust
 offckb plugin list
 offckb plugin remove my-tool
 ```
+
+The prompt appears after download and static manifest inspection, before registration. It shows the package identity, resolved source, execution mode and a host-written explanation of each capability. Plugins requesting no capabilities need no prompt. Declining or interrupting removes the uncommitted download and keeps any previous installation.
+
+When replacing the same managed package and command from the same source, previously approved capabilities are reused. An unchanged or smaller permission set needs no new confirmation. Added capabilities appear as `[NEW]` beside `[approved]` capabilities and require confirmation (or explicit flags). GitHub source identity is the repository, independent of tag/commit and URL spelling. For npm, it is the credential-free directory of the locked package download URL; changing the host or directory requires fresh consent. Older npm registrations lack this source metadata and require one fresh authorization; legacy GitHub source records already identify the repository. Unrecognized or credential-bearing download URLs never qualify for reuse. This records source continuity, not publisher authentication or code review. Removing a plugin removes its grants; reinstalling then requires consent again, even though data/cache are retained.
+
+Pipes, redirected streams, CI (`CI` set to a nonempty value) and core `--json` mode never prompt. First installs, changed sources and added capabilities require every declared capability explicitly in these environments; unchanged same-source updates can reuse grants, for example:
+
+```sh
+offckb --json plugin install my-offckb-tool@1.2.3 --allow devnet-read
+```
+
+Supplying any `--allow` selects explicit grants, even in a terminal: missing or undeclared capabilities are errors, rather than being filled in by previous grants or a prompt. Missing-grant errors list the required flags. Consent/reuse only approves the displayed host capabilities; it never enables or carries over `--trust`, `--allow-scripts` or additional `--read` paths. Repeat those flags deliberately if needed. Local `plugin link` and native binary tool installs continue to require explicit `--allow` flags. Concurrent replacement/removal or capability regranting while a review is in progress invalidates the pending reuse instead of restoring stale grants.
 
 The npm/GitHub installer uses the pinned npm 11.21.1 CLI shipped as an optional dependency, invoked through the current Node executable on every platform; it never executes `npm.cmd` through a shell. Installation requires Node **20.17+ (20.x) or 22.9+**, this optional dependency, and Git for GitHub sources. Core commands/local links retain their own Node requirements. A missing installer dependency produces an actionable error and does not fall back to an older system npm: npm 10 was observed running Git `prepare` despite `--ignore-scripts`.
 
@@ -95,7 +107,7 @@ Registrations default to `<offckb data directory>/plugins`. `OFFCKB_PLUGIN_HOME`
 
 The entry must be a regular `.js`, `.cjs` or `.mjs` file whose real path stays inside the package. Commands start with a lowercase letter and contain lowercase letters, digits or hyphens, at most 48 characters. Core and duplicate names are reserved. Protocol and Node engine compatibility are checked before execution.
 
-Every requested capability must be explicitly granted:
+Every requested capability must be covered by a grant: approve the installation prompt, supply `--allow` for each capability, or reuse an existing same-source managed installation's grants as described above. Local linking always uses explicit flags:
 
 ```sh
 offckb plugin link /path/to/package \
