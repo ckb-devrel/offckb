@@ -79,8 +79,12 @@ describe('trusted-source allowlist', () => {
 describe('native tool registrations', () => {
   const command = 'my-tool';
 
-  function commitTool(version = 'v0.1.0', reserved: ReadonlySet<string> = new Set()): void {
-    const dir = pluginNativeDir(command);
+  function commitTool(
+    version = 'v0.1.0',
+    options: { reserved?: ReadonlySet<string>; command?: string } = {},
+  ): void {
+    const toolCommand = options.command ?? command;
+    const dir = pluginNativeDir(toolCommand);
     const binName = process.platform === 'win32' ? 'my-tool.exe' : 'my-tool';
     const staging = `${dir}.staging-test`;
     const backup = `${dir}.backup-test`;
@@ -93,21 +97,21 @@ describe('native tool registrations', () => {
         kind: 'binary',
         name: 'my-tool',
         version,
-        command,
+        command: toolCommand,
         binary: { name: 'my-tool' },
         release: { repo: 'owner/repo', asset: 'my-tool_{tag}_{target}.tar.gz', checksum: '{asset}-sha256.txt' },
       }),
     );
     let swapped = false;
     commitNativeRegistration(
-      command,
+      toolCommand,
       {
         binName,
         version,
         path: path.join(dir, binName),
         source: { kind: 'catalog', id: 'my-tool', requested: 'my-tool', resolved: `my-tool@${version}` },
       },
-      reserved,
+      options.reserved ?? new Set(),
       () => {
         if (fs.existsSync(dir)) fs.renameSync(dir, backup);
         try {
@@ -329,6 +333,87 @@ describe('native tool registrations', () => {
       expect(fs.existsSync(shimPath)).toBe(true);
       // The marker is only removed together with a file offckb actually owns.
       expect(fs.existsSync(shimMarkerPath(shimPath))).toBe(true);
+    } finally {
+      mockSpawnSync.mockReset();
+    }
+  });
+
+  it('rejects one source claiming a second command', () => {
+    commitTool('v0.1.0');
+    // Same source id (my-tool) now declares a different command; the new
+    // command has no registration yet, which must not bypass the check.
+    expect(() => commitTool('v0.1.0', { command: 'my-tool-two' })).toThrow('changed its command');
+    expect(getNativeBinaryPath('my-tool-two')).toBeNull();
+  });
+
+  it('rejects a registration whose directory escapes the native command root', () => {
+    commitTool();
+    const registryFile = path.join(home, 'registry.json');
+    const registry = JSON.parse(fs.readFileSync(registryFile, 'utf8'));
+    registry.plugins[command].directory = path.join(root, 'elsewhere');
+    fs.writeFileSync(registryFile, JSON.stringify(registry));
+    expect(() => listPlugins(new Set())).toThrow('Invalid plugin registry');
+  });
+
+  it('rejects a shim symlink even when the marker would match', () => {
+    if (process.platform === 'win32') return; // symlink creation may require elevation.
+    const binDir = path.join(root, 'bin-symlink');
+    fs.mkdirSync(binDir);
+    fs.writeFileSync(path.join(binDir, 'offckb'), '');
+    mockSpawnSync.mockImplementation((cmd: string, args: unknown[], options: unknown) => {
+      if (cmd === 'which' || cmd === 'where') {
+        return { status: 0, stdout: `${path.join(binDir, 'offckb')}\n`, stderr: '' };
+      }
+      return jest.requireActual('child_process').spawnSync(cmd, args, options);
+    });
+    try {
+      const target = path.join(root, 'managed-symlink', 'my-tool');
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, '#!/bin/sh\necho v1\n');
+      ensureCommandShim(command, target);
+      const shimPath = path.join(binDir, 'my-tool');
+      fs.rmSync(shimPath);
+      fs.symlinkSync(target, shimPath);
+      // Re-ensure and remove: the symlink must survive both.
+      ensureCommandShim(command, target);
+      expect(fs.lstatSync(shimPath).isSymbolicLink()).toBe(true);
+      removeCommandShims(command);
+      expect(fs.lstatSync(shimPath).isSymbolicLink()).toBe(true);
+    } finally {
+      mockSpawnSync.mockReset();
+    }
+  });
+
+  it('ignores shims owned by a different plugin home', () => {
+    const binDir = path.join(root, 'bin-home');
+    fs.mkdirSync(binDir);
+    fs.writeFileSync(path.join(binDir, 'offckb'), '');
+    mockSpawnSync.mockImplementation((cmd: string, args: unknown[], options: unknown) => {
+      if (cmd === 'which' || cmd === 'where') {
+        return { status: 0, stdout: `${path.join(binDir, 'offckb')}\n`, stderr: '' };
+      }
+      return jest.requireActual('child_process').spawnSync(cmd, args, options);
+    });
+    try {
+      const target = path.join(root, 'managed-home', 'my-tool');
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, '#!/bin/sh\necho v1\n');
+      ensureCommandShim(command, target);
+      const shimPath = path.join(binDir, 'my-tool');
+      const ownedContent = fs.readFileSync(shimPath, 'utf8');
+      // Another OFFCKB_PLUGIN_HOME (e.g. an isolated test env) must neither
+      // overwrite nor delete this home's shim.
+      const currentHome = process.env.OFFCKB_PLUGIN_HOME;
+      process.env.OFFCKB_PLUGIN_HOME = path.join(root, 'other-home');
+      try {
+        ensureCommandShim(command, target);
+        expect(fs.readFileSync(shimPath, 'utf8')).toBe(ownedContent);
+        removeCommandShims(command);
+        expect(fs.existsSync(shimPath)).toBe(true);
+      } finally {
+        if (currentHome === undefined) delete process.env.OFFCKB_PLUGIN_HOME;
+        else process.env.OFFCKB_PLUGIN_HOME = currentHome;
+      }
     } finally {
       mockSpawnSync.mockReset();
     }

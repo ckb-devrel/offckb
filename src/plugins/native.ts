@@ -248,22 +248,24 @@ export async function installNativeTool(
   if (!isBinaryName(entry.binaryName)) throw new Error(`Invalid binary name: ${entry.binaryName}`);
   // Source approval: the catalog is maintained with offckb and implicitly
   // trusted; anything else must be locally approved before a native binary
-  // from it lands on this machine (and on PATH).
-  if (options.sourceKind === 'github') {
-    const repo = entry.release.repo.toLowerCase();
-    if (!isSourceTrusted(repo)) {
-      if (options.trustSource && options.trustSource.trim().toLowerCase() === repo) {
-        addTrustedSource(repo);
-        logger.warn(
-          `Approved ${repo} as a trusted binary tool source; binaries from it run with your user permissions.`,
-        );
-      } else {
-        throw new Error(
-          `${entry.release.repo} is not in the trusted-source allowlist. ` +
-            `Review the source, then approve it with: offckb plugin trust add ${entry.release.repo} ` +
-            `(or reinstall with --trust-source ${entry.release.repo}).`,
-        );
-      }
+  // from it lands on this machine (and on PATH). `--trust-source` is a
+  // one-shot authorization for this install: the approval is persisted only
+  // after the registration commits, so a failed install leaves no permanent
+  // trust behind.
+  const repo = entry.release.repo.toLowerCase();
+  let approveAfterCommit: string | null = null;
+  if (options.sourceKind === 'github' && !isSourceTrusted(repo)) {
+    if (options.trustSource?.trim().toLowerCase() === repo) {
+      approveAfterCommit = repo;
+      logger.warn(
+        `Installing from unapproved source ${repo} (--trust-source); the approval is recorded only if the install succeeds.`,
+      );
+    } else {
+      throw new Error(
+        `${entry.release.repo} is not in the trusted-source allowlist. ` +
+          `Review the source, then approve it with: offckb plugin trust add ${entry.release.repo} ` +
+          `(or reinstall with --trust-source ${entry.release.repo}).`,
+      );
     }
   }
 
@@ -411,7 +413,7 @@ export async function installNativeTool(
 
     ensureCommandShim(entry.command, record.path);
     if (adopted) {
-      // The adopted binary moved out of the legacy location; drop the empty
+      // The adopted binary copied out of the legacy location; drop the empty
       // shell so nothing probes it as an unmanaged install anymore.
       const legacyDir = path.join(readSettings().tools.rootFolder, entry.legacyInstallDir!);
       try {
@@ -419,6 +421,14 @@ export async function installNativeTool(
       } catch {
         logger.warn(`Adopted ${entry.command}, but legacy cleanup failed at ${legacyDir}; remove it manually.`);
       }
+    }
+    if (approveAfterCommit) {
+      // Persist the one-shot --trust-source approval only now that the binary
+      // is actually installed; a failed install leaves no trust behind.
+      addTrustedSource(approveAfterCommit);
+      logger.warn(
+        `Approved ${approveAfterCommit} as a trusted binary tool source; binaries from it run with your user permissions.`,
+      );
     }
     logger.info(`✅ ${entry.command} installed successfully at ${record.path} (version ${version}).`);
     return { command: entry.command, version: tag, binaryPath: record.path, alreadyInstalled: false, adopted };

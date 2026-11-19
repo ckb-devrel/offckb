@@ -2,6 +2,7 @@ import { spawnSync } from 'child_process';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import { dataPath } from '../cfg/setting';
 import { logger } from '../util/logger';
 
 /**
@@ -32,6 +33,22 @@ interface ShimMarker {
   command: string;
   /** SHA-256 of the shim file content at the time offckb wrote it. */
   sha256: string;
+  /**
+   * Canonical plugin home that owns this shim. Global PATH shims are shared
+   * across OFFCKB_PLUGIN_HOME values; only the owning home may update or
+   * remove its shim, so isolated homes never clobber each other.
+   */
+  home: string;
+}
+
+/** The plugin home that would own shims written by this process. */
+function ownerHome(): string {
+  const configured = process.env.OFFCKB_PLUGIN_HOME || path.join(dataPath, 'plugins');
+  try {
+    return fs.realpathSync(configured);
+  } catch {
+    return path.resolve(configured);
+  }
 }
 
 function sha256OfFile(targetPath: string): string | null {
@@ -45,7 +62,12 @@ function sha256OfFile(targetPath: string): string | null {
 function readMarker(targetPath: string): ShimMarker | null {
   try {
     const value = JSON.parse(fs.readFileSync(shimMarkerPath(targetPath), 'utf8')) as ShimMarker;
-    return value?.v === 1 && typeof value.command === 'string' && typeof value.sha256 === 'string' ? value : null;
+    return value?.v === 1 &&
+      typeof value.command === 'string' &&
+      typeof value.sha256 === 'string' &&
+      typeof value.home === 'string'
+      ? value
+      : null;
   } catch {
     return null;
   }
@@ -73,7 +95,9 @@ function isOwned(targetPath: string, command: string): boolean {
   const digest = sha256OfFile(targetPath);
   if (!digest) return false;
   const marker = readMarker(targetPath);
-  if (marker) return marker.command === command && marker.sha256 === digest;
+  if (marker) {
+    return marker.command === command && marker.sha256 === digest && marker.home === ownerHome();
+  }
   try {
     return fs.readFileSync(targetPath, 'utf8').includes(embeddedMarker(command));
   } catch {
@@ -105,7 +129,7 @@ function publishFile(write: (stagingPath: string) => void, targetPath: string): 
 function claimOwnership(targetPath: string, command: string): void {
   const digest = sha256OfFile(targetPath);
   if (!digest) throw new Error(`Could not hash the shim at ${targetPath}`);
-  const marker: ShimMarker = { v: 1, command, sha256: digest };
+  const marker: ShimMarker = { v: 1, command, sha256: digest, home: ownerHome() };
   fs.writeFileSync(shimMarkerPath(targetPath), JSON.stringify(marker) + '\n', { mode: 0o600 });
 }
 

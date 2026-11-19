@@ -7,6 +7,7 @@ import { removeCommandShims } from './shims';
 import {
   assertPluginCompatible,
   isPluginCommand,
+  nativeBinaryFileName,
   PLUGIN_PERMISSIONS,
   PluginManifest,
   PluginMode,
@@ -141,6 +142,9 @@ function readRegistry(): Registry {
           (!entry.trusted || typeof entry.trusted.name !== 'string' || typeof entry.trusted.version !== 'string')) ||
         (entry.installation !== undefined && !isInstallation(entry.installation)) ||
         (entry.binary !== undefined && !isNativeBinary(command, entry.binary)) ||
+        (entry.binary !== undefined &&
+          (entry.directory !== pluginNativeDir(command) ||
+            path.basename(entry.binary.path) !== entry.binary.binName)) ||
         (entry.binary !== undefined &&
           (entry.installation !== undefined ||
             entry.trusted !== undefined ||
@@ -511,15 +515,21 @@ export function commitNativeRegistration(
     if (previous && !previous.binary)
       throw new Error(`Plugin command ${command} is already linked; remove/unlink it explicitly first`);
     // Compare stable package identity (without version), matching the JS
-    // installation check: one package must not claim two commands.
+    // installation check: one package must not claim two commands, even when
+    // the new command has no registration yet.
     if (
-      previous?.binary &&
       Object.entries(registry.plugins).some(
         ([name, entry]) => name !== command && entry.binary?.source.id === record.source.id,
       )
     )
       throw new Error('This tool changed its command; remove its previous registration first');
     assertNotRunning(command);
+    // The target directory must be a real directory, never a symlink:
+    // swap and cleanup operate on host-owned paths only.
+    const nativeDir = pluginNativeDir(command);
+    if (fs.existsSync(nativeDir) && fs.lstatSync(nativeDir).isSymbolicLink()) {
+      throw new Error(`Managed tool directory must not be a symlink: ${nativeDir}`);
+    }
     swapIntoPlace();
     registry.plugins[command] = {
       directory: pluginNativeDir(command),
@@ -700,6 +710,9 @@ export function acquirePlugin(
     // swapped descriptor can never change how a registration executes.
     if (Boolean(entry.binary) !== (plugin.kind === 'binary')) {
       throw new Error('Plugin registration kind changed; remove and reinstall the tool');
+    }
+    if (entry.binary && nativeBinaryFileName(plugin.binaryName!) !== path.basename(entry.binary.path)) {
+      throw new Error('Managed binary identity changed; remove and reinstall the tool');
     }
     assertPluginCompatible(plugin);
     assertPermissions(plugin, entry.permissions);

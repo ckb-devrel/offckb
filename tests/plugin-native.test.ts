@@ -419,6 +419,19 @@ describe('third-party GitHub binary tools and the trusted-source allowlist', () 
     expect(getNativeBinaryPath('ckb-debugger')).toBeNull();
   });
 
+  it('does not persist --trust-source approval when the install fails', async () => {
+    await mockToolRelease('0.1.0');
+
+    // A core-command conflict aborts the commit after the one-shot approval.
+    await expect(
+      installPlugin('github:someuser/my-tool', new Set(['my-tool']), { trustSource: 'someuser/my-tool' }),
+    ).rejects.toThrow('core command');
+
+    // The failed install must leave no permanent trust behind.
+    expect(listTrustedSources()).toEqual([]);
+    expect(getNativeBinaryPath('my-tool')).toBeNull();
+  });
+
   it('treats a missing descriptor as a JS plugin source instead', async () => {
     requestFetch.mockImplementation(async () => ({ status: 404, ok: false }));
 
