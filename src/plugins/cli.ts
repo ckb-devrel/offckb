@@ -1,4 +1,5 @@
-import { Command, InvalidArgumentError } from 'commander';
+import { Command, CommanderError, InvalidArgumentError } from 'commander';
+import { confirm } from '@inquirer/prompts';
 import { logger } from '../util/logger';
 import {
   addTrustedSource,
@@ -7,17 +8,55 @@ import {
   listNativeTools,
   listPlugins,
   listTrustedSources,
+  PluginLinkOptions,
+  PluginSource,
   removePlugin,
   removeTrustedSource,
   unlinkPlugin,
-  PluginLinkOptions,
 } from './store';
+import { PluginManifest, PluginPermission } from './manifest';
 import { runPlugin } from './run';
 import { installPlugin } from './install';
 import { assertSandboxSupported } from './sandbox';
 
 function checkMode(mode: 'sandbox' | 'trusted'): void {
   if (mode === 'sandbox') assertSandboxSupported();
+}
+
+const permissionDescriptions: Record<PluginPermission, string> = {
+  'devnet-read': 'Query the devnet through a read-only RPC gateway',
+  'project-deployment': 'Read deployment/ in the project where you run the plugin',
+  serve: 'Serve a web interface on 127.0.0.1 through the host',
+};
+
+async function confirmInstallPermissions(
+  plugin: PluginManifest,
+  source: PluginSource,
+  trusted: boolean,
+  previousPermissions: readonly PluginPermission[],
+): Promise<boolean> {
+  process.stderr.write(
+    `\n${plugin.command} (${plugin.name}@${plugin.version}) requests permissions:\n` +
+      `Source: ${source.resolved}${source.packageLocation ? ` (${source.packageLocation})` : ''}\n` +
+      `Mode: ${trusted ? 'trusted — runs with your user permissions, without OS isolation; these grants only control host-provided interfaces' : 'sandbox'}\n\n` +
+      plugin.permissions
+        .map(
+          (permission) =>
+            `  ${permission}${previousPermissions.length ? (previousPermissions.includes(permission) ? ' [approved]' : ' [NEW]') : ''}: ${permissionDescriptions[permission]}\n`,
+        )
+        .join('') +
+      '\n',
+  );
+  try {
+    return await confirm(
+      { message: 'Allow these permissions and finish installation?', default: false },
+      { input: process.stdin, output: process.stderr },
+    );
+  } catch (error) {
+    if (error instanceof Error && error.name === 'ExitPromptError')
+      throw new CommanderError(130, 'plugin.install.cancelled', 'Plugin installation cancelled');
+    throw error;
+  }
 }
 
 function registrationOptions(command: Command): Command {
@@ -89,17 +128,38 @@ export function registerPluginManagement(program: Command): {
   const install = registrationOptions(
     management
       .command('install <source>')
-      .description('Install or replace a plugin from npm, github:owner/repo[#ref] or a catalog tool name'),
+      .description(
+        'Install from npm/GitHub (terminal permission prompt), github:owner/repo, a catalog tool name, tool:<name>, or a local/HTTPS tool descriptor (.json)',
+      ),
   )
     .option('--allow-scripts', 'Allow npm install/build scripts outside the runtime sandbox (requires --trust)', false)
     .option('--trust-source <source>', 'Approve a third-party binary tool source and install it in one step')
     .action(async (source: string, options: PluginLinkOptions & { allowScripts: boolean; trustSource?: string }) => {
-      const installed = await installPlugin(source, reserved(), options);
+      const interactive =
+        process.stdin.isTTY &&
+        process.stdout.isTTY &&
+        process.stderr.isTTY &&
+        !process.env.CI &&
+        !program.opts().json &&
+        !logger.isJsonMode() &&
+        !options.allow?.length;
+      const installed = await installPlugin(source, reserved(), {
+        ...options,
+        ...(interactive
+          ? {
+              confirmPermissions: (
+                plugin: PluginManifest,
+                provenance: PluginSource,
+                previousPermissions: readonly PluginPermission[] = [],
+              ) => confirmInstallPermissions(plugin, provenance, options.trust === true, previousPermissions),
+            }
+          : {}),
+      });
       const plugin = installed.plugin;
       logger.info(`Installed ${plugin.command} (${installed.source.resolved}); run offckb ${plugin.command}`);
       if (plugin.kind === 'binary') {
-        if (installed.source.kind === 'github')
-          logger.warn('Binary tool: it runs with your user permissions and is placed on PATH.');
+        logger.warn('Binary tool: placed on PATH and exposed via `plugin which` / `plugin env`.');
+        if (options.trust) logger.warn('Trusted mode: it runs with your user permissions, without OS isolation.');
         const stablePath = getNativeBinaryPath(plugin.command);
         if (stablePath) logger.info(`Stable path: ${stablePath} (export with: offckb plugin env)`);
       } else if (options.trust) {
@@ -111,7 +171,7 @@ export function registerPluginManagement(program: Command): {
         directory: plugin.directory,
         kind: plugin.kind,
         permissions: plugin.permissions,
-        mode: plugin.kind === 'binary' ? 'trusted' : options.trust ? 'trusted' : 'sandbox',
+        mode: options.trust ? 'trusted' : 'sandbox',
         source: installed.source,
       });
     });

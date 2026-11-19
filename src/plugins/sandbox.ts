@@ -5,6 +5,7 @@ import semver from 'semver';
 import { createRequire } from 'module';
 import { PluginManifest, PluginMode } from './manifest';
 import { PluginContext } from './context';
+import { nativeToolEnv } from './store';
 import { createHttpBridge, createReadRpcBroker } from './broker';
 
 export function assertSandboxSupported(): void {
@@ -48,9 +49,9 @@ export async function preparePluginExecution(
   mode: PluginMode = 'sandbox',
 ): Promise<{ command: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv; dispose: () => void }> {
   if (mode === 'sandbox') assertSandboxSupported();
-  // Only JS plugins have a sandboxed entry; binary tools never reach this path.
-  if (plugin.kind !== 'js' || !plugin.entry) {
-    throw new Error(`${plugin.command} is a binary tool plugin and has no JavaScript entry`);
+  // JS plugins must declare an entry; binary tools carry their own executable.
+  if (plugin.kind === 'js' && !plugin.entry) {
+    throw new Error(`${plugin.command} has no JavaScript entry`);
   }
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ocp-')));
   const cleanup: Array<() => void> = [];
@@ -131,8 +132,35 @@ export async function preparePluginExecution(
         : {}),
       ...(contextFile ? { OFFCKB_PLUGIN_CONTEXT: contextFile } : {}),
     };
+    const helpOnly = args.length === 1 && (args[0] === '--help' || args[0] === '-h');
+    const bindings: Record<string, string> = {
+      'devnet.rpcUrl': context?.devnet.rpcUrl || '',
+      'plugin.dataPath': context?.plugin.dataPath || root,
+      'plugin.cachePath': context?.plugin.cachePath || root,
+      cwd: context?.cwd || plugin.directory,
+    };
+    const bind = (value: string) =>
+      value.replace(/\$\{([^}]+)\}/g, (_match, key: string) => {
+        if (key === 'devnet.rpcUrl' && !bindings[key] && !helpOnly) throw new Error('Binary tool requires devnet-read');
+        return bindings[key];
+      });
+    const toolEnv = Object.fromEntries(
+      Object.entries(plugin.execution?.env || {}).map(([key, value]) => [key, bind(value)]),
+    );
+    const command = plugin.kind === 'binary' ? plugin.entry! : process.execPath;
+    const commandArgs =
+      plugin.kind === 'binary'
+        ? [...(helpOnly ? [] : (plugin.execution?.args || []).map(bind)), ...args]
+        : [plugin.entry!, ...args];
     if (mode === 'trusted') {
-      return { command: process.execPath, args: [plugin.entry, ...args], cwd: plugin.directory, env, dispose };
+      // Managed binaries stay addressable by sibling tools through OFFCKB_TOOL_* too.
+      return {
+        command,
+        args: commandArgs,
+        cwd: plugin.directory,
+        env: { ...env, ...nativeToolEnv(), ...toolEnv },
+        dispose,
+      };
     }
     const externalRequire = createRequire(__filename);
     let runtimeDirectory: string;
@@ -170,6 +198,7 @@ export async function preparePluginExecution(
         enableWeakerNestedSandbox: false,
         enableWeakerNetworkIsolation: false,
         allowNestedUserNamespaces: false,
+        allowPty: true,
       }),
       { mode: 0o600 },
     );
@@ -178,14 +207,14 @@ export async function preparePluginExecution(
       bootstrap,
       // Node snapshots proxy configuration before loading its entry. Start the actual tool only
       // after normalizing the sandbox proxy; the tool and all descendants keep the OS restrictions.
-      `process.env.NO_PROXY='';process.env.no_proxy='';for(const key of ['HTTP_PROXY','HTTPS_PROXY','http_proxy','https_proxy']){if(process.env[key])process.env[key]=process.env[key].replace('localhost:','127.0.0.1:');}const result=require('node:child_process').spawnSync(process.execPath,process.argv.slice(2),{cwd:${JSON.stringify(plugin.directory)},env:process.env,stdio:'inherit'});if(result.error)console.error(result.error);process.exitCode=result.status??(result.signal?128+require('node:os').constants.signals[result.signal]:1);`,
+      `process.env.NO_PROXY='';process.env.no_proxy='';for(const key of ['HTTP_PROXY','HTTPS_PROXY','http_proxy','https_proxy']){if(process.env[key])process.env[key]=process.env[key].replace('localhost:','127.0.0.1:');}const result=require('node:child_process').spawnSync(process.argv[2],process.argv.slice(3),{cwd:${JSON.stringify(plugin.directory)},env:{...process.env,...${JSON.stringify(toolEnv)}},stdio:'inherit'});if(result.error)console.error(result.error);process.exitCode=result.status??(result.signal?128+require('node:os').constants.signals[result.signal]:1);`,
       { mode: 0o600 },
     );
     env.CLAUDE_CODE_TMPDIR = root;
     env.NODE_USE_ENV_PROXY = '1';
     return {
       command: process.execPath,
-      args: [runtime, '--settings', policy, '--', process.execPath, bootstrap, plugin.entry, ...args],
+      args: [runtime, '--settings', policy, '--', process.execPath, bootstrap, command, ...commandArgs],
       cwd: plugin.directory,
       env,
       dispose,

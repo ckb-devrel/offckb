@@ -8,16 +8,19 @@ import semver from 'semver';
 import { LIFETIME_SIGNALS, LifetimeSignal, signalExitCode } from '../util/child-lifetime';
 import { enterGracefulShutdown } from '../util/shutdown';
 import { logger } from '../util/logger';
-import { readJsonFile, readPluginManifest } from './manifest';
+import { PluginManifest, PluginPermission, readJsonFile, readPluginManifest } from './manifest';
 import {
   commitPluginInstallation,
   NativeSource,
   PluginLinkOptions,
+  PluginRegistrationOptions,
   PluginSource,
   pluginNativeDir,
   pluginPackagesPath,
+  reviewPluginPermissions,
 } from './store';
 import { signalPluginChild } from './process';
+import { installBinaryTool, isToolSource } from './tool-install';
 import { catalogEntry } from './catalog';
 import { descriptorFromCatalog, installNativeTool, probeBinaryDescriptor } from './native';
 
@@ -34,11 +37,35 @@ export interface PluginInstallSpec {
   ref?: string;
 }
 
+export interface PluginInstallOptions extends PluginLinkOptions {
+  allowScripts?: boolean;
+  /** Approve a third-party binary source alongside a successful install (--trust-source). */
+  trustSource?: string;
+  /** CLI-only consent hook for capabilities not covered by a previous managed installation. */
+  confirmPermissions?: (
+    plugin: PluginManifest,
+    source: PluginSource,
+    previousPermissions: readonly PluginPermission[],
+  ) => Promise<boolean>;
+}
+
+function npmPackageLocation(resolved: string | undefined): string | undefined {
+  if (!resolved) return;
+  try {
+    const url = new URL(resolved);
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) return;
+    return new URL('.', url).href;
+  } catch {
+    return;
+  }
+}
+
 /**
- * Deliberately accept registry packages, HTTPS GitHub repositories and
- * first-party catalog names — not arbitrary npm spec protocols. Catalog
- * names are checked first; an npm package that literally shares a catalog
- * name can still be requested with the explicit `npm:` prefix.
+ * Deliberately accept registry packages, HTTPS GitHub repositories,
+ * first-party catalog names and explicit tool descriptors — not arbitrary npm
+ * spec spec protocols. Catalog names are checked before npm packages; an npm
+ * package that literally shares a catalog name can still be requested with
+ * the explicit `npm:` prefix.
  */
 export function parsePluginInstallSpec(input: string): PluginInstallSpec {
   if (!input || input.length > 1024 || /[\x00-\x1f\x7f]/.test(input)) throw new Error('Invalid plugin source');
@@ -183,8 +210,10 @@ async function runNpm(spec: string, directory: string, allowScripts: boolean): P
 export async function installPlugin(
   input: string,
   reserved: ReadonlySet<string>,
-  options: PluginLinkOptions & { allowScripts?: boolean; trustSource?: string } = {},
+  options: PluginInstallOptions = {},
 ): Promise<{ plugin: ReturnType<typeof readPluginManifest>; source: PluginSource | NativeSource }> {
+  // Explicit tool descriptors and bundled tools take the native installer path.
+  if (isToolSource(input)) return installBinaryTool(input, reserved, options);
   const source = parsePluginInstallSpec(input);
   if (options.allowScripts && !options.trust)
     throw new Error(
@@ -200,6 +229,8 @@ export async function installPlugin(
     const result = await installNativeTool(descriptorFromCatalog(entry), source.ref ?? 'latest', {
       requested: source.requested,
       sourceKind: 'catalog',
+      allow: options.allow,
+      trust: options.trust,
       reserved,
     });
     return {
@@ -213,24 +244,19 @@ export async function installPlugin(
     };
   }
 
-  // A GitHub repository declaring an offckb-plugin.json binary descriptor is
+  // A GitHub repository declaring an offckb-tool.json binary descriptor is
   // a native tool plugin; otherwise it must be an npm-compatible JS plugin.
   if (source.kind === 'github') {
-    const descriptor = await probeBinaryDescriptor(source.repository!, source.ref);
-    if (descriptor) {
-      // The allowlist approves the repository being installed; a descriptor
-      // that points binaries at a different repository would silently widen
-      // that approval, so it is rejected outright.
-      if (descriptor.release.repo.toLowerCase() !== source.repository!.toLowerCase()) {
-        throw new Error(
-          `The binary descriptor in ${source.repository} pins binaries from ${descriptor.release.repo}. ` +
-            'Descriptor repo must match the installation source.',
-        );
-      }
-      const result = await installNativeTool(descriptor, source.ref ?? 'latest', {
+    const probed = await probeBinaryDescriptor(source.repository!, source.ref);
+    if (probed) {
+      // The allowlist approves the repository being installed; the
+      // descriptor's pinned assets are verified against their own SHA-256.
+      const result = await installNativeTool({ ...probed.install, repository: source.repository }, probed.tag, {
         requested: source.requested,
         sourceKind: 'github',
         trustSource: options.trustSource,
+        allow: options.allow,
+        trust: options.trust,
         reserved,
       });
       return {
@@ -244,7 +270,7 @@ export async function installPlugin(
       };
     }
     if (options.trustSource) {
-      throw new Error('--trust-source only applies to binary tool sources (an offckb-plugin.json descriptor)');
+      throw new Error('--trust-source only applies to binary tool sources (an offckb-tool.json descriptor)');
     }
   }
   const packages = pluginPackagesPath();
@@ -287,7 +313,38 @@ export async function installPlugin(
       if (!commit) throw new Error('npm did not record a fixed GitHub commit in the lockfile');
       resolved = `github:${source.repository}#${commit}`;
     }
-    const provenance: PluginSource = { kind: source.kind, requested: source.requested, resolved };
+    const packageLocation =
+      source.kind === 'npm' ? npmPackageLocation(lock.packages?.[`node_modules/${names[0]}`]?.resolved) : undefined;
+    const provenance: PluginSource = {
+      kind: source.kind,
+      requested: source.requested,
+      resolved,
+      ...(packageLocation ? { packageLocation } : {}),
+    };
+    let registrationOptions: PluginRegistrationOptions = options;
+    if (plugin.permissions.length && !options.allow?.length) {
+      // Snapshot the reviewed grants. The commit rereads the manifest and must still
+      // reject any capabilities added while the user was considering the prompt.
+      const allow = [...plugin.permissions];
+      const review = reviewPluginPermissions(plugin, provenance);
+      const previousPermissions = review?.permissions ?? [];
+      const added = allow.filter((permission) => !previousPermissions.includes(permission));
+      if (
+        added.length &&
+        options.confirmPermissions &&
+        !(await options.confirmPermissions(plugin, provenance, previousPermissions))
+      )
+        throw new CommanderError(
+          1,
+          'plugin.install.cancelled',
+          'Plugin installation cancelled; the previous plugin is unchanged',
+        );
+      // Without a prompt or an existing grant, leave validation to the strict commit check.
+      if (!added.length || options.confirmPermissions) {
+        registrationOptions = { ...options, allow, ...(review ? { permissionReview: review } : {}) };
+        if (!added.length) logger.info(`Reusing approved permissions for ${plugin.command} (same package and source)`);
+      }
+    }
     const registered = commitPluginInstallation(
       directory,
       {
@@ -297,7 +354,7 @@ export async function installPlugin(
         allowScripts: options.allowScripts === true,
       },
       reserved,
-      options,
+      registrationOptions,
       () => {
         committed = true;
       },

@@ -106,7 +106,7 @@ describe('native tool registrations', () => {
 
   function commitTool(
     version = 'v0.1.0',
-    options: { reserved?: ReadonlySet<string>; command?: string } = {},
+    options: { reserved?: ReadonlySet<string>; command?: string; trusted?: boolean; permissions?: string[] } = {},
   ): void {
     const toolCommand = options.command ?? command;
     const dir = pluginNativeDir(toolCommand);
@@ -117,16 +117,17 @@ describe('native tool registrations', () => {
     assertNativeRootSafe();
     fs.mkdirSync(staging, { recursive: true });
     fs.writeFileSync(path.join(staging, binName), `#!/bin/sh\necho my-tool ${version}\n`);
+    if (process.platform !== 'win32') fs.chmodSync(path.join(staging, binName), 0o755);
     fs.writeFileSync(
-      path.join(staging, 'offckb-plugin.json'),
+      path.join(staging, 'offckb-tool.json'),
       JSON.stringify({
         apiVersion: 1,
-        kind: 'binary',
         name: 'my-tool',
         version,
         command: toolCommand,
-        binary: { name: 'my-tool' },
-        release: { repo: 'owner/repo', asset: 'my-tool_{tag}_{target}.tar.gz', checksum: '{asset}-sha256.txt' },
+        description: 'Native my-tool',
+        entry: binName,
+        permissions: options.permissions ?? [],
       }),
     );
     let swapped = false;
@@ -138,6 +139,8 @@ describe('native tool registrations', () => {
         path: path.join(dir, binName),
         source: { kind: 'catalog', id: 'my-tool', requested: 'my-tool', resolved: `my-tool@${version}` },
       },
+      (options.permissions ?? []) as never,
+      options.trusted ? { name: 'my-tool', version } : undefined,
       options.reserved ?? new Set(),
       () => {
         if (fs.existsSync(dir)) fs.renameSync(dir, backup);
@@ -164,12 +167,15 @@ describe('native tool registrations', () => {
     expect(info).toMatchObject({
       command,
       kind: 'binary',
-      mode: 'trusted',
+      // Like JS plugins, trust is explicit; the default mode is sandbox.
+      mode: 'sandbox',
       state: 'available',
       name: 'my-tool',
       version: 'v0.1.0',
       source: { kind: 'catalog', id: 'my-tool', requested: 'my-tool', resolved: 'my-tool@v0.1.0' },
     });
+    commitTool('v0.1.0', { trusted: true });
+    expect(listPlugins(new Set())[0].mode).toBe('trusted');
     const binaryPath = path.join(pluginNativeDir(command), process.platform === 'win32' ? 'my-tool.exe' : 'my-tool');
     expect(getNativeBinaryPath(command)).toBe(binaryPath);
     expect(nativeToolEnv()).toEqual({ OFFCKB_TOOL_MY_TOOL: binaryPath });
@@ -186,7 +192,10 @@ describe('native tool registrations', () => {
           path: path.join(pluginNativeDir('install'), 'install'),
           source: { kind: 'catalog', id: 'install', requested: 'install', resolved: 'install@v0.1.0' },
         },
+        [],
+        undefined,
         new Set(['install']),
+        () => undefined,
         () => undefined,
       ),
     ).toThrow('core command');
@@ -203,42 +212,58 @@ describe('native tool registrations', () => {
     expect(() => commitTool()).toThrow('already linked');
   });
 
-  it('rejects a registry whose binary entry carries JS-only grants', () => {
+  it('allows capability grants on binary entries but rejects JS-only read paths', () => {
     fs.mkdirSync(home, { recursive: true });
     const dir = pluginNativeDir(command);
-    fs.writeFileSync(
-      path.join(home, 'registry.json'),
-      JSON.stringify({
-        apiVersion: 2,
-        plugins: {
-          [command]: {
-            directory: dir,
-            permissions: ['devnet-read'],
-            readPaths: [],
-            binary: {
-              binName: 'my-tool',
-              version: 'v0.1.0',
-              path: path.join(dir, 'my-tool'),
-              source: { kind: 'catalog', id: 'my-tool', requested: 'my-tool', resolved: 'my-tool@v0.1.0' },
+    const writeRegistry = (overrides: Record<string, unknown>) =>
+      fs.writeFileSync(
+        path.join(home, 'registry.json'),
+        JSON.stringify({
+          apiVersion: 2,
+          plugins: {
+            [command]: {
+              directory: dir,
+              permissions: [],
+              readPaths: [],
+              binary: {
+                binName: 'my-tool',
+                version: 'v0.1.0',
+                path: path.join(dir, 'my-tool'),
+                source: { kind: 'catalog', id: 'my-tool', requested: 'my-tool', resolved: 'my-tool@v0.1.0' },
+              },
+              ...overrides,
             },
           },
-        },
-      }),
-    );
-
+        }),
+      );
+    // Declared capability grants are part of the unified model.
+    writeRegistry({ permissions: ['devnet-read'] });
+    expect(() => listPlugins(new Set())).not.toThrow();
+    // Unknown permissions and JS-only read paths are still rejected.
+    writeRegistry({ permissions: ['unknown-grant'] });
+    expect(() => listPlugins(new Set())).toThrow('Invalid plugin registry');
+    writeRegistry({ permissions: [], readPaths: ['/etc'] });
     expect(() => listPlugins(new Set())).toThrow('Invalid plugin registry');
   });
 
-  it('acquires a binary tool as trusted and rejects tampered registration kinds', () => {
+  it('acquires binary tools with explicit trust and rejects tampered registration kinds', () => {
     commitTool();
-    // A binary tool is trusted even though it carries no `trusted` record;
-    // it must never be refused for lack of a sandbox runtime.
+    // Default mode follows the JS plugin model: sandbox where supported.
     const lease = acquirePlugin(command);
     try {
-      expect(lease.mode).toBe('trusted');
+      expect(lease.mode).toBe('sandbox');
       expect(lease.plugin.kind).toBe('binary');
     } finally {
       lease.release();
+    }
+    // An explicit trust record switches to trusted mode, and the identity
+    // is re-validated on every acquire.
+    commitTool('v0.1.0', { trusted: true });
+    const trustedLease = acquirePlugin(command);
+    try {
+      expect(trustedLease.mode).toBe('trusted');
+    } finally {
+      trustedLease.release();
     }
 
     // A JS-shaped registration whose directory later grows a binary
@@ -253,19 +278,20 @@ describe('native tool registrations', () => {
     linkPlugin(jsRoot, new Set());
     // A valid binary descriptor appearing in a JS-linked directory must not
     // silently change how the registration executes.
+    fs.writeFileSync(path.join(jsRoot, 'js-tamper'), '#!/bin/sh\n');
+    if (process.platform !== 'win32') fs.chmodSync(path.join(jsRoot, 'js-tamper'), 0o755);
     fs.writeFileSync(
-      path.join(jsRoot, 'offckb-plugin.json'),
+      path.join(jsRoot, 'offckb-tool.json'),
       JSON.stringify({
         apiVersion: 1,
-        kind: 'binary',
         name: 'js-tamper',
         version: '1.0.0',
         command: 'js-tamper',
-        binary: { name: 'js-tamper' },
-        release: { repo: 'owner/repo', asset: 'js-tamper_{tag}_{target}.tar.gz', checksum: '{tag}-sha256.txt' },
+        description: 'Native js-tamper',
+        entry: 'js-tamper',
+        permissions: [],
       }),
     );
-    fs.writeFileSync(path.join(jsRoot, 'js-tamper'), '#!/bin/sh\n');
     expect(() => acquirePlugin('js-tamper')).toThrow('registration kind changed');
   });
 

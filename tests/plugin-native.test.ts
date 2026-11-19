@@ -165,9 +165,15 @@ describe('binary tool installation', () => {
     expect(plugin.directory).toBe(fs.realpathSync(pluginNativeDir('ckb-debugger')));
     expect(fs.existsSync(binaryPath)).toBe(true);
     expect(fs.readFileSync(binaryPath, 'utf-8')).toContain('echo "ckb-debugger 1.1.2"');
-    // The descriptor written next to the binary re-declares the tool statically.
-    const descriptor = JSON.parse(fs.readFileSync(path.join(plugin.directory, 'offckb-plugin.json'), 'utf8'));
-    expect(descriptor).toMatchObject({ apiVersion: 1, kind: 'binary', command: 'ckb-debugger', version: 'v1.1.2' });
+    // The canonical descriptor written next to the binary re-declares the tool statically.
+    const descriptor = JSON.parse(fs.readFileSync(path.join(plugin.directory, 'offckb-tool.json'), 'utf8'));
+    expect(descriptor).toMatchObject({
+      apiVersion: 1,
+      command: 'ckb-debugger',
+      version: 'v1.1.2',
+      entry: BINARY_NAME,
+      permissions: [],
+    });
     // Registry record exposes the stable path for tools and env export.
     expect(getNativeBinaryPath('ckb-debugger')).toBe(binaryPath);
     expect(listNativeTools()).toEqual([
@@ -322,38 +328,41 @@ describe('binary tool installation', () => {
 });
 
 describe('third-party GitHub binary tools and the trusted-source allowlist', () => {
-  const descriptor = {
+  const toolDescriptor = (version: string, permissions: string[] = []) => ({
     apiVersion: 1,
-    kind: 'binary',
     name: 'my-tool',
+    version,
     command: 'my-tool',
-    binary: { name: 'my-tool' },
-    release: {
-      repo: 'someuser/my-tool',
-      asset: 'my-tool_{tag}_{target}.tar.gz',
-      checksum: '{asset}-sha256.txt',
+    description: 'Third-party tool',
+    entry: 'bin/my-tool',
+    permissions,
+    execution: { args: [], env: {} },
+    platforms: {
+      [`${process.platform}-${process.arch}`]: {
+        url: 'https://github.com/someuser/my-tool/releases/download/v1/my-tool.tar.gz',
+        sha256: '',
+        format: 'tar.gz',
+        executable: 'my-tool',
+      },
     },
-  };
+  });
 
   function mockToolRelease(version: string) {
     return (async () => {
       const buffer = await buildTarGz('my-tool', version);
-      const tag = `v${version}`;
+      const digest = crypto.createHash('sha256').update(buffer).digest('hex');
       requestSend.mockImplementation(async (url: string) => {
         if (url.includes('/releases/latest')) {
-          return { url: `https://github.com/someuser/my-tool/releases/tag/${tag}` };
+          return { url: `https://github.com/someuser/my-tool/releases/tag/v${version}` };
         }
-        if (url.endsWith('-sha256.txt')) {
-          const digest = crypto.createHash('sha256').update(buffer).digest('hex');
-          return { text: async () => `${digest}  my-tool_${tag}_${TARGET}.tar.gz` };
-        }
-        return { arrayBuffer: async () => buffer };
+        throw new Error(`unexpected Request.send: ${url}`);
       });
       requestFetch.mockImplementation(async (url: string) => {
-        expect(url).toContain('raw.githubusercontent.com/someuser/my-tool/');
-        return { status: 200, ok: true, json: async () => descriptor };
+        expect(url).toContain(`raw.githubusercontent.com/someuser/my-tool/v${version}/offckb-tool.json`);
+        return { status: 200, ok: true, json: async () => ({ ...toolDescriptor(version), platforms: { [`${process.platform}-${process.arch}`]: { url: 'https://github.com/someuser/my-tool/releases/download/v1/my-tool.tar.gz', sha256: digest, format: 'tar.gz', executable: 'my-tool' } } }) };
       });
-      return buffer;
+      const fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(async () => new Response(buffer));
+      return { buffer, fetchSpy };
     })();
   }
 
@@ -391,18 +400,27 @@ describe('third-party GitHub binary tools and the trusted-source allowlist', () 
     expect(listTrustedSources()).toEqual(['someuser/my-tool']);
   });
 
-  it('rejects a descriptor that pins binaries from a different repository', async () => {
+  it('requires explicit grants for a github descriptor that declares permissions', async () => {
     await mockToolRelease('0.1.0');
+    const digest = crypto.createHash('sha256').update(await buildTarGz('my-tool', '0.1.0')).digest('hex');
     requestFetch.mockImplementation(async () => ({
       status: 200,
       ok: true,
-      json: async () => ({ ...descriptor, release: { ...descriptor.release, repo: 'other/repo' } }),
+      json: async () => ({
+        ...toolDescriptor('0.1.0', ['devnet-read']),
+        platforms: {
+          [`${process.platform}-${process.arch}`]: {
+            url: 'https://github.com/someuser/my-tool/releases/download/v0.1.0/my-tool.tar.gz',
+            sha256: digest,
+            format: 'tar.gz',
+            executable: 'my-tool',
+          },
+        },
+      }),
     }));
     addTrustedSource('someuser/my-tool');
 
-    await expect(installPlugin('github:someuser/my-tool', new Set(), {})).rejects.toThrow(
-      /pins binaries from other\/repo/,
-    );
+    await expect(installPlugin('github:someuser/my-tool', new Set(), {})).rejects.toThrow('--allow devnet-read');
     expect(getNativeBinaryPath('my-tool')).toBeNull();
   });
 

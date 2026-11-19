@@ -7,7 +7,6 @@ import { removeCommandShims } from './shims';
 import {
   assertPluginCompatible,
   isPluginCommand,
-  nativeBinaryFileName,
   PLUGIN_PERMISSIONS,
   PluginManifest,
   PluginMode,
@@ -17,14 +16,24 @@ import {
 } from './manifest';
 
 export interface PluginSource {
-  kind: 'npm' | 'github';
+  kind: 'npm' | 'github' | 'binary';
   requested: string;
   resolved: string;
+  /** Credential-free directory of npm's locked package URL; absent in older registrations. */
+  packageLocation?: string;
 }
-/** A binary tool installation source: the first-party catalog or an approved GitHub repository. */
+export interface PluginPermissionReview {
+  installationId: string;
+  permissions: PluginPermission[];
+  source: PluginSource;
+}
+export interface PluginRegistrationOptions extends PluginLinkOptions {
+  permissionReview?: PluginPermissionReview;
+}
+/** A binary tool installation source. */
 export interface NativeSource {
-  kind: 'catalog' | 'github';
-  /** Stable package identity without version: catalog name, or lowercase owner/repo. Drives approval, idempotency and command-change detection. */
+  kind: 'catalog' | 'github' | 'bundled' | 'descriptor';
+  /** Stable package identity without version: catalog name, lowercase owner/repo, tool:<name>, or descriptor name. Drives approval, idempotency and command-change detection. */
   id: string;
   requested: string;
   resolved: string;
@@ -147,9 +156,8 @@ function readRegistry(): Registry {
             path.basename(entry.binary.path) !== entry.binary.binName)) ||
         (entry.binary !== undefined &&
           (entry.installation !== undefined ||
-            entry.trusted !== undefined ||
-            entry.permissions.length !== 0 ||
-            entry.readPaths.length !== 0)) ||
+            entry.readPaths.length !== 0 ||
+            entry.permissions.some((permission) => !PLUGIN_PERMISSIONS.includes(permission)))) ||
         (entry.kind !== undefined && (entry.kind === 'binary') !== (entry.binary !== undefined)),
     )
   )
@@ -169,7 +177,7 @@ function isNativeBinary(command: string, value: NativeBinaryRecord): boolean {
     // Reject non-canonical paths outright: no traversal, no redundant separators.
     path.normalize(value.path) !== value.path ||
     !value.source ||
-    !['catalog', 'github'].includes(value.source.kind) ||
+    !['catalog', 'github', 'bundled', 'descriptor'].includes(value.source.kind) ||
     typeof value.source.id !== 'string' ||
     !value.source.id ||
     typeof value.source.requested !== 'string' ||
@@ -196,10 +204,40 @@ function isInstallation(value: PluginInstallation): boolean {
     typeof value.name === 'string' &&
     typeof value.allowScripts === 'boolean' &&
     !!value.source &&
-    ['npm', 'github'].includes(value.source.kind) &&
+    ['npm', 'github', 'binary'].includes(value.source.kind) &&
     typeof value.source.requested === 'string' &&
-    typeof value.source.resolved === 'string'
+    typeof value.source.resolved === 'string' &&
+    (value.source.packageLocation === undefined || typeof value.source.packageLocation === 'string')
   );
+}
+
+function samePermissionSource(first: PluginSource, second: PluginSource): boolean {
+  if (first.kind !== second.kind) return false;
+  if (first.kind === 'npm') return !!first.packageLocation && first.packageLocation === second.packageLocation;
+  if (first.kind !== 'github') return false;
+  const repository = (source: PluginSource) =>
+    /^github:([a-z0-9-]+\/[a-z0-9._-]+)#[a-f0-9]{40}$/i.exec(source.resolved)?.[1].toLowerCase();
+  const previous = repository(first);
+  return !!previous && previous === repository(second);
+}
+
+/** Reuse only an existing managed package's grants, never another package's or source's. */
+export function reviewPluginPermissions(
+  plugin: PluginManifest,
+  source: PluginSource,
+): PluginPermissionReview | undefined {
+  const previous = readRegistry().plugins[plugin.command];
+  if (
+    !previous?.installation ||
+    previous.installation.name !== plugin.name ||
+    !samePermissionSource(previous.installation.source, source)
+  )
+    return;
+  return {
+    installationId: previous.installation.id,
+    permissions: [...previous.permissions],
+    source: previous.installation.source,
+  };
 }
 
 /** Store only an identifier; never recursively delete a caller-supplied installation path. */
@@ -359,8 +397,8 @@ export function listPlugins(reserved: ReadonlySet<string>, checkMode?: (mode: Pl
         command,
         directory,
         kind: (binary ? 'binary' : 'js') as 'binary' | 'js',
-        // Binary tools always run natively; sandboxing is not offered for this kind.
-        mode: binary || trusted ? ('trusted' as const) : ('sandbox' as const),
+        // Trust is a host authorization; without it a tool runs sandboxed where supported.
+        mode: trusted ? ('trusted' as const) : ('sandbox' as const),
         ...(installation ? { source: installation.source } : {}),
         ...(binary ? { source: binary.source } : {}),
       };
@@ -465,7 +503,7 @@ export function commitPluginInstallation(
   directory: string,
   installation: PluginInstallation,
   reserved: ReadonlySet<string>,
-  options: PluginLinkOptions,
+  options: PluginRegistrationOptions,
   onCommit?: () => void,
 ): PluginManifest {
   let previousRoot: string | undefined;
@@ -489,6 +527,15 @@ export function commitPluginInstallation(
     const previous = Object.prototype.hasOwnProperty.call(registry.plugins, candidate.command)
       ? registry.plugins[candidate.command]
       : undefined;
+    const review = options.permissionReview;
+    if (
+      review &&
+      (!previous?.installation ||
+        previous.installation.id !== review.installationId ||
+        !samePermissionSource(previous.installation.source, review.source) ||
+        [...previous.permissions].sort().join(',') !== [...review.permissions].sort().join(','))
+    )
+      throw new Error('Plugin authorization changed during installation; retry to review the current grants');
     if (previous && (!previous.installation || previous.installation.name !== candidate.name))
       throw new Error(`Plugin command ${candidate.command} is already linked; remove/unlink it explicitly first`);
     if (
@@ -559,6 +606,8 @@ export function removePlugin(command: string): void {
 export function commitNativeRegistration(
   command: string,
   record: NativeBinaryRecord,
+  permissions: PluginPermission[],
+  trusted: { name: string; version: string } | undefined,
   reserved: ReadonlySet<string>,
   swapIntoPlace: () => void,
   rollbackSwap: () => void,
@@ -592,8 +641,9 @@ export function commitNativeRegistration(
     swapIntoPlace();
     registry.plugins[command] = {
       directory: pluginNativeDir(command),
-      permissions: [],
+      permissions: [...permissions].sort(),
       readPaths: [],
+      ...(trusted ? { trusted } : {}),
       binary: record,
       kind: 'binary',
     };
@@ -781,16 +831,16 @@ export function acquirePlugin(
     if (Boolean(entry.binary) !== (plugin.kind === 'binary')) {
       throw new Error('Plugin registration kind changed; remove and reinstall the tool');
     }
-    if (entry.binary && nativeBinaryFileName(plugin.binaryName!) !== path.basename(entry.binary.path)) {
+    if (entry.binary && path.basename(plugin.entry!) !== entry.binary.binName) {
       throw new Error('Managed binary identity changed; remove and reinstall the tool');
     }
     assertPluginCompatible(plugin);
     assertPermissions(plugin, entry.permissions);
     assertTrustedIdentity(plugin, entry.trusted);
-    // Binary tools always run natively with the user's permissions; only JS
-    // plugins can be sandboxed. A binary tool must never be refused because
-    // the sandbox runtime is unavailable (e.g. Windows / older Node).
-    const mode = entry.binary || entry.trusted ? 'trusted' : 'sandbox';
+    // Trust is a host authorization for both plugin kinds: without it the
+    // tool runs in the OS sandbox where available; a binary tool trusted
+    // natively still passed the allowlist-gated installer.
+    const mode = entry.trusted ? 'trusted' : 'sandbox';
     checkMode?.(mode);
     assertNotRunning(command);
     const file = leasePath(command);

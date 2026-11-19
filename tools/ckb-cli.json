@@ -1,0 +1,47 @@
+{
+  "apiVersion": 1,
+  "name": "@offckb/tool-ckb-cli",
+  "version": "2.0.0",
+  "command": "ckb-cli",
+  "description": "CKB CLI v2.0.0: devnet read RPC and offline tools (this release does not include tui)",
+  "entry": "bin/ckb-cli",
+  "permissions": ["devnet-read"],
+  "execution": {
+    "args": ["--url", "${devnet.rpcUrl}"],
+    "env": {
+      "CKB_CLI_HOME": "${plugin.dataPath}"
+    }
+  },
+  "platforms": {
+    "darwin-arm64": {
+      "url": "https://github.com/nervosnetwork/ckb-cli/releases/download/v2.0.0/ckb-cli_v2.0.0_aarch64-apple-darwin.zip",
+      "sha256": "e19e0fc8228e3cc9eba5e4e3506f2559a8321cf472a9f5392bc6dc4093308d06",
+      "format": "zip",
+      "executable": "ckb-cli_v2.0.0_aarch64-apple-darwin/ckb-cli"
+    },
+    "darwin-x64": {
+      "url": "https://github.com/nervosnetwork/ckb-cli/releases/download/v2.0.0/ckb-cli_v2.0.0_x86_64-apple-darwin.zip",
+      "sha256": "47ab71ba16ebab79bf312e59eb547b66348a9ecf59b136909154473fb9551846",
+      "format": "zip",
+      "executable": "ckb-cli_v2.0.0_x86_64-apple-darwin/ckb-cli"
+    },
+    "linux-arm64": {
+      "url": "https://github.com/nervosnetwork/ckb-cli/releases/download/v2.0.0/ckb-cli_v2.0.0_aarch64-unknown-linux-gnu.tar.gz",
+      "sha256": "ddc3b3e08724983ee08e1b96336550e016ba0bc8156ea68e3bbe1f0f2f33f9c2",
+      "format": "tar.gz",
+      "executable": "ckb-cli_v2.0.0_aarch64-unknown-linux-gnu/ckb-cli"
+    },
+    "linux-x64": {
+      "url": "https://github.com/nervosnetwork/ckb-cli/releases/download/v2.0.0/ckb-cli_v2.0.0_x86_64-unknown-linux-gnu.tar.gz",
+      "sha256": "f61ea734a50f4ce91c058b92175950bcb2042847304480123f487d64214d3082",
+      "format": "tar.gz",
+      "executable": "ckb-cli_v2.0.0_x86_64-unknown-linux-gnu/ckb-cli"
+    },
+    "win32-x64": {
+      "url": "https://github.com/nervosnetwork/ckb-cli/releases/download/v2.0.0/ckb-cli_v2.0.0_x86_64-pc-windows-msvc.zip",
+      "sha256": "74977644ac84652c8d2c7ecf983091b3ca9425c34a429eff25ebf8b01f51d2d1",
+      "format": "zip",
+      "executable": "ckb-cli_v2.0.0_x86_64-pc-windows-msvc/ckb-cli.exe"
+    }
+  }
+}

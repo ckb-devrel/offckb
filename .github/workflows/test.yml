@@ -59,6 +59,9 @@ jobs:
       - name: Integration test - Native trusted plugins (no sandbox runtime required)
         run: node scripts/plugin-trusted-smoke.mjs
 
+      - name: Integration test - Native binary entries
+        run: node scripts/plugin-binary-smoke.mjs
+
       - name: Integration test - Plugin npm/Git installation (offline fixtures)
         run: node scripts/plugin-install-smoke.mjs
 

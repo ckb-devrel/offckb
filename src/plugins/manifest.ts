@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import semver from 'semver';
+import { parseToolDescriptor, ToolExecution } from './tool-descriptor';
 
 export const PLUGIN_PERMISSIONS = ['devnet-read', 'project-deployment', 'serve'] as const;
 export type PluginPermission = (typeof PLUGIN_PERMISSIONS)[number];
@@ -23,7 +24,7 @@ export interface PluginManifest {
   version: string;
   command: string;
   description: string;
-  /** js kind only */
+  /** js: the prebuilt JS entry; binary: the managed native binary path. */
   entry?: string;
   node?: string;
   /** binary kind only */
@@ -31,6 +32,8 @@ export interface PluginManifest {
   release?: NativeRelease;
   minVersion?: string;
   permissions: PluginPermission[];
+  /** binary kind only: argv prefix and env-template bindings */
+  execution?: ToolExecution;
 }
 
 export function isPluginCommand(value: unknown): value is string {
@@ -117,17 +120,43 @@ export function readNativeDescriptor(
 
 export function readPluginManifest(directory: string): PluginManifest {
   const root = fs.realpathSync(directory);
-  // Binary tool plugins publish a static descriptor instead of a JS package.
+  // Canonical binary tool descriptor (see tool-descriptor.ts).
+  const toolFile = path.join(root, 'offckb-tool.json');
+  if (fs.existsSync(toolFile)) {
+    const tool = parseToolDescriptor(readJsonFile(toolFile));
+    const entry = fs.realpathSync(path.resolve(root, tool.entry));
+    const relative = path.relative(root, entry);
+    if (!relative || relative.startsWith(`..${path.sep}`) || relative === '..' || path.isAbsolute(relative))
+      throw new Error('Binary entry must stay inside the plugin directory');
+    const entryStats = fs.lstatSync(entry);
+    // A symlinked binary would execute outside the managed directory.
+    if (entryStats.isSymbolicLink() || !entryStats.isFile()) throw new Error('Binary entry must be a regular file');
+    if (process.platform === 'win32' && !entry.toLowerCase().endsWith('.exe'))
+      throw new Error('Windows binary entries must be .exe files');
+    fs.accessSync(entry, process.platform === 'win32' ? fs.constants.F_OK : fs.constants.X_OK);
+    return {
+      directory: root,
+      kind: 'binary',
+      name: tool.name,
+      version: tool.version,
+      command: tool.command,
+      description: tool.description,
+      entry,
+      execution: tool.execution,
+      permissions: tool.permissions,
+    };
+  }
+  // Legacy pre-unification descriptor: still readable so existing installs
+  // keep working, but new installs always write offckb-tool.json.
   const nativeDescriptor = path.join(root, 'offckb-plugin.json');
   if (fs.existsSync(nativeDescriptor)) {
     const descriptor = readNativeDescriptor(readJsonFile(nativeDescriptor), nativeDescriptor);
     const binaryPath = path.join(root, nativeBinaryFileName(descriptor.binaryName!));
     const binaryStats = fs.lstatSync(binaryPath);
-    // A symlinked binary would execute outside the managed directory.
     if (binaryStats.isSymbolicLink() || !binaryStats.isFile()) {
       throw new Error(`Managed binary must be a regular file: ${binaryPath}`);
     }
-    return { ...descriptor, directory: root, permissions: [] };
+    return { ...descriptor, directory: root, entry: binaryPath, permissions: [] };
   }
   const pkg = readJsonFile(path.join(root, 'package.json')) as Record<string, unknown>;
   const declaration = pkg?.offckb as Record<string, unknown> | undefined;
