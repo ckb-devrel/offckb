@@ -216,6 +216,22 @@ export function pluginNativeRoot(): string {
   return path.join(pluginHome(), 'native');
 }
 
+/** The native root must be a real directory inside the plugin home, never a symlink. */
+export function assertNativeRootSafe(): void {
+  const root = pluginNativeRoot();
+  if (!fs.existsSync(root)) return;
+  if (fs.lstatSync(root).isSymbolicLink()) {
+    throw new Error(`Plugin native tools root must not be a symlink: ${root}`);
+  }
+  // It must also resolve to the expected location inside the real plugin home
+  // (the home itself may legitimately sit under a platform symlink such as
+  // /var -> /private/var).
+  const real = fs.realpathSync(root);
+  if (path.basename(real) !== 'native' || path.dirname(real) !== fs.realpathSync(pluginHome())) {
+    throw new Error(`Plugin native tools root resolves outside the plugin home: ${root}`);
+  }
+}
+
 export function pluginNativeDir(command: string): string {
   if (!isPluginCommand(command)) throw new Error('Invalid plugin command');
   return path.join(pluginNativeRoot(), command);
@@ -484,8 +500,12 @@ export function removePlugin(command: string): void {
   cleanupInstallation(root);
   if (nativeDir) {
     try {
+      // Refuse deletion when the native root is a symlink: recursive delete
+      // must never act outside the plugin home.
+      assertNativeRootSafe();
       fs.rmSync(nativeDir, { recursive: true, force: true });
-    } catch {
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('must not be a symlink')) throw error;
       logger.warn(`Plugin registration removed, but native tool cleanup failed at ${nativeDir}; remove it manually.`);
     }
     removeCommandShims(command);
@@ -526,6 +546,7 @@ export function commitNativeRegistration(
     assertNotRunning(command);
     // The target directory must be a real directory, never a symlink:
     // swap and cleanup operate on host-owned paths only.
+    assertNativeRootSafe();
     const nativeDir = pluginNativeDir(command);
     if (fs.existsSync(nativeDir) && fs.lstatSync(nativeDir).isSymbolicLink()) {
       throw new Error(`Managed tool directory must not be a symlink: ${nativeDir}`);

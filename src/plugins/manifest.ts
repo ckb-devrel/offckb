@@ -122,7 +122,11 @@ export function readPluginManifest(directory: string): PluginManifest {
   if (fs.existsSync(nativeDescriptor)) {
     const descriptor = readNativeDescriptor(readJsonFile(nativeDescriptor), nativeDescriptor);
     const binaryPath = path.join(root, nativeBinaryFileName(descriptor.binaryName!));
-    if (!fs.statSync(binaryPath).isFile()) throw new Error(`Managed binary is missing: ${binaryPath}`);
+    const binaryStats = fs.lstatSync(binaryPath);
+    // A symlinked binary would execute outside the managed directory.
+    if (binaryStats.isSymbolicLink() || !binaryStats.isFile()) {
+      throw new Error(`Managed binary must be a regular file: ${binaryPath}`);
+    }
     return { ...descriptor, directory: root, permissions: [] };
   }
   const pkg = readJsonFile(path.join(root, 'package.json')) as Record<string, unknown>;

@@ -11,11 +11,12 @@ import { logger } from '../util/logger';
 import { findFileInFolder } from '../util/fs';
 import { CatalogEntry } from './catalog';
 import {
-  NativeBinaryRecord,
   addTrustedSource,
+  assertNativeRootSafe,
   commitNativeRegistration,
   getNativeRecord,
   isSourceTrusted,
+  NativeBinaryRecord,
   pluginNativeDir,
   pluginNativeRoot,
 } from './store';
@@ -275,16 +276,32 @@ export async function installNativeTool(
   }
   const sourceId = options.sourceKind === 'catalog' ? entry.name : entry.release.repo.toLowerCase();
 
+  // Every success exit persists a one-shot --trust-source approval, including
+  // idempotent reinstalls: revoked sources must be re-approvable by simply
+  // re-running an install that succeeds.
+  const persistApproval = () => {
+    if (!approveAfterCommit) return;
+    addTrustedSource(approveAfterCommit);
+    logger.warn(
+      `Approved ${approveAfterCommit} as a trusted binary tool source; binaries from it run with your user permissions.`,
+    );
+    approveAfterCommit = null;
+  };
+
   const existing = getNativeRecord(entry.command);
 
   // Reinstalling an exact tag that is already registered never touches the network.
   if (existing && ref !== 'latest' && existing.version === ref && existing.source.id === sourceId) {
     ensureCommandShim(entry.command, existing.path);
+    persistApproval();
     logger.info(`${entry.command} ${ref} is already installed at ${existing.path}.`);
     return { command: entry.command, version: ref, binaryPath: existing.path, alreadyInstalled: true, adopted: false };
   }
 
   const nativeDir = pluginNativeDir(entry.command);
+  // Staging paths are derived from the native root; refuse to create them
+  // outside the plugin home when the root is a symlink.
+  assertNativeRootSafe();
   const staging = path.join(pluginNativeRoot(), `.staging-${entry.command}-${randomUUID()}`);
   let tempDir: string | null = null;
   let adopted = false;
@@ -323,6 +340,7 @@ export async function installNativeTool(
       tag = ref === 'latest' ? await resolveLatestTag(entry.release.repo) : ref;
       if (existing && existing.version === tag && existing.source.id === sourceId) {
         ensureCommandShim(entry.command, existing.path);
+        persistApproval();
         logger.info(`${entry.command} ${tag} is already installed at ${existing.path}.`);
         return {
           command: entry.command,
@@ -425,10 +443,7 @@ export async function installNativeTool(
     if (approveAfterCommit) {
       // Persist the one-shot --trust-source approval only now that the binary
       // is actually installed; a failed install leaves no trust behind.
-      addTrustedSource(approveAfterCommit);
-      logger.warn(
-        `Approved ${approveAfterCommit} as a trusted binary tool source; binaries from it run with your user permissions.`,
-      );
+      persistApproval();
     }
     logger.info(`✅ ${entry.command} installed successfully at ${record.path} (version ${version}).`);
     return { command: entry.command, version: tag, binaryPath: record.path, alreadyInstalled: false, adopted };

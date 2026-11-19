@@ -50,6 +50,7 @@ import {
   listTrustedSources,
   pluginNativeDir,
   removePlugin,
+  removeTrustedSource,
 } from '../src/plugins/store';
 
 const requestSend = Request.send as jest.Mock;
@@ -417,6 +418,23 @@ describe('third-party GitHub binary tools and the trusted-source allowlist', () 
     expect(fs.existsSync(path.join(legacyDir, BINARY_NAME))).toBe(true);
     expect(fs.readdirSync(path.join(home, 'native')).filter((name) => name.includes('.staging-'))).toEqual([]);
     expect(getNativeBinaryPath('ckb-debugger')).toBeNull();
+  });
+
+  it('re-approving a revoked source via a same-version reinstall persists the approval', async () => {
+    await mockToolRelease('0.1.0');
+    // Install and approve, then revoke: the tool stays, the approval goes.
+    await installPlugin('github:someuser/my-tool', new Set(), { trustSource: 'someuser/my-tool' });
+    removeTrustedSource('someuser/my-tool');
+    expect(listTrustedSources()).toEqual([]);
+
+    // Idempotent reinstall with --trust-source is a success exit too; the
+    // approval must persist there as well, not only on fresh installs.
+    const { source } = await installPlugin('github:someuser/my-tool', new Set(), {
+      trustSource: 'someuser/my-tool',
+    });
+
+    expect(source.resolved).toBe('github:someuser/my-tool#v0.1.0');
+    expect(listTrustedSources()).toEqual(['someuser/my-tool']);
   });
 
   it('does not persist --trust-source approval when the install fails', async () => {

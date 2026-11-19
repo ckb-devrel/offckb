@@ -98,6 +98,11 @@ function isOwned(targetPath: string, command: string): boolean {
   if (marker) {
     return marker.command === command && marker.sha256 === digest && marker.home === ownerHome();
   }
+  // Legacy shims written by the pre-sidecar installer only carry an embedded
+  // marker comment, and they exist on real user machines. Only the default
+  // plugin home (production installs, no OFFCKB_PLUGIN_HOME) claims them;
+  // isolated homes require a sidecar marker, closing cross-home ownership.
+  if (process.env.OFFCKB_PLUGIN_HOME) return false;
   try {
     return fs.readFileSync(targetPath, 'utf8').includes(embeddedMarker(command));
   } catch {

@@ -23,6 +23,7 @@ jest.mock('child_process', () => ({
 import {
   addTrustedSource,
   acquirePlugin,
+  assertNativeRootSafe,
   commitNativeRegistration,
   commitPluginInstallation,
   getNativeBinaryPath,
@@ -88,6 +89,8 @@ describe('native tool registrations', () => {
     const binName = process.platform === 'win32' ? 'my-tool.exe' : 'my-tool';
     const staging = `${dir}.staging-test`;
     const backup = `${dir}.backup-test`;
+    // Mirrors the production installer: never stage through a symlinked root.
+    assertNativeRootSafe();
     fs.mkdirSync(staging, { recursive: true });
     fs.writeFileSync(path.join(staging, binName), `#!/bin/sh\necho my-tool ${version}\n`);
     fs.writeFileSync(
@@ -417,6 +420,72 @@ describe('native tool registrations', () => {
     } finally {
       mockSpawnSync.mockReset();
     }
+  });
+
+  it('never claims markerless embedded-marker shims while a custom home is set', () => {
+    if (process.platform === 'win32') return; // focus on the POSIX shim layout.
+    const binDir = path.join(root, 'bin-markerless');
+    fs.mkdirSync(binDir);
+    fs.writeFileSync(path.join(binDir, 'offckb'), '');
+    mockSpawnSync.mockImplementation((cmd: string, args: unknown[], options: unknown) => {
+      if (cmd === 'which' || cmd === 'where') {
+        return { status: 0, stdout: `${path.join(binDir, 'offckb')}\n`, stderr: '' };
+      }
+      return jest.requireActual('child_process').spawnSync(cmd, args, options);
+    });
+    try {
+      // A shim written by the pre-sidecar installer: embedded marker only.
+      const shimPath = path.join(binDir, 'my-tool');
+      fs.writeFileSync(shimPath, '#!/bin/sh\n# offckb-managed my-tool shim\nexec "/old/tool" "$@"\n');
+      const target = path.join(root, 'managed-markerless', 'my-tool');
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, '#!/bin/sh\necho v2\n');
+      ensureCommandShim(command, target);
+      // OFFCKB_PLUGIN_HOME is set in this suite, so ownership is not claimed
+      // from an embedded comment alone.
+      expect(fs.readFileSync(shimPath, 'utf8')).toContain('/old/tool');
+      removeCommandShims(command);
+      expect(fs.existsSync(shimPath)).toBe(true);
+    } finally {
+      mockSpawnSync.mockReset();
+    }
+  });
+
+  it('refuses to install into or remove through a symlinked native root', () => {
+    if (process.platform === 'win32') return; // symlink creation may require elevation.
+    commitTool();
+    const outside = path.join(root, 'outside');
+    fs.mkdirSync(outside, { recursive: true });
+    fs.rmSync(path.join(home, 'native'), { recursive: true, force: true });
+    fs.symlinkSync(outside, path.join(home, 'native'));
+
+    expect(() => commitTool('v0.2.0')).toThrow('must not be a symlink');
+    expect(() => removePlugin(command)).toThrow('must not be a symlink');
+    // The outside directory was never touched.
+    expect(fs.readdirSync(outside)).toEqual([]);
+  });
+
+  it('rejects a symlinked managed binary in the descriptor directory', () => {
+    if (process.platform === 'win32') return; // symlink creation may require elevation.
+    const dir = path.join(root, 'linked-binary-dir');
+    const real = path.join(root, 'real-tool');
+    fs.writeFileSync(real, '#!/bin/sh\n');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.symlinkSync(real, path.join(dir, 'my-tool'));
+    fs.writeFileSync(
+      path.join(dir, 'offckb-plugin.json'),
+      JSON.stringify({
+        apiVersion: 1,
+        kind: 'binary',
+        name: 'my-tool',
+        version: 'v0.1.0',
+        command: 'my-tool',
+        binary: { name: 'my-tool' },
+        release: { repo: 'owner/repo', asset: 'my-tool_{tag}_{target}.tar.gz', checksum: '{tag}-sha256.txt' },
+      }),
+    );
+    const { readPluginManifest } = jest.requireActual('../src/plugins/manifest') as typeof import('../src/plugins/manifest');
+    expect(() => readPluginManifest(dir)).toThrow('regular file');
   });
 
   it('remove deletes the managed directory and only offckb-owned shims', () => {
