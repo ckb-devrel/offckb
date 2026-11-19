@@ -461,8 +461,11 @@ describe('native tool registrations', () => {
 
     expect(() => commitTool('v0.2.0')).toThrow('must not be a symlink');
     expect(() => removePlugin(command)).toThrow('must not be a symlink');
-    // The outside directory was never touched.
+    // Nothing was deleted or deregistered: the registration, the binary and
+    // the shims all survive a refused removal.
     expect(fs.readdirSync(outside)).toEqual([]);
+    expect(getNativeBinaryPath(command)).not.toBeNull();
+    expect(listPlugins(new Set())[0]).toMatchObject({ state: 'available', version: 'v0.1.0' });
   });
 
   it('rejects a symlinked managed binary in the descriptor directory', () => {

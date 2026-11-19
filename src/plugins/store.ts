@@ -493,6 +493,9 @@ export function removePlugin(command: string): void {
       // Only ever delete a host-owned directory under the native tools root.
       const relative = path.relative(pluginNativeRoot(), dir);
       if (!relative.startsWith('..') && !path.isAbsolute(relative)) nativeDir = dir;
+      // Verify before the registry write: a symlinked native root must leave
+      // the registration, the binary and the shims completely untouched.
+      assertNativeRootSafe();
     }
     delete registry.plugins[command];
     writeRegistry(registry);
@@ -500,12 +503,8 @@ export function removePlugin(command: string): void {
   cleanupInstallation(root);
   if (nativeDir) {
     try {
-      // Refuse deletion when the native root is a symlink: recursive delete
-      // must never act outside the plugin home.
-      assertNativeRootSafe();
       fs.rmSync(nativeDir, { recursive: true, force: true });
-    } catch (error) {
-      if (error instanceof Error && error.message.includes('must not be a symlink')) throw error;
+    } catch {
       logger.warn(`Plugin registration removed, but native tool cleanup failed at ${nativeDir}; remove it manually.`);
     }
     removeCommandShims(command);
