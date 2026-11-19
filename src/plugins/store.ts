@@ -420,6 +420,9 @@ export function listPlugins(reserved: ReadonlySet<string>, checkMode?: (mode: Pl
       }
       const info = {
         ...base,
+        // The manifest is authoritative: linked binary tools have no managed
+        // record but are still binary kind.
+        kind: plugin.kind,
         name: plugin.name,
         version: plugin.version,
         description: plugin.description,
@@ -456,11 +459,12 @@ export function linkPlugin(
 ): PluginManifest {
   return withRegistryLock(() => {
     const plugin = readPluginManifest(directory);
-    // Binary tools are registered only by the native installer, which enforces
-    // the trusted-source allowlist; a local link must never bypass it.
-    if (plugin.kind !== 'js') {
-      throw new Error('Binary tool plugins are installed with: offckb plugin install <catalog-name|github:owner/repo>');
-    }
+    // Linked binary tools are local development tools: the user pointed at
+    // the directory themselves, exactly like running the binary directly.
+    // They register in place (no managed native record, no stable path) and
+    // follow the standard trust model — sandbox by default, native only
+    // with an explicit --trust at link time. Remote binary sources stay
+    // gated by the trusted-source allowlist.
     assertPluginCompatible(plugin);
     assertPermissions(plugin, options.allow ?? []);
     if (options.allow?.some((permission) => !plugin.permissions.includes(permission as PluginPermission)))
@@ -825,9 +829,10 @@ export function acquirePlugin(
     }
     const plugin = readPluginManifest(entry.directory);
     if (plugin.command !== command) throw new Error('Plugin command changed; unlink and link the package again');
-    // The registration shape and the on-disk declaration must agree, so a
-    // swapped descriptor can never change how a registration executes.
-    if (Boolean(entry.binary) !== (plugin.kind === 'binary')) {
+    // A managed native registration and the on-disk declaration must agree,
+    // so a swapped descriptor can never retarget where the host runs a
+    // managed binary from. Linked directories follow the normal link rules.
+    if (entry.binary && plugin.kind !== 'binary') {
       throw new Error('Plugin registration kind changed; remove and reinstall the tool');
     }
     if (entry.binary && path.basename(plugin.entry!) !== entry.binary.binName) {
