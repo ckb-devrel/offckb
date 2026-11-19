@@ -242,6 +242,16 @@ export function isNativeRootSafe(): boolean {
   }
 }
 
+/** A managed binary must be a regular file; a swapped-in symlink fails closed. */
+function isUsableManagedBinary(binaryPath: string): boolean {
+  try {
+    const stats = fs.lstatSync(binaryPath);
+    return stats.isFile() && !stats.isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
 export function pluginNativeDir(command: string): string {
   if (!isPluginCommand(command)) throw new Error('Invalid plugin command');
   return path.join(pluginNativeRoot(), command);
@@ -601,7 +611,7 @@ export function getNativeRecord(command: string): NativeBinaryRecord | null {
     const entry = Object.prototype.hasOwnProperty.call(registry.plugins, command)
       ? registry.plugins[command]
       : undefined;
-    if (!entry?.binary || !fs.existsSync(entry.binary.path)) return null;
+    if (!entry?.binary || !isUsableManagedBinary(entry.binary.path)) return null;
     return entry.binary;
   } catch {
     return null;
@@ -619,7 +629,7 @@ export function listNativeTools(): NativeToolEnvEntry[] {
   if (!isNativeRootSafe()) return [];
   try {
     return Object.entries(readRegistry().plugins).flatMap(([command, entry]) => {
-      if (!entry.binary || !fs.existsSync(entry.binary.path)) return [];
+      if (!entry.binary || !isUsableManagedBinary(entry.binary.path)) return [];
       return [
         {
           command,

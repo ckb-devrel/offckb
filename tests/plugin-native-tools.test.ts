@@ -504,6 +504,22 @@ describe('native tool registrations', () => {
     expect(() => readPluginManifest(dir)).toThrow('regular file');
   });
 
+  it('fails closed when the managed binary is replaced by a symlink', () => {
+    if (process.platform === 'win32') return; // symlink creation may require elevation.
+    commitTool();
+    const binaryPath = getNativeBinaryPath(command)!;
+    const foreign = path.join(root, 'foreign-tool');
+    fs.writeFileSync(foreign, '#!/bin/sh\n');
+    fs.rmSync(binaryPath);
+    fs.symlinkSync(foreign, binaryPath);
+
+    // Every consumer channel fails closed: path lookup, env export and the
+    // legacy debugger entry (which resolves through getNativeBinaryPath).
+    expect(getNativeBinaryPath(command)).toBeNull();
+    expect(nativeToolEnv()).toEqual({});
+    expect(listPlugins(new Set())[0]).toMatchObject({ state: 'invalid' });
+  });
+
   it('remove deletes the managed directory and only offckb-owned shims', () => {
     const binDir = path.join(root, 'bin');
     fs.mkdirSync(binDir);
