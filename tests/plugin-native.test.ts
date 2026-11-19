@@ -495,6 +495,20 @@ describe('third-party GitHub binary tools and the trusted-source allowlist', () 
     ).rejects.toThrow(/Unsafe release asset name/);
   });
 
+  it('falls back to probing the default branch when a repository has no releases', async () => {
+    requestSend.mockImplementation(async (url: string) => {
+      if (url.includes('/releases/latest')) throw new Error('this repository has no releases');
+      throw new Error(`unexpected Request.send: ${url}`);
+    });
+    requestFetch.mockImplementation(async (url: string) => {
+      expect(url).toContain('raw.githubusercontent.com/someuser/js-only-repo/HEAD/offckb-tool.json');
+      return { status: 404, ok: false };
+    });
+
+    // npm-shaped JS plugin repos without releases must still reach the npm path.
+    expect(await probeBinaryDescriptor('someuser/js-only-repo')).toBeNull();
+  });
+
   it('treats a missing descriptor as a JS plugin source instead', async () => {
     requestFetch.mockImplementation(async () => ({ status: 404, ok: false }));
 

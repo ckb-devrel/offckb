@@ -135,8 +135,19 @@ export async function probeBinaryDescriptor(
   repository: string,
   ref?: string,
 ): Promise<{ install: NativeToolInstall; tag: string } | null> {
-  const tag =
-    ref && /^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(ref) && !ref.includes('..') ? ref : await resolveLatestTag(repository);
+  let tag: string;
+  if (ref && /^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(ref) && !ref.includes('..')) {
+    tag = ref;
+  } else {
+    try {
+      tag = await resolveLatestTag(repository);
+    } catch {
+      // Repositories without releases (e.g. npm-shaped JS plugin sources)
+      // cannot resolve a latest tag; probe the default branch instead so
+      // those still fall through to the npm install path on a 404.
+      tag = 'HEAD';
+    }
+  }
   const url = `https://raw.githubusercontent.com/${repository}/${tag}/offckb-tool.json`;
   const response = await Request.fetch(url);
   if (response.status === 404) return null;
