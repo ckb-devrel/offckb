@@ -135,7 +135,18 @@ function claimOwnership(targetPath: string, command: string): void {
   const digest = sha256OfFile(targetPath);
   if (!digest) throw new Error(`Could not hash the shim at ${targetPath}`);
   const marker: ShimMarker = { v: 1, command, sha256: digest, home: ownerHome() };
-  fs.writeFileSync(shimMarkerPath(targetPath), JSON.stringify(marker) + '\n', { mode: 0o600 });
+  // Never write through a symlinked marker: refuse foreign marker entries,
+  // and publish atomically via an exclusively-created temporary file.
+  if (fs.existsSync(shimMarkerPath(targetPath)) && fs.lstatSync(shimMarkerPath(targetPath)).isSymbolicLink()) {
+    throw new Error(`Ownership marker must not be a symlink: ${shimMarkerPath(targetPath)}`);
+  }
+  const temporary = `${shimMarkerPath(targetPath)}.staging-${process.pid}`;
+  try {
+    fs.writeFileSync(temporary, JSON.stringify(marker) + '\n', { mode: 0o600, flag: 'wx' });
+    fs.renameSync(temporary, shimMarkerPath(targetPath));
+  } finally {
+    fs.rmSync(temporary, { force: true });
+  }
 }
 
 /**
@@ -222,10 +233,12 @@ export function removeCommandShims(command: string): void {
   for (const target of candidates) {
     try {
       // Ownership re-verifies the recorded content hash, so a stale marker
-      // next to a file the user replaced never authorizes deletion.
+      // next to a file the user replaced never authorizes deletion. Delete
+      // the executable first: if its removal fails (e.g. an in-use Windows
+      // .exe), the marker must survive so a later cleanup still owns it.
       if (!isOwned(target, command)) continue;
-      fs.rmSync(shimMarkerPath(target), { force: true });
       fs.rmSync(target, { force: true });
+      fs.rmSync(shimMarkerPath(target), { force: true });
     } catch (error) {
       logger.warn(`Could not remove the ${command} shim at ${target}: ${(error as Error).message}.`);
     }

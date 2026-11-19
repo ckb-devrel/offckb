@@ -69,11 +69,14 @@ function npmPackageLocation(resolved: string | undefined): string | undefined {
  */
 export function parsePluginInstallSpec(input: string): PluginInstallSpec {
   if (!input || input.length > 1024 || /[\x00-\x1f\x7f]/.test(input)) throw new Error('Invalid plugin source');
-  const catalog = /^([a-z][a-z0-9-]{0,47})(?:@([A-Za-z0-9][A-Za-z0-9._/-]*))?$/.exec(input);
-  if (catalog && catalogEntry(catalog[1])) {
-    const ref = catalog[2] ?? 'latest';
+  // Reserve catalog names before interpreting the suffix: a catalog name
+  // with an unsupported suffix is a release-tag error, never a silent fall
+  // through to the npm package path (npm: stays available explicitly).
+  const catalogName = /^([a-z][a-z0-9-]{0,47})(?:@(.*))?$/.exec(input);
+  if (catalogName && catalogEntry(catalogName[1])) {
+    const ref = catalogName[2] ?? 'latest';
     if (ref !== 'latest' && (!TAG.test(ref) || ref.includes('..'))) throw new Error(`Invalid release tag: ${ref}`);
-    return { kind: 'catalog', requested: input, spec: catalog[1], name: catalog[1], ref };
+    return { kind: 'catalog', requested: input, spec: catalogName[1], name: catalogName[1], ref };
   }
   const github =
     /^(?:github:|https:\/\/github\.com\/)?([A-Za-z0-9][A-Za-z0-9-]*)\/([A-Za-z0-9][A-Za-z0-9._-]*?)(?:\.git)?(?:#([A-Za-z0-9][A-Za-z0-9._/-]*))?$/.exec(

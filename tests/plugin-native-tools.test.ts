@@ -266,8 +266,9 @@ describe('native tool registrations', () => {
     // A valid binary descriptor appearing in a linked directory is honored
     // (the user owns the directory); it still runs sandboxed unless the link
     // was explicitly trusted, so nothing silently escalates.
-    fs.writeFileSync(path.join(jsRoot, 'js-tamper'), '#!/bin/sh\n');
-    if (process.platform !== 'win32') fs.chmodSync(path.join(jsRoot, 'js-tamper'), 0o755);
+    const tamperBin = process.platform === 'win32' ? 'js-tamper.exe' : 'js-tamper';
+    fs.writeFileSync(path.join(jsRoot, tamperBin), '#!/bin/sh\n');
+    if (process.platform !== 'win32') fs.chmodSync(path.join(jsRoot, tamperBin), 0o755);
     fs.writeFileSync(
       path.join(jsRoot, 'offckb-tool.json'),
       JSON.stringify({
@@ -276,7 +277,7 @@ describe('native tool registrations', () => {
         version: '1.0.0',
         command: 'js-tamper',
         description: 'Native js-tamper',
-        entry: 'js-tamper',
+        entry: tamperBin,
         permissions: [],
       }),
     );
@@ -303,8 +304,9 @@ describe('native tool registrations', () => {
   it('links local binary tool directories like local development tools', () => {
     const binaryDir = path.join(root, 'linked-binary');
     fs.mkdirSync(binaryDir);
-    fs.writeFileSync(path.join(binaryDir, 'tool'), '#!/bin/sh\n');
-    if (process.platform !== 'win32') fs.chmodSync(path.join(binaryDir, 'tool'), 0o755);
+    const linkedBin = process.platform === 'win32' ? 'tool.exe' : 'tool';
+    fs.writeFileSync(path.join(binaryDir, linkedBin), '#!/bin/sh\n');
+    if (process.platform !== 'win32') fs.chmodSync(path.join(binaryDir, linkedBin), 0o755);
     fs.writeFileSync(
       path.join(binaryDir, 'offckb-tool.json'),
       JSON.stringify({
@@ -313,7 +315,7 @@ describe('native tool registrations', () => {
         version: '0.1.0',
         command: 'linked-binary',
         description: 'Linked binary tool',
-        entry: 'tool',
+        entry: linkedBin,
         permissions: [],
       }),
     );

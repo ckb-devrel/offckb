@@ -165,6 +165,7 @@ export async function installBinaryTool(
       version: tool.version,
       command: tool.command,
       description: tool.description,
+      permissions: tool.permissions,
       execution: tool.execution,
       platforms: tool.platforms!,
     },

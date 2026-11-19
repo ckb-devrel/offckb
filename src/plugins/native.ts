@@ -17,8 +17,10 @@ import {
   commitNativeRegistration,
   ensurePluginHome,
   getNativeRecord,
+  getNativeRegistration,
   isSourceTrusted,
   NativeSource,
+  updateNativeGrants,
   pluginNativeDir,
   pluginNativeRoot,
 } from './store';
@@ -147,8 +149,13 @@ export async function probeBinaryDescriptor(
     }
   }
   const url = `https://raw.githubusercontent.com/${repository}/${tag}/offckb-tool.json`;
-  const response = await Request.fetch(url);
-  if (response.status === 404) return null;
+  let response = await Request.fetch(url);
+  if (response.status >= 500) {
+    // Transient raw-endpoint failures must not hard-block JS GitHub sources:
+    // retry once, then treat the descriptor as absent so the npm path runs.
+    response = await Request.fetch(url);
+  }
+  if (response.status === 404 || response.status >= 500) return null;
   if (!response.ok) throw new Error(`Could not read the binary tool descriptor at ${url}: HTTP ${response.status}`);
   // Throws on malformed descriptors rather than silently falling back to the
   // npm package flow: a repo that declares a broken binary descriptor means
@@ -211,7 +218,8 @@ async function verifyChecksum(checksumUrl: string, archivePath: string): Promise
 
 export function getVersionFromBinary(binaryPath: string): string | null {
   try {
-    const result = spawnSync(binaryPath, ['--version'], { encoding: 'utf8' });
+    // A wedged binary must never block the install: hard deadline, child killed.
+    const result = spawnSync(binaryPath, ['--version'], { encoding: 'utf8', timeout: 10_000, killSignal: 'SIGKILL' });
     if (result.status !== 0) {
       return null;
     }
@@ -280,7 +288,7 @@ async function planPlatformsInstall(tool: NativeToolInstall): Promise<PlannedIns
     command: tool.command,
     description: tool.description,
     entry: '',
-    permissions: [],
+    permissions: tool.permissions ?? [],
     ...(tool.execution ? { execution: tool.execution } : {}),
     platforms: { [platform]: { ...asset, sha256 } },
   };
@@ -323,7 +331,7 @@ async function planTemplateInstall(tool: NativeToolInstall, tag: string): Promis
       command: tool.command,
       description: tool.description,
       entry: '',
-      permissions: [],
+      permissions: tool.permissions ?? [],
       platforms: {
         [`${process.platform}-${process.arch}`]: {
           url: archiveUrl,
@@ -433,12 +441,24 @@ export async function installNativeTool(
     approveAfterCommit = null;
   };
 
+  // A same-version reinstall must not silently keep the previous grants.
+  const applyGrantChanges = (command: string) => {
+    const requested = [...(options.allow ?? [])].sort();
+    const installed = getNativeRegistration(command);
+    if (installed && JSON.stringify(installed.permissions) !== JSON.stringify(requested)) {
+      updateNativeGrants(command, (options.allow ?? []) as PluginPermission[]);
+      logger.info(`Updated ${command} capability grants: ${requested.join(', ') || '(none)'}`);
+    }
+  };
+
   // Idempotent offline path: template sources with an exact tag, and any
   // pinned immutable source whose version is already registered. Local or
   // HTTPS descriptor files always reinstall: their content may change at a
   // constant version, so the pinned SHA-256 must be re-verified every time.
   const existing = getNativeRecord(tool.command);
-  const immutableSource = options.sourceKind !== 'descriptor';
+  // Local/HTTPS descriptors always reinstall; the mutable HEAD fallback
+  // never gets an offline idempotency shortcut either.
+  const immutableSource = options.sourceKind !== 'descriptor' && ref !== 'HEAD';
   const pinnedVersion = tool.platforms
     ? options.sourceKind === 'github'
       ? ref
@@ -454,6 +474,7 @@ export async function installNativeTool(
     existing.source.id === sourceId
   ) {
     ensureCommandShim(tool.command, existing.path);
+    applyGrantChanges(tool.command);
     persistApproval();
     logger.info(`${tool.command} ${pinnedVersion} is already installed at ${existing.path}.`);
     return {
@@ -519,6 +540,7 @@ export async function installNativeTool(
         const tag = ref === 'latest' ? await resolveLatestTag(tool.release.repo) : ref;
         if (existing && existing.version === tag && existing.source.id === sourceId) {
           ensureCommandShim(tool.command, existing.path);
+          applyGrantChanges(tool.command);
           persistApproval();
           logger.info(`${tool.command} ${tag} is already installed at ${existing.path}.`);
           return {
@@ -548,7 +570,10 @@ export async function installNativeTool(
     }
     if (process.platform !== 'win32') fs.chmodSync(stagedBinary, 0o755);
 
-    const probed = getVersionFromBinary(stagedBinary);
+    // Content-pinned descriptors trust the SHA-256, not runnability: never
+    // launch their binary during install. Template sources keep the
+    // runnability gate (a binary that cannot run here is rejected).
+    const probed = tool.platforms ? null : getVersionFromBinary(stagedBinary);
     let version: string;
     if (!probed) {
       if (tool.platforms) {

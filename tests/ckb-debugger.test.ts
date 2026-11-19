@@ -1,4 +1,5 @@
 import fs from 'fs';
+import path from 'path';
 import { spawnSync, execFileSync } from 'child_process';
 import { nativeBinaryFileName } from '../src/plugins/manifest';
 import { getNativeBinaryPath } from '../src/plugins/store';
@@ -24,7 +25,7 @@ const mockExecFileSync = execFileSync as jest.Mock;
 const mockExistsSync = fs.existsSync as jest.Mock;
 const mockGetNativeBinaryPath = getNativeBinaryPath as jest.Mock;
 
-const LEGACY_BINARY = `/legacy/tools/ckb-debugger/${nativeBinaryFileName('ckb-debugger')}`;
+const LEGACY_BINARY = path.join('/legacy/tools/ckb-debugger', nativeBinaryFileName('ckb-debugger'));
 
 const GUARD = 'OFFCKB_DEBUGGER_GUARD';
 const originalGuard = process.env[GUARD];

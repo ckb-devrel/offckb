@@ -665,6 +665,24 @@ export function commitNativeRegistration(
   });
 }
 
+/** Update capability grants on an installed native tool (e.g. a same-version reinstall with different --allow flags). */
+export function updateNativeGrants(command: string, permissions: PluginPermission[]): void {
+  withRegistryLock(() => {
+    const registry = readRegistry();
+    const entry = Object.prototype.hasOwnProperty.call(registry.plugins, command)
+      ? registry.plugins[command]
+      : undefined;
+    if (!entry?.binary) throw new Error(`No installed binary tool named ${command}`);
+    assertNotRunning(command);
+    const plugin = readPluginManifest(entry.directory);
+    if (plugin.kind !== 'binary') throw new Error('Plugin registration kind changed; remove and reinstall the tool');
+    if (permissions.some((permission) => !plugin.permissions.includes(permission)))
+      throw new Error('Only permissions declared by this tool may be granted');
+    entry.permissions = [...permissions].sort();
+    writeRegistry(registry);
+  });
+}
+
 /** Resolve a registered native tool's binary path, or null when absent/uninstalled. Never throws. */
 export function getNativeBinaryPath(command: string): string | null {
   if (!isNativeRootSafe()) return null;
@@ -673,13 +691,20 @@ export function getNativeBinaryPath(command: string): string | null {
 
 /** The raw native registration record, or null. Never throws. */
 export function getNativeRecord(command: string): NativeBinaryRecord | null {
+  return getNativeRegistration(command)?.binary ?? null;
+}
+
+/** Registration record plus granted capabilities, or null. Never throws. */
+export function getNativeRegistration(
+  command: string,
+): { binary: NativeBinaryRecord; permissions: PluginPermission[] } | null {
   try {
     const registry = readRegistry();
     const entry = Object.prototype.hasOwnProperty.call(registry.plugins, command)
       ? registry.plugins[command]
       : undefined;
     if (!entry?.binary || !isUsableManagedBinary(entry.binary.path)) return null;
-    return entry.binary;
+    return { binary: entry.binary, permissions: entry.permissions };
   } catch {
     return null;
   }
@@ -835,7 +860,7 @@ export function acquirePlugin(
     if (entry.binary && plugin.kind !== 'binary') {
       throw new Error('Plugin registration kind changed; remove and reinstall the tool');
     }
-    if (entry.binary && path.basename(plugin.entry!) !== entry.binary.binName) {
+    if (entry.binary && fs.realpathSync(plugin.entry!) !== fs.realpathSync(entry.binary.path)) {
       throw new Error('Managed binary identity changed; remove and reinstall the tool');
     }
     assertPluginCompatible(plugin);
