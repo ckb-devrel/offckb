@@ -3,6 +3,7 @@ import path from 'path';
 import { createHash, randomUUID } from 'crypto';
 import { dataPath } from '../cfg/setting';
 import { logger } from '../util/logger';
+import { removeCommandShims } from './shims';
 import {
   assertPluginCompatible,
   isPluginCommand,
@@ -18,6 +19,19 @@ export interface PluginSource {
   kind: 'npm' | 'github';
   requested: string;
   resolved: string;
+}
+/** A binary tool installation source: the first-party catalog or an approved GitHub repository. */
+export interface NativeSource {
+  kind: 'catalog' | 'github';
+  requested: string;
+  resolved: string;
+}
+export interface NativeBinaryRecord {
+  binName: string;
+  version: string;
+  /** Absolute path to the managed binary; stable across upgrades of the same command. */
+  path: string;
+  source: NativeSource;
 }
 export interface PluginInstallation {
   id: string;
@@ -37,6 +51,8 @@ interface Registration {
   /** Host authorization only; a package declaration can never select trusted execution. */
   trusted?: { name: string; version: string };
   installation?: PluginInstallation;
+  /** Present exactly for binary tool plugins; mutually exclusive with installation/trusted. */
+  binary?: NativeBinaryRecord;
 }
 interface Registry {
   apiVersion: 2;
@@ -47,7 +63,8 @@ export interface PluginInfo {
   command: string;
   directory: string;
   mode: PluginMode;
-  source?: PluginSource;
+  kind: 'js' | 'binary';
+  source?: PluginSource | NativeSource;
   state: 'available' | 'invalid' | 'incompatible' | 'shadowed';
   name?: string;
   version?: string;
@@ -118,11 +135,40 @@ function readRegistry(): Registry {
         entry.readPaths.some((file) => typeof file !== 'string' || !path.isAbsolute(file)) ||
         (entry.trusted !== undefined &&
           (!entry.trusted || typeof entry.trusted.name !== 'string' || typeof entry.trusted.version !== 'string')) ||
-        (entry.installation !== undefined && !isInstallation(entry.installation)),
+        (entry.installation !== undefined && !isInstallation(entry.installation)) ||
+        (entry.binary !== undefined && !isNativeBinary(command, entry.binary)) ||
+        (entry.binary !== undefined &&
+          (entry.installation !== undefined ||
+            entry.trusted !== undefined ||
+            entry.permissions.length !== 0 ||
+            entry.readPaths.length !== 0)),
     )
   )
     throw new Error(`Invalid plugin registry: ${registryPath()}`);
   return registry;
+}
+
+function isNativeBinary(command: string, value: NativeBinaryRecord): boolean {
+  if (
+    !value ||
+    typeof value.binName !== 'string' ||
+    !value.binName ||
+    typeof value.version !== 'string' ||
+    !value.version ||
+    typeof value.path !== 'string' ||
+    !path.isAbsolute(value.path) ||
+    !value.source ||
+    !['catalog', 'github'].includes(value.source.kind) ||
+    typeof value.source.requested !== 'string' ||
+    typeof value.source.resolved !== 'string'
+  )
+    return false;
+  // The managed binary must live inside the registration directory, which in
+  // turn must be the command's directory under the native tools root, so the
+  // exposed path is always host-owned and never a caller-supplied location.
+  const inside = path.relative(pluginNativeRoot(), value.path);
+  if (inside.startsWith('..') || path.isAbsolute(inside)) return false;
+  return value.path.startsWith(path.join(pluginNativeRoot(), command) + path.sep);
 }
 
 function isInstallation(value: PluginInstallation): boolean {
@@ -145,6 +191,16 @@ export function pluginPackagesPath(): string {
   fs.mkdirSync(packages, { recursive: true, mode: 0o700 });
   if (fs.lstatSync(packages).isSymbolicLink()) throw new Error('Plugin packages directory must not be a symlink');
   return packages;
+}
+
+/** Native tool plugins live under <plugin home>/native/<command>; the binary path is stable across upgrades. */
+export function pluginNativeRoot(): string {
+  return path.join(pluginHome(), 'native');
+}
+
+export function pluginNativeDir(command: string): string {
+  if (!isPluginCommand(command)) throw new Error('Invalid plugin command');
+  return path.join(pluginNativeRoot(), command);
 }
 
 function installationRoot(entry: Registration): string | undefined {
@@ -230,12 +286,15 @@ function assertNotRunning(command: string): void {
 
 export function listPlugins(reserved: ReadonlySet<string>, checkMode?: (mode: PluginMode) => void): PluginInfo[] {
   return Object.entries(readRegistry().plugins).map(
-    ([command, { directory, permissions, readPaths, trusted, installation }]) => {
+    ([command, { directory, permissions, readPaths, trusted, installation, binary }]) => {
       const base = {
         command,
         directory,
-        mode: trusted ? ('trusted' as const) : ('sandbox' as const),
+        kind: (binary ? 'binary' : 'js') as 'binary' | 'js',
+        // Binary tools always run natively; sandboxing is not offered for this kind.
+        mode: binary || trusted ? ('trusted' as const) : ('sandbox' as const),
         ...(installation ? { source: installation.source } : {}),
+        ...(binary ? { source: binary.source } : {}),
       };
       if (reserved.has(command)) return { ...base, state: 'shadowed', error: 'A core command has priority' };
       let plugin: PluginManifest;
@@ -374,16 +433,210 @@ export function commitPluginInstallation(
 /** Managed packages are removed; user-linked directories and persistent data/cache are kept. */
 export function removePlugin(command: string): void {
   let root: string | undefined;
+  let nativeDir: string | undefined;
   withRegistryLock(() => {
     const registry = readRegistry();
     if (!Object.prototype.hasOwnProperty.call(registry.plugins, command))
       throw new Error(`Plugin ${command} is not linked`);
     assertNotRunning(command);
     root = installationRoot(registry.plugins[command]);
+    if (registry.plugins[command].binary) {
+      const dir = pluginNativeDir(command);
+      // Only ever delete a host-owned directory under the native tools root.
+      const relative = path.relative(pluginNativeRoot(), dir);
+      if (!relative.startsWith('..') && !path.isAbsolute(relative)) nativeDir = dir;
+    }
     delete registry.plugins[command];
     writeRegistry(registry);
   });
   cleanupInstallation(root);
+  if (nativeDir) {
+    try {
+      fs.rmSync(nativeDir, { recursive: true, force: true });
+    } catch {
+      logger.warn(`Plugin registration removed, but native tool cleanup failed at ${nativeDir}; remove it manually.`);
+    }
+    removeCommandShims(command);
+  }
+}
+
+/**
+ * Binary tool registrations are trusted natively; catalog/GitHub source is recorded for display.
+ * `swapIntoPlace` runs inside the registry lock, before the registry write, so a failed swap
+ * (e.g. the old binary still running on Windows) never leaves a committed-but-missing tool.
+ */
+export function commitNativeRegistration(
+  command: string,
+  record: NativeBinaryRecord,
+  reserved: ReadonlySet<string>,
+  swapIntoPlace: () => void,
+): void {
+  withRegistryLock(() => {
+    if (!isPluginCommand(command)) throw new Error('Invalid plugin command');
+    if (reserved.has(command)) throw new Error(`Plugin command ${command} conflicts with a core command`);
+    const registry = readRegistry();
+    const previous = Object.prototype.hasOwnProperty.call(registry.plugins, command)
+      ? registry.plugins[command]
+      : undefined;
+    if (previous && !previous.binary)
+      throw new Error(`Plugin command ${command} is already linked; remove/unlink it explicitly first`);
+    if (
+      previous?.binary &&
+      Object.entries(registry.plugins).some(
+        ([name, entry]) => name !== command && entry.binary?.source.resolved === record.source.resolved,
+      )
+    )
+      throw new Error('This tool changed its command; remove its previous registration first');
+    assertNotRunning(command);
+    swapIntoPlace();
+    registry.plugins[command] = {
+      directory: pluginNativeDir(command),
+      permissions: [],
+      readPaths: [],
+      binary: record,
+    };
+    writeRegistry(registry);
+  });
+}
+
+/** Resolve a registered native tool's binary path, or null when absent/uninstalled. Never throws. */
+export function getNativeBinaryPath(command: string): string | null {
+  return getNativeRecord(command)?.path ?? null;
+}
+
+/** The raw native registration record, or null. Never throws. */
+export function getNativeRecord(command: string): NativeBinaryRecord | null {
+  try {
+    const registry = readRegistry();
+    const entry = Object.prototype.hasOwnProperty.call(registry.plugins, command)
+      ? registry.plugins[command]
+      : undefined;
+    if (!entry?.binary || !fs.existsSync(entry.binary.path)) return null;
+    return entry.binary;
+  } catch {
+    return null;
+  }
+}
+
+export interface NativeToolEnvEntry {
+  command: string;
+  envName: string;
+  path: string;
+}
+
+/** OFFCKB_TOOL_<COMMAND> entries for every registered native tool, for env export and child processes. */
+export function listNativeTools(): NativeToolEnvEntry[] {
+  try {
+    return Object.entries(readRegistry().plugins).flatMap(([command, entry]) => {
+      if (!entry.binary || !fs.existsSync(entry.binary.path)) return [];
+      return [
+        {
+          command,
+          envName: `OFFCKB_TOOL_${command.toUpperCase().replace(/-/g, '_')}`,
+          path: entry.binary.path,
+        },
+      ];
+    });
+  } catch {
+    return [];
+  }
+}
+
+export function nativeToolEnv(): Record<string, string> {
+  return Object.fromEntries(listNativeTools().map((tool) => [tool.envName, tool.path]));
+}
+
+// --- Trusted-source allowlist for third-party binary tools ---
+// The catalog is implicitly trusted; anything else must be approved locally
+// first. Approval binds the source identity (owner/repo, or npm package or
+// scope), never a version: installs stay pinned per install, and upgrading
+// from an approved source never re-prompts.
+
+const TRUSTED_SOURCES_FILE = 'trusted-sources.json';
+
+interface TrustedSourcesFile {
+  apiVersion: 1;
+  sources: Array<{ source: string; addedAt: string }>;
+}
+
+function trustedSourcesPath(): string {
+  return path.join(pluginHome(), TRUSTED_SOURCES_FILE);
+}
+
+export function normalizeTrustedSource(source: string): string {
+  const trimmed = source.trim();
+  // Identities are case-insensitive on both GitHub and the npm registry;
+  // the normalized form is the lowercase spelling.
+  const npmName = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/i;
+  const githubRepo = /^[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9._-]*$/i;
+  if (!npmName.test(trimmed) && !githubRepo.test(trimmed)) {
+    throw new Error('Invalid trusted source: use a GitHub owner/repo or an npm package/scope name');
+  }
+  return trimmed.toLowerCase();
+}
+
+function readTrustedSources(): TrustedSourcesFile {
+  let value: unknown;
+  try {
+    value = readJsonFile(trustedSourcesPath());
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { apiVersion: 1, sources: [] };
+    throw new Error(`Cannot read trusted sources ${trustedSourcesPath()}: ${(error as Error).message}`);
+  }
+  const file = value as TrustedSourcesFile;
+  if (
+    file?.apiVersion !== 1 ||
+    !Array.isArray(file.sources) ||
+    file.sources.some((entry) => !entry || typeof entry.source !== 'string' || typeof entry.addedAt !== 'string')
+  )
+    throw new Error(`Invalid trusted sources file: ${trustedSourcesPath()}`);
+  return file;
+}
+
+function writeTrustedSources(file: TrustedSourcesFile): void {
+  const temporary = `${trustedSourcesPath()}.${randomUUID()}.tmp`;
+  try {
+    fs.writeFileSync(temporary, JSON.stringify(file, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+    fs.renameSync(temporary, trustedSourcesPath());
+  } finally {
+    try {
+      fs.rmSync(temporary, { force: true });
+    } catch {
+      logger.warn(`Trusted sources temporary-file cleanup failed at ${temporary}.`);
+    }
+  }
+}
+
+export function listTrustedSources(): string[] {
+  return readTrustedSources().sources.map((entry) => entry.source);
+}
+
+export function isSourceTrusted(source: string): boolean {
+  const normalized = normalizeTrustedSource(source);
+  return listTrustedSources().includes(normalized);
+}
+
+export function addTrustedSource(source: string): string[] {
+  const normalized = normalizeTrustedSource(source);
+  return withRegistryLock(() => {
+    const file = readTrustedSources();
+    if (!file.sources.some((entry) => entry.source === normalized)) {
+      file.sources.push({ source: normalized, addedAt: new Date().toISOString() });
+      writeTrustedSources(file);
+    }
+    return file.sources.map((entry) => entry.source);
+  });
+}
+
+/** Removing a source freezes its existing installs in place; upgrades/reinstalls require re-approval. */
+export function removeTrustedSource(source: string): string[] {
+  const normalized = normalizeTrustedSource(source);
+  return withRegistryLock(() => {
+    const file = readTrustedSources();
+    file.sources = file.sources.filter((entry) => entry.source !== normalized);
+    writeTrustedSources(file);
+    return file.sources.map((entry) => entry.source);
+  });
 }
 
 /** A foreground lease prevents unlink/relink; it never authorizes signaling a saved PID. */

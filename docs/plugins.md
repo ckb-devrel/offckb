@@ -2,6 +2,8 @@
 
 Plugins are independent npm-shaped packages with a static declaration and a prebuilt JavaScript entry. The host supplies a versioned context and runs each tool in a separate process. Execution uses an OS sandbox by default; users may explicitly trust an individual package for native execution. The host provides npm/GitHub installation, managed replacement/removal, local linking, foreground execution and capability grants. Background services and dependencies between offckb plugins are deferred.
 
+> **Binary tool plugins**: a second plugin kind manages native binaries (starting with ckb-debugger) instead of JavaScript entries. Binary tools share the registry and install/remove/list lifecycle but are exposed through a stable path, PATH shims and `OFFCKB_TOOL_*` environment variables rather than the context/sandbox protocol, and third-party sources require the trusted-source allowlist. See [binary-tool-plugins.md](binary-tool-plugins.md).
+
 ## Platform boundary
 
 | Mode | Platforms | Requirements |

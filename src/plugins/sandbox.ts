@@ -48,6 +48,10 @@ export async function preparePluginExecution(
   mode: PluginMode = 'sandbox',
 ): Promise<{ command: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv; dispose: () => void }> {
   if (mode === 'sandbox') assertSandboxSupported();
+  // Only JS plugins have a sandboxed entry; binary tools never reach this path.
+  if (plugin.kind !== 'js' || !plugin.entry) {
+    throw new Error(`${plugin.command} is a binary tool plugin and has no JavaScript entry`);
+  }
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ocp-')));
   const cleanup: Array<() => void> = [];
   const dispose = () => {

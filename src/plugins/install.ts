@@ -9,22 +9,45 @@ import { LIFETIME_SIGNALS, LifetimeSignal, signalExitCode } from '../util/child-
 import { enterGracefulShutdown } from '../util/shutdown';
 import { logger } from '../util/logger';
 import { readJsonFile, readPluginManifest } from './manifest';
-import { commitPluginInstallation, PluginLinkOptions, PluginSource, pluginPackagesPath } from './store';
+import {
+  commitPluginInstallation,
+  NativeSource,
+  PluginLinkOptions,
+  PluginSource,
+  pluginNativeDir,
+  pluginPackagesPath,
+} from './store';
 import { signalPluginChild } from './process';
+import { catalogEntry } from './catalog';
+import { descriptorFromCatalog, installNativeTool, probeBinaryDescriptor } from './native';
 
 const PACKAGE_NAME = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
+const TAG = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 
 export interface PluginInstallSpec {
-  kind: PluginSource['kind'];
+  kind: PluginSource['kind'] | 'catalog';
   requested: string;
   spec: string;
   name?: string;
   repository?: string;
+  /** catalog: release tag or 'latest'; github: optional ref for binary descriptor probing. */
+  ref?: string;
 }
 
-/** Deliberately accept registry packages and HTTPS GitHub repositories, not arbitrary npm spec protocols. */
+/**
+ * Deliberately accept registry packages, HTTPS GitHub repositories and
+ * first-party catalog names — not arbitrary npm spec protocols. Catalog
+ * names are checked first; an npm package that literally shares a catalog
+ * name can still be requested with the explicit `npm:` prefix.
+ */
 export function parsePluginInstallSpec(input: string): PluginInstallSpec {
   if (!input || input.length > 1024 || /[\x00-\x1f\x7f]/.test(input)) throw new Error('Invalid plugin source');
+  const catalog = /^([a-z][a-z0-9-]{0,47})(?:@([A-Za-z0-9][A-Za-z0-9._/-]*))?$/.exec(input);
+  if (catalog && catalogEntry(catalog[1])) {
+    const ref = catalog[2] ?? 'latest';
+    if (ref !== 'latest' && (!TAG.test(ref) || ref.includes('..'))) throw new Error(`Invalid release tag: ${ref}`);
+    return { kind: 'catalog', requested: input, spec: catalog[1], name: catalog[1], ref };
+  }
   const github =
     /^(?:github:|https:\/\/github\.com\/)?([A-Za-z0-9][A-Za-z0-9-]*)\/([A-Za-z0-9][A-Za-z0-9._-]*?)(?:\.git)?(?:#([A-Za-z0-9][A-Za-z0-9._/-]*))?$/.exec(
       input,
@@ -36,6 +59,7 @@ export function parsePluginInstallSpec(input: string): PluginInstallSpec {
       requested: input,
       repository,
       spec: `git+https://github.com/${repository}.git${github[3] ? `#${github[3]}` : ''}`,
+      ref: github[3],
     };
   }
   const spec = input.startsWith('npm:') ? input.slice(4) : input;
@@ -48,7 +72,7 @@ export function parsePluginInstallSpec(input: string): PluginInstallSpec {
     !version ||
     (!semver.validRange(version) && !/^[A-Za-z][A-Za-z0-9._-]*$/.test(version))
   )
-    throw new Error('Use an npm package[@version] or github:owner/repo[#tag-or-commit]');
+    throw new Error('Use an npm package[@version], github:owner/repo[#tag-or-commit], or a catalog tool name');
   return { kind: 'npm', requested: input, spec: `${name}@${version}`, name };
 }
 
@@ -159,8 +183,8 @@ async function runNpm(spec: string, directory: string, allowScripts: boolean): P
 export async function installPlugin(
   input: string,
   reserved: ReadonlySet<string>,
-  options: PluginLinkOptions & { allowScripts?: boolean } = {},
-): Promise<{ plugin: ReturnType<typeof readPluginManifest>; source: PluginSource }> {
+  options: PluginLinkOptions & { allowScripts?: boolean; trustSource?: string } = {},
+): Promise<{ plugin: ReturnType<typeof readPluginManifest>; source: PluginSource | NativeSource }> {
   const source = parsePluginInstallSpec(input);
   if (options.allowScripts && !options.trust)
     throw new Error(
@@ -168,6 +192,46 @@ export async function installPlugin(
     );
   if (options.allowScripts)
     logger.warn('Install/build scripts are enabled and run with your user permissions, outside the runtime sandbox.');
+
+  // First-party catalog tools are native binaries managed by offckb.
+  if (source.kind === 'catalog') {
+    const entry = catalogEntry(source.name!);
+    if (!entry) throw new Error(`Unknown catalog tool: ${source.name}`);
+    const result = await installNativeTool(descriptorFromCatalog(entry), source.ref ?? 'latest', {
+      requested: source.requested,
+      sourceKind: 'catalog',
+      reserved,
+    });
+    return {
+      plugin: readPluginManifest(pluginNativeDir(result.command)),
+      source: { kind: 'catalog', requested: source.requested, resolved: `${entry.name}@${result.version}` },
+    };
+  }
+
+  // A GitHub repository declaring an offckb-plugin.json binary descriptor is
+  // a native tool plugin; otherwise it must be an npm-compatible JS plugin.
+  if (source.kind === 'github') {
+    const descriptor = await probeBinaryDescriptor(source.repository!, source.ref);
+    if (descriptor) {
+      const result = await installNativeTool(descriptor, source.ref ?? 'latest', {
+        requested: source.requested,
+        sourceKind: 'github',
+        trustSource: options.trustSource,
+        reserved,
+      });
+      return {
+        plugin: readPluginManifest(pluginNativeDir(result.command)),
+        source: {
+          kind: 'github',
+          requested: source.requested,
+          resolved: `github:${source.repository}#${result.version}`,
+        },
+      };
+    }
+    if (options.trustSource) {
+      throw new Error('--trust-source only applies to binary tool sources (an offckb-plugin.json descriptor)');
+    }
+  }
   const packages = pluginPackagesPath();
   const id = randomUUID();
   // This fresh directory is invisible to discovery until the atomic registry write. Keep its
