@@ -116,7 +116,7 @@ export function shimDirectory(): string | null {
   const result = spawnSync(isWindows ? 'where' : 'which', ['offckb'], { encoding: 'utf8' });
   // `which`/`where` failing to spawn leaves stdout null; treat that as
   // "no offckb on PATH" rather than crashing.
-  const stdout = result.stdout ?? '';
+  const stdout = result?.stdout ?? '';
   const offckbPath = stdout.trim().split('\n')[0];
   return offckbPath ? path.dirname(offckbPath) : null;
 }

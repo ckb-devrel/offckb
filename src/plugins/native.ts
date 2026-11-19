@@ -275,6 +275,9 @@ export async function installNativeTool(
     throw new Error(`${entry.command} has no prebuilt binary for ${process.platform}/${process.arch}.`);
   }
   const sourceId = options.sourceKind === 'catalog' ? entry.name : entry.release.repo.toLowerCase();
+  // Fail before any success path — including idempotent early returns that
+  // would otherwise refresh shims for a tampered root.
+  assertNativeRootSafe();
 
   // Every success exit persists a one-shot --trust-source approval, including
   // idempotent reinstalls: revoked sources must be re-approvable by simply

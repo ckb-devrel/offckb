@@ -464,11 +464,21 @@ describe('native tool registrations', () => {
 
     expect(() => commitTool('v0.2.0')).toThrow('must not be a symlink');
     expect(() => removePlugin(command)).toThrow('must not be a symlink');
-    // Nothing was deleted, staged or deregistered: the outside directory
-    // holds exactly the original tool, and the registration is intact.
+    // Mutation is refused and nothing was deleted or staged; discovery and
+    // execution fail closed instead of resolving outside the plugin home.
     expect(fs.readdirSync(outside)).toEqual(['my-tool']);
+    expect(getNativeBinaryPath(command)).toBeNull();
+    expect(listPlugins(new Set())[0]).toMatchObject({ state: 'invalid', error: expect.stringContaining('symlink') });
+    expect(() => acquirePlugin(command)).toThrow('symlink');
+
+    // Restore the real root: the tool is discoverable and removable again.
+    fs.unlinkSync(path.join(home, 'native'));
+    fs.mkdirSync(path.join(home, 'native'));
+    fs.renameSync(path.join(outside, 'my-tool'), pluginNativeDir(command));
     expect(getNativeBinaryPath(command)).not.toBeNull();
     expect(listPlugins(new Set())[0]).toMatchObject({ state: 'available', version: 'v0.1.0' });
+    removePlugin(command);
+    expect(getNativeBinaryPath(command)).toBeNull();
   });
 
   it('rejects a symlinked managed binary in the descriptor directory', () => {

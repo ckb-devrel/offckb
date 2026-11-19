@@ -232,6 +232,16 @@ export function assertNativeRootSafe(): void {
   }
 }
 
+/** Non-throwing variant for discovery/execution paths, which fail closed instead. */
+export function isNativeRootSafe(): boolean {
+  try {
+    assertNativeRootSafe();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function pluginNativeDir(command: string): string {
   if (!isPluginCommand(command)) throw new Error('Invalid plugin command');
   return path.join(pluginNativeRoot(), command);
@@ -331,6 +341,11 @@ export function listPlugins(reserved: ReadonlySet<string>, checkMode?: (mode: Pl
         ...(binary ? { source: binary.source } : {}),
       };
       if (reserved.has(command)) return { ...base, state: 'shadowed', error: 'A core command has priority' };
+      // Discovery fails closed: a tampered native root makes binary tools
+      // unlisted rather than executable from outside the plugin home.
+      if (binary && !isNativeRootSafe()) {
+        return { ...base, state: 'invalid', error: 'Native tools root must not be a symlink' };
+      }
       let plugin: PluginManifest;
       try {
         plugin = readPluginManifest(directory);
@@ -575,6 +590,7 @@ export function commitNativeRegistration(
 
 /** Resolve a registered native tool's binary path, or null when absent/uninstalled. Never throws. */
 export function getNativeBinaryPath(command: string): string | null {
+  if (!isNativeRootSafe()) return null;
   return getNativeRecord(command)?.path ?? null;
 }
 
@@ -600,6 +616,7 @@ export interface NativeToolEnvEntry {
 
 /** OFFCKB_TOOL_<COMMAND> entries for every registered native tool, for env export and child processes. */
 export function listNativeTools(): NativeToolEnvEntry[] {
+  if (!isNativeRootSafe()) return [];
   try {
     return Object.entries(readRegistry().plugins).flatMap(([command, entry]) => {
       if (!entry.binary || !fs.existsSync(entry.binary.path)) return [];
@@ -724,6 +741,11 @@ export function acquirePlugin(
       ? registry.plugins[command]
       : undefined;
     if (!entry) throw new Error(`Plugin ${command} is no longer linked`);
+    // Execution fails closed: a tampered native root never runs a managed
+    // binary from outside the plugin home.
+    if (entry.binary && !isNativeRootSafe()) {
+      throw new Error('Native tools root must not be a symlink; refusing to run the managed binary');
+    }
     const plugin = readPluginManifest(entry.directory);
     if (plugin.command !== command) throw new Error('Plugin command changed; unlink and link the package again');
     // The registration shape and the on-disk declaration must agree, so a
