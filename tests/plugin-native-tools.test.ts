@@ -27,6 +27,7 @@ import {
   commitNativeRegistration,
   commitPluginInstallation,
   getNativeBinaryPath,
+  isSourceTrusted,
   linkPlugin,
   listNativeTools,
   listPlugins,
@@ -61,6 +62,29 @@ describe('trusted-source allowlist', () => {
     expect(() => normalizeTrustedSource('../evil')).toThrow('Invalid trusted source');
     expect(() => normalizeTrustedSource('a repo')).toThrow('Invalid trusted source');
     expect(() => normalizeTrustedSource('')).toThrow('Invalid trusted source');
+  });
+
+  it('supports the documented @scope/* approval shorthand and rejects bare wildcards', () => {
+    addTrustedSource('@MyOrg/*');
+    expect(listTrustedSources()).toEqual(['@myorg/*']);
+    expect(isSourceTrusted('@myorg/pkg')).toBe(true);
+    expect(isSourceTrusted('@myorg/other-tool')).toBe(true);
+    expect(isSourceTrusted('@other/pkg')).toBe(false);
+    expect(() => normalizeTrustedSource('*')).toThrow('Invalid trusted source');
+    expect(() => normalizeTrustedSource('owner/*')).toThrow('Invalid trusted source');
+  });
+
+  it('reports an actionable error when the plugin home is occupied by a file', () => {
+    const fileHome = path.join(root, 'file-home');
+    fs.writeFileSync(fileHome, 'not a directory');
+    const currentHome = process.env.OFFCKB_PLUGIN_HOME;
+    process.env.OFFCKB_PLUGIN_HOME = fileHome;
+    try {
+      expect(() => addTrustedSource('owner/repo')).toThrow(/Cannot create the plugin home/);
+    } finally {
+      if (currentHome === undefined) delete process.env.OFFCKB_PLUGIN_HOME;
+      else process.env.OFFCKB_PLUGIN_HOME = currentHome;
+    }
   });
 
   it('adds, lists and removes approvals idempotently', () => {

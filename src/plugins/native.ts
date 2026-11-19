@@ -14,6 +14,7 @@ import {
   addTrustedSource,
   assertNativeRootSafe,
   commitNativeRegistration,
+  ensurePluginHome,
   getNativeRecord,
   isSourceTrusted,
   NativeBinaryRecord,
@@ -302,6 +303,9 @@ export async function installNativeTool(
   }
 
   const nativeDir = pluginNativeDir(entry.command);
+  // Fail before touching the filesystem when the plugin home cannot hold
+  // directories (e.g. OFFCKB_PLUGIN_HOME points at a file).
+  ensurePluginHome();
   // Staging paths are derived from the native root; refuse to create them
   // outside the plugin home when the root is a symlink.
   assertNativeRootSafe();

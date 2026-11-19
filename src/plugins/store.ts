@@ -278,8 +278,22 @@ function cleanupInstallation(root: string | undefined): void {
   }
 }
 
+/** Create the plugin home with an actionable error when it cannot be a directory. */
+export function ensurePluginHome(): string {
+  const home = pluginHome();
+  try {
+    fs.mkdirSync(home, { recursive: true, mode: 0o700 });
+  } catch (error) {
+    throw new Error(
+      `Cannot create the plugin home at ${home}: ${(error as NodeJS.ErrnoException).code || (error as Error).message}. ` +
+        'Check that OFFCKB_PLUGIN_HOME (or the offckb data directory) is not occupied by a file.',
+    );
+  }
+  return home;
+}
+
 function withRegistryLock<T>(action: () => T): T {
-  fs.mkdirSync(pluginHome(), { recursive: true, mode: 0o700 });
+  ensurePluginHome();
   const lock = path.join(pluginHome(), 'registry.lock');
   let fd: number;
   try {
@@ -668,7 +682,9 @@ export function normalizeTrustedSource(source: string): string {
   const trimmed = source.trim();
   // Identities are case-insensitive on both GitHub and the npm registry;
   // the normalized form is the lowercase spelling.
-  const npmName = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/i;
+  // An npm scope may be approved as a whole with the documented `@scope/*`
+  // shorthand; a wildcard is only valid after a scope.
+  const npmName = /^(?:@[a-z0-9][a-z0-9._-]*\/(?:[a-z0-9][a-z0-9._-]*|\*)|[a-z0-9][a-z0-9._-]*)$/i;
   const githubRepo = /^[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9._-]*$/i;
   if (!npmName.test(trimmed) && !githubRepo.test(trimmed)) {
     throw new Error('Invalid trusted source: use a GitHub owner/repo or an npm package/scope name');
@@ -714,7 +730,9 @@ export function listTrustedSources(): string[] {
 
 export function isSourceTrusted(source: string): boolean {
   const normalized = normalizeTrustedSource(source);
-  return listTrustedSources().includes(normalized);
+  return listTrustedSources().some(
+    (entry) => entry === normalized || (entry.endsWith('/*') && normalized.startsWith(entry.slice(0, -1))),
+  );
 }
 
 export function addTrustedSource(source: string): string[] {

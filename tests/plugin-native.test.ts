@@ -42,7 +42,8 @@ jest.mock('../src/cfg/setting', () => ({
 }));
 
 import { installPlugin, parsePluginInstallSpec } from '../src/plugins/install';
-import { probeBinaryDescriptor } from '../src/plugins/native';
+import { descriptorFromCatalog, installNativeTool, probeBinaryDescriptor } from '../src/plugins/native';
+import { catalogEntry } from '../src/plugins/catalog';
 import {
   addTrustedSource,
   getNativeBinaryPath,
@@ -448,6 +449,32 @@ describe('third-party GitHub binary tools and the trusted-source allowlist', () 
     // The failed install must leave no permanent trust behind.
     expect(listTrustedSources()).toEqual([]);
     expect(getNativeBinaryPath('my-tool')).toBeNull();
+  });
+
+  it('rejects asset templates that render unsafe path segments', async () => {
+    const buffer = await buildTarGz(BINARY_NAME, '1.1.2');
+    mockDebuggerRelease('1.1.2', buffer);
+    // A catalog entry whose template escapes the release path must never
+    // reach the network layer.
+    const tampered = {
+      ...descriptorFromCatalog(catalogEntry('ckb-debugger')!),
+      release: { repo: 'nervosnetwork/ckb-standalone-debugger', asset: '../{tag}_{target}.tar.gz', checksum: '{tag}-sha256.txt' },
+    };
+    await expect(
+      installNativeTool(tampered, 'v1.1.2', { requested: 'ckb-debugger', sourceKind: 'catalog', reserved: new Set() }),
+    ).rejects.toThrow(/Unsafe release asset name/);
+    // Unknown placeholders must not silently pass through either.
+    const unreplaced = {
+      ...descriptorFromCatalog(catalogEntry('ckb-debugger')!),
+      release: {
+        repo: 'nervosnetwork/ckb-standalone-debugger',
+        asset: 'ckb-debugger_{tag}_{target}_{arch}.tar.gz',
+        checksum: '{tag}-sha256.txt',
+      },
+    };
+    await expect(
+      installNativeTool(unreplaced, 'v1.1.2', { requested: 'ckb-debugger', sourceKind: 'catalog', reserved: new Set() }),
+    ).rejects.toThrow(/Unsafe release asset name/);
   });
 
   it('treats a missing descriptor as a JS plugin source instead', async () => {
