@@ -40,11 +40,12 @@ function descriptor() {
     },
   };
 }
+const probeEntryName = () => (process.platform === 'win32' ? 'probe.exe' : 'probe');
+
 function writeToolDir(value: unknown = descriptor(), binary: Buffer | string = bytes) {
   const dir = path.join(root, 'tool');
   fs.mkdirSync(path.join(dir, 'bin'), { recursive: true });
-  const entryName = process.platform === 'win32' ? 'probe.exe' : 'probe';
-  fs.writeFileSync(path.join(dir, 'bin', entryName), binary, { mode: 0o755 });
+  fs.writeFileSync(path.join(dir, 'bin', probeEntryName()), binary, { mode: 0o755 });
   fs.writeFileSync(path.join(dir, 'offckb-tool.json'), JSON.stringify(value));
   return dir;
 }
@@ -141,7 +142,7 @@ it('installs a local directory, snapshots it, preserves storage on replacement, 
   expect(first.source.kind).toBe('descriptor');
   expect(fs.readFileSync(first.plugin.entry!)).toEqual(bytes);
   // The user's directory is referenced, never moved.
-  expect(fs.existsSync(path.join(directory, 'bin', 'probe'))).toBe(true);
+  expect(fs.existsSync(path.join(directory, 'bin', probeEntryName()))).toBe(true);
   const data = pluginStoragePaths(first.plugin.name).data;
   fs.mkdirSync(data, { recursive: true });
   fs.writeFileSync(path.join(data, 'keep'), 'saved');
@@ -193,7 +194,7 @@ it('keeps the prior installation when a replacement fails', async () => {
   const first = await installPlugin(directory, new Set());
   // Break the entry (non-executable on POSIX): the replacement must fail
   // closed and leave the previous managed copy untouched.
-  fs.chmodSync(path.join(directory, 'bin', 'probe'), 0o644);
+  fs.chmodSync(path.join(directory, 'bin', probeEntryName()), 0o644);
   if (process.platform !== 'win32') await expect(installPlugin(directory, new Set())).rejects.toThrow();
   expect(fs.realpathSync(listPlugins(new Set())[0].directory)).toBe(first.plugin.directory);
   expect(fs.readFileSync(getNativeBinaryPath('native-probe')!)).toEqual(bytes);
