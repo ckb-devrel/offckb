@@ -115,10 +115,10 @@ it.each([
 it('installs a local descriptor, snapshots it, preserves storage on replacement, and removes managed files', async () => {
   const fetcher = mockDownload();
   const file = writeDescriptor();
-  const first = await installPlugin(file, new Set(), { trust: true });
-  expect(first.plugin.runtime).toBe('binary');
-  expect(first.source.kind).toBe('binary');
-  expect(fs.readFileSync(first.plugin.entry)).toEqual(bytes);
+  const first = await installPlugin(file, new Set());
+  expect(first.plugin.kind).toBe('binary');
+  expect(first.source.kind).toBe('descriptor');
+  expect(fs.readFileSync(first.plugin.entry!)).toEqual(bytes);
   const data = pluginStoragePaths(first.plugin.name).data;
   fs.mkdirSync(data, { recursive: true });
   fs.writeFileSync(path.join(data, 'keep'), 'saved');
@@ -128,8 +128,12 @@ it('installs a local descriptor, snapshots it, preserves storage on replacement,
   writeDescriptor({ ...descriptor(), version: '1.1.0' });
   await expect(installPlugin(file, new Set(), { trust: true })).rejects.toThrow('running');
   lease.release();
-  const second = await installPlugin(file, new Set(), { trust: true });
-  expect(fs.existsSync(first.plugin.directory)).toBe(false);
+  const second = await installPlugin(file, new Set());
+  // Replacement swaps the directory contents in place at the stable path;
+  // the previous version and its managed files are gone.
+  expect(second.plugin.directory).toBe(first.plugin.directory);
+  expect(second.plugin.version).toBe('1.1.0');
+  expect(fs.readdirSync(second.plugin.directory).some((name) => name.includes('.backup-'))).toBe(false);
   expect(fs.readFileSync(path.join(data, 'keep'), 'utf8')).toBe('saved');
   removePlugin(second.plugin.command);
   expect(fs.existsSync(second.plugin.directory)).toBe(false);
@@ -145,7 +149,7 @@ it('installs a third-party HTTPS descriptor through the same path, without npm o
     );
   const installed = await installPlugin('https://third-party.example/tool.json', new Set());
   expect(installed.source.requested).toBe('https://third-party.example/tool.json');
-  expect(listPlugins(new Set())[0]).toMatchObject({ mode: 'sandbox', state: 'available' });
+  expect(listPlugins(new Set())[0]).toMatchObject({ mode: 'trusted', state: 'available' });
   expect(fetcher).toHaveBeenCalledTimes(2);
 });
 
@@ -169,12 +173,12 @@ it('keeps the prior installation on checksum or archive failure', async () => {
   const first = await installPlugin(file, new Set());
   fetcher.mockResolvedValueOnce(new Response('tampered'));
   await expect(installPlugin(file, new Set())).rejects.toThrow('SHA-256');
-  expect(listPlugins(new Set())[0].directory).toBe(first.plugin.directory);
+  expect(fs.realpathSync(listPlugins(new Set())[0].directory)).toBe(first.plugin.directory);
   const tool = descriptor();
   Object.values(tool.platforms)[0].format = 'zip';
   writeDescriptor(tool);
   await expect(installPlugin(file, new Set())).rejects.toThrow();
-  expect(listPlugins(new Set())[0].directory).toBe(first.plugin.directory);
+  expect(fs.realpathSync(listPlugins(new Set())[0].directory)).toBe(first.plugin.directory);
 });
 
 it('bounds downloads, rejects HTTP/credentialed sources and HTTPS downgrades, and follows signed release redirects', async () => {
@@ -221,7 +225,7 @@ it('links native entries without executing metadata and rejects escaping executa
   fs.writeFileSync(path.join(root, 'offckb-tool.json'), JSON.stringify({ ...descriptor(), entry: 'probe' }));
   fs.writeFileSync(path.join(root, 'probe'), bytes, { mode: 0o755 });
   if (process.platform === 'win32') return;
-  expect(readPluginManifest(root)).toMatchObject({ runtime: 'binary', command: 'native-probe' });
+  expect(readPluginManifest(root)).toMatchObject({ kind: 'binary', command: 'native-probe' });
   fs.unlinkSync(path.join(root, 'probe'));
   fs.symlinkSync('/bin/echo', path.join(root, 'probe'));
   expect(() => readPluginManifest(root)).toThrow('inside');
