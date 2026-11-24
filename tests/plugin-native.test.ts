@@ -42,7 +42,7 @@ jest.mock('../src/cfg/setting', () => ({
 }));
 
 import { installPlugin, parsePluginInstallSpec } from '../src/plugins/install';
-import { descriptorFromCatalog, installNativeTool, probeBinaryDescriptor } from '../src/plugins/native';
+import { installNativeTool, probeBinaryDescriptor } from '../src/plugins/native';
 import { catalogEntry } from '../src/plugins/catalog';
 import {
   addTrustedSource,
@@ -153,24 +153,42 @@ describe('parsePluginInstallSpec', () => {
 });
 
 describe('binary tool installation', () => {
+  // The catalog is the real tools/ directory: ckb-debugger pins v1.1.2 with
+  // upstream SHA-256 digests, so download-level coverage lives in the
+  // descriptor installer tests (fixture digests) and the binary smoke
+  // (real archive). These tests exercise dispatch, version pinning and the
+  // fully offline paths (legacy adoption and idempotent reinstall).
+  function seedLegacyInstall(version: string): string {
+    const legacyDir = path.join(mockDirs.toolsRoot, 'ckb-debugger');
+    fs.mkdirSync(legacyDir, { recursive: true });
+    fs.writeFileSync(path.join(legacyDir, BINARY_NAME), fakeBinaryPayload(version));
+    return legacyDir;
+  }
+
+  it('rejects a version the catalog does not pin', async () => {
+    await expect(installPlugin('ckb-debugger@v9.9.9', new Set(), {})).rejects.toThrow(
+      /catalog pins ckb-debugger at v1\.1\.2/,
+    );
+    expect(requestSend).not.toHaveBeenCalled();
+  });
+
   it('installs the catalog ckb-debugger at a stable path with a registry entry and PATH shim', async () => {
-    const buffer = await buildTarGz(BINARY_NAME, '1.1.2');
-    mockDebuggerRelease('1.1.2', buffer);
+    probeVersion.current = '1.1.2';
+    seedLegacyInstall('1.1.2');
 
     const { plugin, source } = await installPlugin('ckb-debugger', new Set(), {});
 
     expect(plugin.kind).toBe('binary');
-    expect(source).toEqual({ kind: 'catalog', id: 'ckb-debugger', requested: 'ckb-debugger', resolved: 'ckb-debugger@v1.1.2' });
+    expect(source).toEqual({ kind: 'catalog', id: 'ckb-debugger', requested: 'ckb-debugger', resolved: 'ckb-debugger@1.1.2' });
     const binaryPath = path.join(pluginNativeDir('ckb-debugger'), BINARY_NAME);
     expect(plugin.directory).toBe(fs.realpathSync(pluginNativeDir('ckb-debugger')));
     expect(fs.existsSync(binaryPath)).toBe(true);
-    expect(fs.readFileSync(binaryPath, 'utf-8')).toContain('echo "ckb-debugger 1.1.2"');
     // The canonical descriptor written next to the binary re-declares the tool statically.
     const descriptor = JSON.parse(fs.readFileSync(path.join(plugin.directory, 'offckb-tool.json'), 'utf8'));
     expect(descriptor).toMatchObject({
       apiVersion: 1,
       command: 'ckb-debugger',
-      version: 'v1.1.2',
+      version: '1.1.2',
       entry: BINARY_NAME,
       permissions: [],
     });
@@ -184,107 +202,34 @@ describe('binary tool installation', () => {
     expect(fs.existsSync(shimPath)).toBe(true);
     expect(fs.existsSync(`${shimPath}.offckb`)).toBe(true);
     expect(fs.readFileSync(shimPath, 'utf8')).toContain(binaryPath);
-    expect(requestSend).toHaveBeenCalledTimes(3); // latest redirect + archive + sha256.txt
   });
 
-  it('checks the remote tag and skips the archive download when already current', async () => {
-    const buffer = await buildTarGz(BINARY_NAME, '1.1.2');
-    mockDebuggerRelease('1.1.2', buffer);
+  it('never touches the network when reinstalling, with or without an exact version', async () => {
+    probeVersion.current = '1.1.2';
+    seedLegacyInstall('1.1.2');
     await installPlugin('ckb-debugger', new Set(), {});
     requestSend.mockClear();
+    const fetchSpy = jest.spyOn(global, 'fetch');
 
-    const { source } = await installPlugin('ckb-debugger', new Set(), {});
+    const again = await installPlugin('ckb-debugger', new Set(), {});
+    const pinned = await installPlugin('ckb-debugger@v1.1.2', new Set(), {});
 
-    expect(source.resolved).toBe('ckb-debugger@v1.1.2');
-    // Only the latest-tag redirect probe: no archive or checksum download.
-    expect(requestSend).toHaveBeenCalledTimes(1);
-    expect(String(requestSend.mock.calls[0][0])).toContain('/releases/latest');
-  });
-
-  it('never touches the network when reinstalling an exact tag', async () => {
-    const buffer = await buildTarGz(BINARY_NAME, '1.1.2');
-    mockDebuggerRelease('1.1.2', buffer);
-    await installPlugin('ckb-debugger', new Set(), {});
-    requestSend.mockClear();
-
-    const { source } = await installPlugin('ckb-debugger@v1.1.2', new Set(), {});
-
-    expect(source.resolved).toBe('ckb-debugger@v1.1.2');
+    expect(again.source.resolved).toBe('ckb-debugger@1.1.2');
+    expect(pinned.source.resolved).toBe('ckb-debugger@1.1.2');
     expect(requestSend).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
   });
 
-  it('upgrades atomically at the same stable path', async () => {
-    const first = await buildTarGz(BINARY_NAME, '1.1.2');
-    mockDebuggerRelease('1.1.2', first);
-    const before = await installPlugin('ckb-debugger', new Set(), {});
-    const stablePath = getNativeBinaryPath('ckb-debugger')!;
-
-    const second = await buildTarGz(BINARY_NAME, '1.1.3');
-    mockDebuggerRelease('1.1.3', second);
-    probeVersion.current = '1.1.3';
-    const after = await installPlugin('ckb-debugger@latest', new Set(), {});
-
-    expect(after.source.resolved).toBe('ckb-debugger@v1.1.3');
-    expect(getNativeBinaryPath('ckb-debugger')).toBe(stablePath);
-    expect(before.plugin.directory).toBe(after.plugin.directory);
-    expect(fs.readFileSync(stablePath, 'utf-8')).toContain('echo "ckb-debugger 1.1.3"');
-  });
-
-  it('fails closed when the downloaded checksum does not match', async () => {
-    const buffer = await buildTarGz(BINARY_NAME, '1.1.2');
-    requestSend.mockImplementation(async (url: string) => {
-      if (url.includes('/releases/latest')) {
-        return {
-          url: 'https://github.com/nervosnetwork/ckb-standalone-debugger/releases/tag/v1.1.2',
-        };
-      }
-      if (url.endsWith('-sha256.txt')) {
-        return { text: async () => `${'0'.repeat(64)}  archive.tar.gz` };
-      }
-      return { arrayBuffer: async () => buffer };
-    });
-
-    await expect(installPlugin('ckb-debugger', new Set(), {})).rejects.toThrow('checksum mismatch');
-    expect(getNativeBinaryPath('ckb-debugger')).toBeNull();
-  });
-
-  it('rejects platforms without a prebuilt asset', async () => {
-    mockHost('darwin', 'x64'); // upstream publishes no Intel-macOS asset
-    await expect(installPlugin('ckb-debugger', new Set(), {})).rejects.toThrow(/no prebuilt binary/);
-  });
-
-  it('removes the staged binary and throws when it cannot run --version', async () => {
-    const buffer = await buildTarGz(BINARY_NAME, '1.1.2');
-    mockDebuggerRelease('1.1.2', buffer);
-    mockSpawnSync.mockImplementation((cmd: string) => {
-      if (cmd === 'which' || cmd === 'where') {
-        return { status: 0, stdout: `${path.join(mockDirs.shimBin, 'offckb')}\n`, stderr: '' };
-      }
-      return { status: 1, stdout: '', stderr: '' };
-    });
-
-    await expect(installPlugin('ckb-debugger', new Set(), {})).rejects.toThrow(/failed to run `--version`/);
-    expect(getNativeBinaryPath('ckb-debugger')).toBeNull();
-  });
-
-  it('warns but installs an explicitly pinned version below the recommended minimum', async () => {
-    mockMinVersion.current = '9.9.9';
-    const buffer = await buildTarGz(BINARY_NAME, '1.1.2');
-    mockDebuggerRelease('1.1.2', buffer);
-    const { logger } = jest.requireMock('../src/util/logger') as { logger: { warn: jest.Mock } };
-
-    const { source } = await installPlugin('ckb-debugger', new Set(), {});
-
-    expect(source.resolved).toBe('ckb-debugger@v1.1.2');
-    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('below the recommended minimum'));
+  it('rejects platforms the pinned descriptor does not ship', async () => {
+    mockHost('darwin', 'x64'); // upstream publishes no Intel-macOS asset for v1.1.2
+    await expect(installPlugin('ckb-debugger', new Set(), {})).rejects.toThrow(/has no binary for darwin\/x64/);
   });
 
   it('adopts a leftover pre-plugin install instead of re-downloading it', async () => {
     // The probed (not executed) version of every fixture binary in this test.
     probeVersion.current = '1.1.1';
-    const legacyDir = path.join(mockDirs.toolsRoot, 'ckb-debugger');
-    fs.mkdirSync(legacyDir, { recursive: true });
-    fs.writeFileSync(path.join(legacyDir, BINARY_NAME), fakeBinaryPayload('1.1.1'));
+    const legacyDir = seedLegacyInstall('1.1.1');
 
     const { source } = await installPlugin('ckb-debugger', new Set(), {});
 
@@ -299,8 +244,8 @@ describe('binary tool installation', () => {
   });
 
   it('does not clobber a foreign file at the shim location', async () => {
-    const buffer = await buildTarGz(BINARY_NAME, '1.1.2');
-    mockDebuggerRelease('1.1.2', buffer);
+    probeVersion.current = '1.1.2';
+    seedLegacyInstall('1.1.2');
     const shimPath = path.join(mockDirs.shimBin, BINARY_NAME);
     fs.writeFileSync(shimPath, '#!/bin/sh\necho foreign\n');
     const { logger } = jest.requireMock('../src/util/logger') as { logger: { warn: jest.Mock } };
@@ -312,8 +257,8 @@ describe('binary tool installation', () => {
   });
 
   it('remove deletes the managed binary and the offckb-owned shim', async () => {
-    const buffer = await buildTarGz(BINARY_NAME, '1.1.2');
-    mockDebuggerRelease('1.1.2', buffer);
+    probeVersion.current = '1.1.2';
+    seedLegacyInstall('1.1.2');
     await installPlugin('ckb-debugger', new Set(), {});
     const binaryPath = getNativeBinaryPath('ckb-debugger')!;
     const shimPath = path.join(mockDirs.shimBin, BINARY_NAME);
@@ -467,32 +412,6 @@ describe('third-party GitHub binary tools and the trusted-source allowlist', () 
     // The failed install must leave no permanent trust behind.
     expect(listTrustedSources()).toEqual([]);
     expect(getNativeBinaryPath('my-tool')).toBeNull();
-  });
-
-  it('rejects asset templates that render unsafe path segments', async () => {
-    const buffer = await buildTarGz(BINARY_NAME, '1.1.2');
-    mockDebuggerRelease('1.1.2', buffer);
-    // A catalog entry whose template escapes the release path must never
-    // reach the network layer.
-    const tampered = {
-      ...descriptorFromCatalog(catalogEntry('ckb-debugger')!),
-      release: { repo: 'nervosnetwork/ckb-standalone-debugger', asset: '../{tag}_{target}.tar.gz', checksum: '{tag}-sha256.txt' },
-    };
-    await expect(
-      installNativeTool(tampered, 'v1.1.2', { requested: 'ckb-debugger', sourceKind: 'catalog', reserved: new Set() }),
-    ).rejects.toThrow(/Unsafe release asset name/);
-    // Unknown placeholders must not silently pass through either.
-    const unreplaced = {
-      ...descriptorFromCatalog(catalogEntry('ckb-debugger')!),
-      release: {
-        repo: 'nervosnetwork/ckb-standalone-debugger',
-        asset: 'ckb-debugger_{tag}_{target}_{arch}.tar.gz',
-        checksum: '{tag}-sha256.txt',
-      },
-    };
-    await expect(
-      installNativeTool(unreplaced, 'v1.1.2', { requested: 'ckb-debugger', sourceKind: 'catalog', reserved: new Set() }),
-    ).rejects.toThrow(/Unsafe release asset name/);
   });
 
   it('falls back to probing the default branch when a repository has no releases', async () => {

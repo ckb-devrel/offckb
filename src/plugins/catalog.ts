@@ -1,50 +1,67 @@
-import { readSettings } from '../cfg/setting';
-import { NativeRelease } from './manifest';
+import ckbCli from '../../tools/ckb-cli.json';
+import ckbDebugger from '../../tools/ckb-debugger.json';
+import { NativeToolInstall } from './native';
+import { parseToolDescriptor } from './tool-descriptor';
 
 /**
- * First-party binary tool descriptors, built into offckb. The catalog is the
- * only implicitly trusted source: repo, asset naming and checksum policy are
- * maintained by the offckb team with each release. Third-party binary tools
- * are never listed here; they require an explicit trusted-source approval
- * (see store.ts).
+ * First-party binary tool catalog: every descriptor file shipped in tools/
+ * is one entry. The catalog is the only implicitly trusted binary source:
+ * URLs, versions and SHA-256 digests are reviewed and pinned by the offckb
+ * team with each release. Third parties are never listed here; users install
+ * unadapted binaries locally with `offckb plugin install ./dir`.
+ *
+ * This index statically mirrors the tools/ directory so bundlers inline the
+ * descriptors at build time; add one line per new descriptor file.
  */
-export interface CatalogEntry {
-  name: string;
-  command: string;
-  description: string;
-  binaryName: string;
-  release: NativeRelease;
-  minVersion?: string;
-  /**
-   * Pre-plugin installations lived at <tools.rootFolder>/<command>. On first
-   * install the managed binary is adopted from here instead of re-downloaded,
-   * so existing users keep their version and no network is required.
-   */
-  legacyInstallDir?: string;
+interface CatalogFile {
+  file: string;
+  data: unknown;
 }
 
-export function catalogEntries(): Record<string, CatalogEntry> {
-  const settings = readSettings();
+const catalogFiles: CatalogFile[] = [
+  { file: 'tools/ckb-cli.json', data: ckbCli },
+  { file: 'tools/ckb-debugger.json', data: ckbDebugger },
+];
+
+export interface CatalogEntry {
+  /** tools/ file this entry was read from. */
+  file: string;
+  command: string;
+  /** Validated install shape, ready for installNativeTool. */
+  install: NativeToolInstall;
+}
+
+function toCatalogEntry({ file, data }: CatalogFile): CatalogEntry {
+  const tool = parseToolDescriptor(data, false);
+  const metadata = data as { minVersion?: unknown; legacyInstallDir?: unknown };
   return {
-    'ckb-debugger': {
-      name: 'ckb-debugger',
-      command: 'ckb-debugger',
-      description: 'CKB standalone debugger (native binary)',
-      binaryName: 'ckb-debugger',
-      release: {
-        repo: 'nervosnetwork/ckb-standalone-debugger',
-        // Upstream names assets ckb-debugger_<tag>_<target>.tar.gz with a
-        // sibling ckb-debugger_<tag>_<target>-sha256.txt (no .tar.gz infix).
-        asset: 'ckb-debugger_{tag}_{target}.tar.gz',
-        checksum: 'ckb-debugger_{tag}_{target}-sha256.txt',
-      },
-      minVersion: settings.tools.ckbDebugger.minVersion,
-      legacyInstallDir: 'ckb-debugger',
+    file,
+    command: tool.command,
+    install: {
+      name: tool.name,
+      version: tool.version,
+      command: tool.command,
+      description: tool.description,
+      permissions: tool.permissions,
+      execution: tool.execution,
+      platforms: tool.platforms!,
+      ...(typeof metadata.minVersion === 'string' ? { minVersion: metadata.minVersion } : {}),
+      ...(typeof metadata.legacyInstallDir === 'string' ? { legacyInstallDir: metadata.legacyInstallDir } : {}),
     },
   };
 }
 
-export function catalogEntry(name: string): CatalogEntry | undefined {
-  const entry = catalogEntries()[name];
-  return entry?.name === name ? entry : undefined;
+export function catalogEntries(): Record<string, CatalogEntry> {
+  const entries: Record<string, CatalogEntry> = {};
+  for (const catalogFile of catalogFiles) {
+    const entry = toCatalogEntry(catalogFile);
+    if (Object.prototype.hasOwnProperty.call(entries, entry.command))
+      throw new Error(`Duplicate catalog command ${entry.command} in ${catalogFile.file}`);
+    entries[entry.command] = entry;
+  }
+  return entries;
+}
+
+export function catalogEntry(command: string): CatalogEntry | undefined {
+  return catalogEntries()[command];
 }

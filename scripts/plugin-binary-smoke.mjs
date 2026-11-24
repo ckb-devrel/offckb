@@ -77,7 +77,7 @@ try {
   fs.writeFileSync(config, JSON.stringify({ devnet: { rpcUrl: `http://127.0.0.1:${upstream.address().port}` } }));
   const mode = sandbox ? [] : ['--trust'];
   if (realCkbCli) {
-    await invoke(['plugin', 'install', 'tool:ckb-cli', ...mode, '--allow', 'devnet-read']);
+    await invoke(['plugin', 'install', 'ckb-cli', ...mode, '--allow', 'devnet-read']);
     assert.match((await invoke(['ckb-cli', '--help'])).stdout, /ckb-cli 2\.0\.0/i);
     const result = await invoke(['ckb-cli', '--local-only', '--output-format', 'json', 'rpc', 'get_tip_block_number']);
     assert.equal(JSON.parse(result.stdout), 42);

@@ -603,6 +603,16 @@ export function removePlugin(command: string): void {
 }
 
 /**
+ * Legacy bundled-tool registrations recorded ids as `tool:<name>`; the
+ * unified catalog identifies a tool by its descriptor name. Comparing
+ * normalized ids lets pre-merge installs upgrade through the catalog
+ * instead of tripping the ownership guard.
+ */
+function normalizeSourceId(id: string): string {
+  return id.startsWith('tool:') ? id.slice('tool:'.length) : id;
+}
+
+/**
  * Binary tool registrations are trusted natively; catalog/GitHub source is recorded for display.
  * `swapIntoPlace` runs inside the registry lock, before the registry write, so a failed swap
  * (e.g. the old binary still running on Windows) never leaves a committed-but-missing tool.
@@ -629,7 +639,7 @@ export function commitNativeRegistration(
     // A different identity (e.g. a local descriptor reusing the command of a
     // catalog tool) must be explicit: swap-in from a new owner would silently
     // retarget every consumer of this command.
-    if (previous?.binary && previous.binary.source.id !== record.source.id)
+    if (previous?.binary && normalizeSourceId(previous.binary.source.id) !== normalizeSourceId(record.source.id))
       throw new Error(
         `Plugin command ${command} is already owned by source "${previous.binary.source.id}"; ` +
           `remove it first with: offckb plugin remove ${command}`,

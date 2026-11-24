@@ -2,7 +2,6 @@ import path from 'path';
 import AdmZip from 'adm-zip';
 import * as tar from 'tar';
 import { gunzipSync, inflateRawSync } from 'zlib';
-import { bundledTools } from './bundled-tools';
 import { parseToolDescriptor, ToolAsset, toolUrl } from './tool-descriptor';
 import { readJsonFile, readPluginManifest } from './manifest';
 import { NativeSource, PluginLinkOptions, pluginNativeDir, PluginSource } from './store';
@@ -13,7 +12,7 @@ const MAX_BINARY = 256 * 1024 * 1024;
 const MAX_EXPANDED = 512 * 1024 * 1024;
 
 export function isToolSource(input: string): boolean {
-  return input.startsWith('tool:') || input.endsWith('.json');
+  return input.endsWith('.json');
 }
 
 /** Explicit redirects keep HTTPS validation on every hop. One deadline includes body reads. */
@@ -140,13 +139,7 @@ export async function installBinaryTool(
   if (options.allowScripts) throw new Error('Binary tools do not support installation scripts');
   let value: unknown;
   let sourceKind: NativeSource['kind'];
-  if (input.startsWith('tool:')) {
-    const name = input.slice(5);
-    if (!Object.prototype.hasOwnProperty.call(bundledTools, name))
-      throw new Error(`Unknown bundled tool descriptor: ${input}`);
-    value = bundledTools[name];
-    sourceKind = 'bundled';
-  } else if (input.startsWith('https:')) {
+  if (input.startsWith('https:')) {
     value = JSON.parse((await downloadToolFile(input, 1024 * 1024)).toString('utf8'));
     sourceKind = 'descriptor';
   } else {
@@ -171,7 +164,7 @@ export async function installBinaryTool(
     },
     tool.version,
     {
-      requested: input.startsWith('tool:') || input.startsWith('https:') ? input : path.resolve(input),
+      requested: input.startsWith('https:') ? input : path.resolve(input),
       sourceKind,
       allow: tool.permissions,
       reserved,
@@ -181,8 +174,8 @@ export async function installBinaryTool(
     plugin: readPluginManifest(pluginNativeDir(result.command)),
     source: {
       kind: sourceKind,
-      id: sourceKind === 'bundled' ? `tool:${tool.name}` : tool.name,
-      requested: input.startsWith('tool:') || input.startsWith('https:') ? input : path.resolve(input),
+      id: tool.name,
+      requested: input.startsWith('https:') ? input : path.resolve(input),
       resolved: result.version.includes('#') ? result.version : `${tool.name}@${result.version}`,
     },
   };

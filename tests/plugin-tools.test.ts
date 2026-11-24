@@ -159,7 +159,9 @@ it('rejects scripts, missing grants, unsupported platforms and conflicts before 
   await expect(installPlugin(file, new Set(), { allowScripts: true, trust: true })).rejects.toThrow('scripts');
   await expect(installPlugin(file, new Set())).rejects.toThrow('--allow devnet-read');
   await expect(installPlugin(file, new Set(['native-probe']), { allow: ['devnet-read'] })).rejects.toThrow('conflicts');
-  await expect(installPlugin('tool:unknown', new Set())).rejects.toThrow('Unknown');
+  // The retired `tool:` spelling is not an install source anymore; it falls
+  // through to the generic unknown-source error (rewritten with F4).
+  await expect(installPlugin('tool:unknown', new Set())).rejects.toThrow('npm package');
   const other = process.platform === 'linux' ? 'darwin-x64' : 'linux-x64';
   const asset = Object.values(descriptor().platforms)[0];
   writeDescriptor({ ...descriptor(), platforms: { [other]: asset } });

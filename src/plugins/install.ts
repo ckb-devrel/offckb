@@ -22,7 +22,7 @@ import {
 import { signalPluginChild } from './process';
 import { installBinaryTool, isToolSource } from './tool-install';
 import { catalogEntry } from './catalog';
-import { descriptorFromCatalog, installNativeTool, probeBinaryDescriptor } from './native';
+import { installNativeTool, probeBinaryDescriptor } from './native';
 
 const PACKAGE_NAME = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
 const TAG = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
@@ -225,11 +225,20 @@ export async function installPlugin(
   if (options.allowScripts)
     logger.warn('Install/build scripts are enabled and run with your user permissions, outside the runtime sandbox.');
 
-  // First-party catalog tools are native binaries managed by offckb.
+  // First-party catalog tools are native binaries managed by offckb. Each
+  // tools/ descriptor pins an exact version; `@latest` installs that pin and
+  // newer upstream releases arrive with offckb updates (a version bump PR).
   if (source.kind === 'catalog') {
     const entry = catalogEntry(source.name!);
     if (!entry) throw new Error(`Unknown catalog tool: ${source.name}`);
-    const result = await installNativeTool(descriptorFromCatalog(entry), source.ref ?? 'latest', {
+    const pinned = entry.install.version!;
+    const wanted = source.ref === 'latest' ? pinned : source.ref!.replace(/^v/, '');
+    if (wanted !== pinned)
+      throw new Error(
+        `The offckb catalog pins ${entry.command} at v${pinned}; ` +
+          'newer versions arrive with offckb updates. `offckb plugin list` shows every available tool.',
+      );
+    const result = await installNativeTool(entry.install, 'latest', {
       requested: source.requested,
       sourceKind: 'catalog',
       allow: options.allow,
@@ -239,9 +248,9 @@ export async function installPlugin(
       plugin: readPluginManifest(pluginNativeDir(result.command)),
       source: {
         kind: 'catalog',
-        id: entry.name,
+        id: entry.install.name,
         requested: source.requested,
-        resolved: `${entry.name}@${result.version}`,
+        resolved: `${entry.install.name}@${result.version}`,
       },
     };
   }
