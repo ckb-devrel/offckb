@@ -9,9 +9,11 @@ import { parseToolDescriptor } from '../src/plugins/tool-descriptor';
 import { downloadToolFile, extractToolBinary } from '../src/plugins/tool-install';
 import { installPlugin } from '../src/plugins/install';
 import { readPluginManifest } from '../src/plugins/manifest';
-import { acquirePlugin, listPlugins, pluginStoragePaths, removePlugin } from '../src/plugins/store';
+import { acquirePlugin, getNativeBinaryPath, listPlugins, pluginStoragePaths, removePlugin } from '../src/plugins/store';
 import { preparePluginExecution } from '../src/plugins/sandbox';
 import ckbCli from '../tools/ckb-cli.json';
+import ckbDebugger from '../tools/ckb-debugger.json';
+import { catalogEntry } from '../src/plugins/catalog';
 
 let root: string;
 let previousHome: string | undefined;
@@ -24,7 +26,8 @@ function descriptor() {
     version: '1.0.0',
     command: 'native-probe',
     description: 'Native probe',
-    entry: 'bin/probe',
+    // Windows entries must be .exe (enforced by the local installer).
+    entry: process.platform === 'win32' ? 'bin/probe.exe' : 'bin/probe',
     permissions: [],
     execution: { args: [], env: {} },
     platforms: {
@@ -37,11 +40,16 @@ function descriptor() {
     },
   };
 }
-function writeDescriptor(value: unknown = descriptor()) {
-  const file = path.join(root, 'tool.json');
-  fs.writeFileSync(file, JSON.stringify(value));
-  return file;
+const probeEntryName = () => (process.platform === 'win32' ? 'probe.exe' : 'probe');
+
+function writeToolDir(value: unknown = descriptor(), binary: Buffer | string = bytes) {
+  const dir = path.join(root, 'tool');
+  fs.mkdirSync(path.join(dir, 'bin'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'bin', probeEntryName()), binary, { mode: 0o755 });
+  fs.writeFileSync(path.join(dir, 'offckb-tool.json'), JSON.stringify(value));
+  return dir;
 }
+const writeDescriptor = writeToolDir; // alias for tests that only swap the descriptor
 function mockDownload(binary = bytes) {
   return jest.spyOn(global, 'fetch').mockImplementation(async () => new Response(binary));
 }
@@ -56,6 +64,21 @@ afterEach(() => {
   if (previousHome === undefined) delete process.env.OFFCKB_PLUGIN_HOME;
   else process.env.OFFCKB_PLUGIN_HOME = previousHome;
   fs.rmSync(root, { recursive: true, force: true });
+});
+
+it('ships a valid ckb-debugger catalog entry: four platforms, Windows .exe member, adoption metadata', () => {
+  const entry = catalogEntry('ckb-debugger');
+  expect(entry).toBeDefined();
+  const tool = parseToolDescriptor(ckbDebugger, true);
+  expect(Object.keys(tool.platforms!)).toEqual(['darwin-arm64', 'linux-arm64', 'linux-x64', 'win32-x64']);
+  // Upstream publishes no Intel-macOS v1.1.2 asset: a missing platform must
+  // surface as a clear install error, not a download 404.
+  expect(tool.platforms!['darwin-x64']).toBeUndefined();
+  // The Windows archive member is the real .exe (verified against the
+  // upstream v1.1.2 archive).
+  expect(tool.platforms!['win32-x64'].executable).toBe('ckb-debugger.exe');
+  expect(entry!.install.minVersion).toBe('0.200.0');
+  expect(entry!.install.legacyInstallDir).toBe('ckb-debugger');
 });
 
 it('ships a valid ckb-cli descriptor with pinned official assets, not an implicit installation', () => {
@@ -112,23 +135,24 @@ it.each([
   expect(() => parseToolDescriptor({ ...descriptor(), ...override }, true)).toThrow();
 });
 
-it('installs a local descriptor, snapshots it, preserves storage on replacement, and removes managed files', async () => {
-  const fetcher = mockDownload();
-  const file = writeDescriptor();
-  const first = await installPlugin(file, new Set());
+it('installs a local directory, snapshots it, preserves storage on replacement, and removes managed files', async () => {
+  const directory = writeToolDir();
+  const first = await installPlugin(directory, new Set());
   expect(first.plugin.kind).toBe('binary');
   expect(first.source.kind).toBe('descriptor');
   expect(fs.readFileSync(first.plugin.entry!)).toEqual(bytes);
+  // The user's directory is referenced, never moved.
+  expect(fs.existsSync(path.join(directory, 'bin', probeEntryName()))).toBe(true);
   const data = pluginStoragePaths(first.plugin.name).data;
   fs.mkdirSync(data, { recursive: true });
   fs.writeFileSync(path.join(data, 'keep'), 'saved');
-  fs.writeFileSync(file, 'changed remote/local source is not read at runtime');
+  fs.writeFileSync(path.join(directory, 'offckb-tool.json'), 'managed copy is not read at runtime');
   expect(listPlugins(new Set())[0].state).toBe('available');
   const lease = acquirePlugin(first.plugin.command);
-  writeDescriptor({ ...descriptor(), version: '1.1.0' });
-  await expect(installPlugin(file, new Set(), { trust: true })).rejects.toThrow('running');
+  writeToolDir({ ...descriptor(), version: '1.1.0' });
+  await expect(installPlugin(directory, new Set(), { trust: true })).rejects.toThrow('running');
   lease.release();
-  const second = await installPlugin(file, new Set());
+  const second = await installPlugin(directory, new Set());
   // Replacement swaps the directory contents in place at the stable path;
   // the previous version and its managed files are gone.
   expect(second.plugin.directory).toBe(first.plugin.directory);
@@ -138,47 +162,42 @@ it('installs a local descriptor, snapshots it, preserves storage on replacement,
   removePlugin(second.plugin.command);
   expect(fs.existsSync(second.plugin.directory)).toBe(false);
   expect(fs.readFileSync(path.join(data, 'keep'), 'utf8')).toBe('saved');
-  expect(fetcher).toHaveBeenCalledTimes(3);
 });
 
-it('installs a third-party HTTPS descriptor through the same path, without npm or scripts', async () => {
-  const fetcher = jest
-    .spyOn(global, 'fetch')
-    .mockImplementation(
-      async (input) => new Response(String(input).endsWith('.json') ? JSON.stringify(descriptor()) : bytes),
-    );
-  const installed = await installPlugin('https://third-party.example/tool.json', new Set());
-  expect(installed.source.requested).toBe('https://third-party.example/tool.json');
-  expect(listPlugins(new Set())[0]).toMatchObject({ mode: 'trusted', state: 'available' });
-  expect(fetcher).toHaveBeenCalledTimes(2);
+it('no longer installs remote or file descriptors; only local directories are binary sources', async () => {
+  await expect(installPlugin('https://third-party.example/tool.json', new Set())).rejects.toThrow(
+    'Unknown plugin source',
+  );
+  const file = path.join(root, 'tool.json');
+  fs.writeFileSync(file, JSON.stringify(descriptor()));
+  await expect(installPlugin(file, new Set())).rejects.toThrow('Unknown plugin source');
 });
 
-it('rejects scripts, missing grants, unsupported platforms and conflicts before downloading executable code', async () => {
-  const fetcher = mockDownload();
-  const file = writeDescriptor({ ...descriptor(), permissions: ['devnet-read'] });
-  await expect(installPlugin(file, new Set(), { allowScripts: true, trust: true })).rejects.toThrow('scripts');
-  await expect(installPlugin(file, new Set())).rejects.toThrow('--allow devnet-read');
-  await expect(installPlugin(file, new Set(['native-probe']), { allow: ['devnet-read'] })).rejects.toThrow('conflicts');
-  await expect(installPlugin('tool:unknown', new Set())).rejects.toThrow('Unknown');
-  const other = process.platform === 'linux' ? 'darwin-x64' : 'linux-x64';
-  const asset = Object.values(descriptor().platforms)[0];
-  writeDescriptor({ ...descriptor(), platforms: { [other]: asset } });
-  await expect(installPlugin(file, new Set())).rejects.toThrow('no binary');
-  expect(fetcher).not.toHaveBeenCalled();
+it('rejects scripts, missing grants, bad entries and conflicts before touching executable code', async () => {
+  const directory = writeToolDir({ ...descriptor(), permissions: ['devnet-read'] });
+  await expect(installPlugin(directory, new Set(), { allowScripts: true, trust: true })).rejects.toThrow('scripts');
+  await expect(installPlugin(directory, new Set())).rejects.toThrow('--allow devnet-read');
+  await expect(installPlugin(directory, new Set(['native-probe']), { allow: ['devnet-read'] })).rejects.toThrow(
+    'conflicts',
+  );
+  // A directory without a readable offckb-tool.json is not a tool source.
+  const empty = path.join(root, 'empty');
+  fs.mkdirSync(empty);
+  await expect(installPlugin(empty, new Set())).rejects.toThrow();
+  // An escaping entry is rejected before anything is copied.
+  writeToolDir({ ...descriptor(), entry: '../escape' });
+  await expect(installPlugin(directory, new Set())).rejects.toThrow();
 });
 
-it('keeps the prior installation on checksum or archive failure', async () => {
-  const fetcher = mockDownload();
-  const file = writeDescriptor();
-  const first = await installPlugin(file, new Set());
-  fetcher.mockResolvedValueOnce(new Response('tampered'));
-  await expect(installPlugin(file, new Set())).rejects.toThrow('SHA-256');
+it('keeps the prior installation when a replacement fails', async () => {
+  const directory = writeToolDir();
+  const first = await installPlugin(directory, new Set());
+  // Break the entry (non-executable on POSIX): the replacement must fail
+  // closed and leave the previous managed copy untouched.
+  fs.chmodSync(path.join(directory, 'bin', probeEntryName()), 0o644);
+  if (process.platform !== 'win32') await expect(installPlugin(directory, new Set())).rejects.toThrow();
   expect(fs.realpathSync(listPlugins(new Set())[0].directory)).toBe(first.plugin.directory);
-  const tool = descriptor();
-  Object.values(tool.platforms)[0].format = 'zip';
-  writeDescriptor(tool);
-  await expect(installPlugin(file, new Set())).rejects.toThrow();
-  expect(fs.realpathSync(listPlugins(new Set())[0].directory)).toBe(first.plugin.directory);
+  expect(fs.readFileSync(getNativeBinaryPath('native-probe')!)).toEqual(bytes);
 });
 
 it('bounds downloads, rejects HTTP/credentialed sources and HTTPS downgrades, and follows signed release redirects', async () => {
@@ -229,6 +248,19 @@ it('links native entries without executing metadata and rejects escaping executa
   fs.unlinkSync(path.join(root, 'probe'));
   fs.symlinkSync('/bin/echo', path.join(root, 'probe'));
   expect(() => readPluginManifest(root)).toThrow('inside');
+});
+
+it('refuses sandbox preparation for binary tools; they always run natively', async () => {
+  const entry = process.platform === 'win32' ? 'node.exe' : 'node';
+  fs.copyFileSync(process.execPath, path.join(root, entry));
+  fs.writeFileSync(
+    path.join(root, 'offckb-tool.json'),
+    JSON.stringify({ ...descriptor(), entry, permissions: [] }),
+  );
+  const plugin = readPluginManifest(root);
+  await expect(preparePluginExecution(plugin, undefined, [], ['--help'], 0, 'sandbox')).rejects.toThrow(
+    'cannot run in the sandbox',
+  );
 });
 
 it('executes a real native entry directly with literal argv, isolated storage binding and offline help', async () => {

@@ -4,28 +4,22 @@ import * as os from 'os';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { randomUUID } from 'crypto';
-import * as tar from 'tar';
-import { Request } from '../util/request';
 import { readSettings } from '../cfg/setting';
 import { logger } from '../util/logger';
-import { findFileInFolder } from '../util/fs';
-import { CatalogEntry } from './catalog';
 import {
   NativeBinaryRecord,
-  addTrustedSource,
   assertNativeRootSafe,
   commitNativeRegistration,
   ensurePluginHome,
   getNativeRecord,
   getNativeRegistration,
-  isSourceTrusted,
   NativeSource,
   updateNativeGrants,
   pluginNativeDir,
   pluginNativeRoot,
 } from './store';
-import { NativeRelease, PluginPermission, isBinaryName, nativeBinaryFileName, readNativeDescriptor } from './manifest';
-import { ToolAsset, ToolExecution, parseToolDescriptor } from './tool-descriptor';
+import { PluginPermission, isBinaryName, nativeBinaryFileName, readNativeDescriptor } from './manifest';
+import { ToolAsset, ToolExecution } from './tool-descriptor';
 import { downloadToolFile, extractToolBinary, MAX_ARCHIVE } from './tool-install';
 import { ensureCommandShim } from './shims';
 
@@ -34,19 +28,14 @@ import { ensureCommandShim } from './shims';
  * host-owned directory and exposed through a stable path, PATH shims and
  * OFFCKB_TOOL_* env vars so other tools can spawn them directly (issue #555).
  *
- * Two download shapes feed one staging/commit tail:
- *   - release templates (first-party catalog): the latest tag is resolved
- *     from the release redirect, the archive verified against the published
- *     checksum file (fail closed);
- *   - explicit per-platform descriptors (bundled tools, local/HTTPS tool
- *     descriptors, third-party GitHub repos): URLs and SHA-256 digests are
- *     pinned in the descriptor itself.
+ * Every source (the first-party catalog and local directory descriptors)
+ * feeds one shape: per-platform URLs and SHA-256 digests pinned in the
+ * descriptor and verified against the downloaded bytes, or a declared
+ * executable copied from a local directory.
  *
- * Source trust:
- *   - catalog and bundled tools ship with offckb (implicitly trusted);
- *   - explicit descriptors pin their own content (trust the content);
- *   - third-party GitHub sources require the local trusted-source allowlist
- *     (--trust-source approves alongside a successful install).
+ * Source trust: catalog tools ship with offckb (implicitly trusted, pinned
+ * per release); local directory descriptors pin their own content by copying
+ * the declared executable.
  */
 
 export interface NativeToolInstall {
@@ -55,24 +44,22 @@ export interface NativeToolInstall {
   description: string;
   /** Pinned descriptor version (explicit platforms sources). */
   version?: string;
-  /** Source repository for github sources (approval and identity). */
-  repository?: string;
   /** Declared host-provided capabilities; every one needs an explicit grant. */
   permissions?: PluginPermission[];
   minVersion?: string;
   legacyInstallDir?: string;
   execution?: ToolExecution;
-  /** Exactly one download shape. */
-  release?: NativeRelease;
-  platforms?: Record<string, ToolAsset>;
+  platforms: Record<string, ToolAsset>;
+  /** Descriptor-declared executable, relative to the package root. */
+  entry?: string;
+  /** Local directory sources: copy this declared executable instead of downloading. */
+  localDirectory?: string;
 }
 
 export interface NativeInstallOptions {
   /** What the user typed, recorded in the registry as `requested`. */
   requested: string;
   sourceKind: NativeSource['kind'];
-  /** Approve this source and install it in one step (--trust-source). */
-  trustSource?: string;
   /** Capability grants for descriptors that declare permissions. */
   allow?: string[];
   reserved: ReadonlySet<string>;
@@ -89,16 +76,14 @@ export interface NativeInstallResult {
 }
 
 /**
- * The `<target>` segment of a ckb-standalone-debugger release asset name for
- * the current platform. Template-based (catalog) sources only; explicit
- * descriptors carry their own per-platform URLs.
+ * A legacyInstallDir segment names the pre-plugin install directory adopted
+ * from under the tools root. It must be a single plain directory name: the
+ * adoption copies from it and later deletes it recursively, so a traversal
+ * or the tools root itself ('.') would be catastrophic. Shared by the
+ * catalog loader and the installer.
  */
-export function getAssetTarget(platform: NodeJS.Platform, arch: string): string | null {
-  if (platform === 'linux' && arch === 'x64') return 'x86_64-unknown-linux-gnu';
-  if (platform === 'linux' && arch === 'arm64') return 'aarch64-unknown-linux-gnu';
-  if (platform === 'darwin' && arch === 'arm64') return 'aarch64-apple-darwin';
-  if (platform === 'win32' && arch === 'x64') return 'x86_64-pc-windows-msvc';
-  return null;
+export function isSafeLegacySegment(segment: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(segment) && !segment.includes('..');
 }
 
 /**
@@ -130,92 +115,6 @@ export function isVersionAtLeast(version: string, minVersion: string): boolean {
   return a.prerelease === b.prerelease || !a.prerelease;
 }
 
-/** Fetch the binary descriptor from a GitHub repository root, or null when absent. */
-export async function probeBinaryDescriptor(
-  repository: string,
-  ref?: string,
-): Promise<{ install: NativeToolInstall; tag: string } | null> {
-  let tag: string;
-  if (ref && /^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(ref) && !ref.includes('..')) {
-    tag = ref;
-  } else {
-    try {
-      tag = await resolveLatestTag(repository);
-    } catch {
-      // Repositories without releases (e.g. npm-shaped JS plugin sources)
-      // cannot resolve a latest tag; probe the default branch instead so
-      // those still fall through to the npm install path on a 404.
-      tag = 'HEAD';
-    }
-  }
-  const url = `https://raw.githubusercontent.com/${repository}/${tag}/offckb-tool.json`;
-  let response = await Request.fetch(url);
-  if (response.status >= 500) {
-    // Transient raw-endpoint failures must not hard-block JS GitHub sources:
-    // retry once, then treat the descriptor as absent so the npm path runs.
-    response = await Request.fetch(url);
-  }
-  if (response.status === 404 || response.status >= 500) return null;
-  if (!response.ok) throw new Error(`Could not read the binary tool descriptor at ${url}: HTTP ${response.status}`);
-  // Throws on malformed descriptors rather than silently falling back to the
-  // npm package flow: a repo that declares a broken binary descriptor means
-  // to be a binary tool plugin.
-  const tool = parseToolDescriptor(await response.json(), true);
-  return {
-    install: {
-      name: tool.name,
-      version: tool.version,
-      command: tool.command,
-      description: tool.description,
-      permissions: tool.permissions,
-      execution: tool.execution,
-      platforms: tool.platforms,
-    },
-    tag,
-  };
-}
-
-function renderTemplate(template: string, values: Record<string, string>): string {
-  return template.replace(/\{(\w+)\}/g, (match, key: string) => values[key] ?? match);
-}
-
-async function resolveLatestTag(repo: string): Promise<string> {
-  // Follow the /releases/latest redirect (no GitHub API, so no per-IP rate
-  // limit) and read the tag from the final URL.
-  const response = await Request.send(`https://github.com/${repo}/releases/latest`);
-  const match = /\/releases\/tag\/([^/?#]+)/.exec(response.url);
-  if (!match) {
-    throw new Error(`Could not resolve the latest release from https://github.com/${repo}/releases/latest.`);
-  }
-  return match[1];
-}
-
-async function download(url: string, targetPath: string): Promise<void> {
-  logger.info(`Downloading ${url} ...`);
-  const response = await Request.send(url);
-  const arrayBuffer = await response.arrayBuffer();
-  fs.writeFileSync(targetPath, Buffer.from(arrayBuffer));
-}
-
-/** Verify the archive against the SHA-256 digest published in the release. */
-async function verifyChecksum(checksumUrl: string, archivePath: string): Promise<void> {
-  const response = await Request.send(checksumUrl);
-  const text = await response.text();
-  const match = /([0-9a-f]{64})/i.exec(text);
-  if (!match) {
-    throw new Error(`Could not read a SHA-256 digest from ${checksumUrl}.`);
-  }
-  const expected = match[1].toLowerCase();
-  const actual = crypto.createHash('sha256').update(fs.readFileSync(archivePath)).digest('hex');
-  if (actual !== expected) {
-    throw new Error(
-      `SHA-256 checksum mismatch.\nExpected: ${expected}\nActual:   ${actual}\n` +
-        'The downloaded file may be corrupted or tampered with.',
-    );
-  }
-  logger.info('SHA-256 checksum verified successfully.');
-}
-
 export function getVersionFromBinary(binaryPath: string): string | null {
   try {
     // A wedged binary must never block the install: hard deadline, child killed.
@@ -237,22 +136,6 @@ function moveIntoPlace(source: string, target: string): void {
     if ((error as NodeJS.ErrnoException).code !== 'EXDEV') throw error;
     fs.copyFileSync(source, target);
     fs.rmSync(source, { force: true });
-  }
-}
-
-/**
- * Rendered asset/checksum names become URL path segments: they must stay
- * plain basenames with no traversal or unreplaced placeholders.
- */
-function assertSafeAssetName(name: string, what: string): void {
-  if (
-    name !== path.basename(name) ||
-    name.includes('..') ||
-    name.includes('/') ||
-    name.includes('\\') ||
-    /\{[^}]*\}/.test(name)
-  ) {
-    throw new Error(`Unsafe ${what} name rendered from the release template: ${name}`);
   }
 }
 
@@ -296,64 +179,37 @@ async function planPlatformsInstall(tool: NativeToolInstall): Promise<PlannedIns
   return { version: tool.version!, descriptor, binary, binaryIsFile: false, descriptorHash };
 }
 
-/** Plan the download/verification half for a release-template (catalog) source. */
-async function planTemplateInstall(tool: NativeToolInstall, tag: string): Promise<PlannedInstall> {
-  const target = getAssetTarget(process.platform, process.arch);
-  if (!target) {
-    throw new Error(`${tool.command} has no prebuilt binary for ${process.platform}/${process.arch}.`);
-  }
-  const values = { tag, target, asset: renderTemplate(tool.release!.asset, { tag, target }) };
-  assertSafeAssetName(values.asset, 'release asset');
-  const checksumName = renderTemplate(tool.release!.checksum, values);
-  assertSafeAssetName(checksumName, 'checksum asset');
-  const archiveUrl = `https://github.com/${tool.release!.repo}/releases/download/${tag}/${values.asset}`;
+/** Plan a local directory source: validate and copy the declared executable. */
+function planLocalInstall(tool: NativeToolInstall): PlannedInstall {
+  const directory = tool.localDirectory!;
+  const declared = path.resolve(directory, tool.entry!);
+  const resolved = fs.realpathSync(declared);
+  if (resolved !== declared || !resolved.startsWith(directory + path.sep))
+    throw new Error(`Binary tool entry must be a regular file inside ${directory}`);
+  const stat = fs.lstatSync(resolved);
+  if (!stat.isFile() || fs.lstatSync(resolved).isSymbolicLink())
+    throw new Error(`Binary tool entry must be a regular file: ${tool.entry}`);
+  const windows = process.platform === 'win32';
+  if (windows && !resolved.toLowerCase().endsWith('.exe'))
+    throw new Error('Binary tool entries on Windows must be .exe files');
+  if (!windows) fs.accessSync(resolved, fs.constants.X_OK); // throws without the executable bit
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `offckb-${tool.command}-`));
-  try {
-    const archivePath = path.join(tempDir, values.asset);
-    await download(archiveUrl, archivePath);
-    await verifyChecksum(
-      `https://github.com/${tool.release!.repo}/releases/download/${tag}/${checksumName}`,
-      archivePath,
-    );
-    const extractDir = path.join(tempDir, 'extracted');
-    fs.mkdirSync(extractDir, { recursive: true });
-    await tar.x({ file: archivePath, cwd: extractDir });
-    const binName = nativeBinaryFileName(tool.command);
-    const extracted = findFileInFolder(extractDir, binName);
-    if (!extracted || fs.lstatSync(extracted).isSymbolicLink()) {
-      throw new Error(`Binary "${binName}" was not found in the release archive.`);
-    }
-    const sha256 = crypto.createHash('sha256').update(fs.readFileSync(extracted)).digest('hex');
-    const descriptor = {
-      apiVersion: 1,
-      name: tool.name,
-      version: tag,
-      command: tool.command,
-      description: tool.description,
-      entry: '',
-      permissions: tool.permissions ?? [],
-      platforms: {
-        [`${process.platform}-${process.arch}`]: {
-          url: archiveUrl,
-          sha256,
-          format: 'tar.gz',
-          executable: binName,
-        },
-      },
-    };
-    const descriptorHash = crypto.createHash('sha256').update(JSON.stringify(descriptor)).digest('hex');
-    // The caller moves the extracted binary out of tempDir before this
-    // directory is removed (see installNativeTool's cleanup).
-    return { version: tag, descriptor, binary: extracted, binaryIsFile: true, descriptorHash, tempDir };
-  } finally {
-    // Remove only the downloaded archive here; the extracted binary stays
-    // until the caller has moved it out of the scratch directory.
-    try {
-      fs.rmSync(path.join(tempDir, values.asset), { force: true });
-    } catch {
-      // The OS reaps the temp dir eventually.
-    }
-  }
+  const scratch = path.join(tempDir, path.basename(resolved));
+  // Copy, never move: the user's directory stays intact on any failure.
+  fs.copyFileSync(resolved, scratch);
+  if (!windows) fs.chmodSync(scratch, 0o755);
+  const descriptor = {
+    apiVersion: 1,
+    name: tool.name,
+    version: tool.version!,
+    command: tool.command,
+    description: tool.description,
+    entry: '',
+    permissions: tool.permissions ?? [],
+    ...(tool.execution ? { execution: tool.execution } : {}),
+  };
+  const descriptorHash = crypto.createHash('sha256').update(JSON.stringify(descriptor)).digest('hex');
+  return { version: tool.version!, descriptor, binary: scratch, binaryIsFile: true, descriptorHash, tempDir };
 }
 
 /**
@@ -367,49 +223,12 @@ export async function installNativeTool(
   options: NativeInstallOptions,
 ): Promise<NativeInstallResult> {
   if (!isBinaryName(tool.command)) throw new Error(`Invalid binary tool command: ${tool.command}`);
-  if ((tool.release ? 1 : 0) + (tool.platforms ? 1 : 0) !== 1) {
-    throw new Error('A native tool install needs exactly one of release templates or explicit platforms');
-  }
-  if (tool.release && !tool.name) throw new Error('Invalid tool name');
-  // Source approval: catalog/bundled ship with offckb and are implicitly
-  // trusted; explicit descriptors pin their own content; third-party GitHub
-  // sources require the local allowlist. `--trust-source` is a one-shot
-  // authorization persisted only after a successful install.
-  const repo = tool.repository;
-  let approveAfterCommit: string | null = null;
-  if (options.sourceKind === 'github') {
-    const sourceRepo = String(repo).toLowerCase();
-    if (!isSourceTrusted(sourceRepo)) {
-      if (options.trustSource?.trim().toLowerCase() === sourceRepo) {
-        approveAfterCommit = sourceRepo;
-        logger.warn(
-          `Installing from unapproved source ${sourceRepo} (--trust-source); the approval is recorded only if the install succeeds.`,
-        );
-      } else {
-        throw new Error(
-          `${repo} is not in the trusted-source allowlist. ` +
-            `Review the source, then approve it with: offckb plugin trust add ${repo} ` +
-            `(or reinstall with --trust-source ${repo}).`,
-        );
-      }
-    }
-  }
-  const sourceId =
-    options.sourceKind === 'catalog'
-      ? tool.name
-      : options.sourceKind === 'github'
-        ? String(repo).toLowerCase()
-        : options.sourceKind === 'bundled'
-          ? `tool:${tool.name}`
-          : tool.name;
-  const resolvedPrefix =
-    options.sourceKind === 'catalog'
-      ? `${tool.name}@`
-      : options.sourceKind === 'github'
-        ? `github:${repo}#`
-        : options.sourceKind === 'bundled'
-          ? `tool:${tool.name}@`
-          : `${tool.name}@`;
+  if (!tool.localDirectory && (!tool.platforms || !Object.keys(tool.platforms).length))
+    throw new Error('A native tool install requires pinned platform assets or a local directory');
+  // Source trust: catalog tools ship with offckb and are implicitly trusted
+  // (pinned per release); local directory descriptors pin their own content.
+  const sourceId = tool.name;
+  const resolvedPrefix = `${tool.name}@`;
 
   // Fail before touching anything when the plugin home cannot hold
   // directories or the native root is tampered.
@@ -429,18 +248,6 @@ export async function installNativeTool(
     throw new Error('Only permissions declared by this tool may be granted');
   }
 
-  // Every success exit persists a one-shot --trust-source approval, including
-  // idempotent reinstalls: revoked sources must be re-approvable by simply
-  // re-running an install that succeeds.
-  const persistApproval = () => {
-    if (!approveAfterCommit) return;
-    addTrustedSource(approveAfterCommit);
-    logger.warn(
-      `Approved ${approveAfterCommit} as a trusted binary tool source; binaries from it run with your user permissions.`,
-    );
-    approveAfterCommit = null;
-  };
-
   // A same-version reinstall must not silently keep the previous grants.
   const applyGrantChanges = (command: string) => {
     const requested = [...(options.allow ?? [])].sort();
@@ -451,13 +258,11 @@ export async function installNativeTool(
     }
   };
 
-  // Idempotent offline path: template sources with an exact tag, and any
-  // pinned immutable source whose version is already registered. Local or
-  // HTTPS descriptor files always reinstall: their content may change at a
-  // constant version, so the pinned SHA-256 must be re-verified every time.
+  // Idempotent offline path: a pinned immutable source whose version is
+  // already registered short-circuits without network. Local directory
+  // descriptors always reinstall: their content may change at a constant
+  // version, so the executable must be re-copied and re-validated.
   const existing = getNativeRecord(tool.command);
-  // Local/HTTPS descriptors always reinstall; the mutable HEAD fallback
-  // never gets an offline idempotency shortcut either.
   const immutableSource = options.sourceKind !== 'descriptor' && ref !== 'HEAD';
   const pinnedVersion = tool.platforms
     ? options.sourceKind === 'github'
@@ -475,7 +280,6 @@ export async function installNativeTool(
   ) {
     ensureCommandShim(tool.command, existing.path);
     applyGrantChanges(tool.command);
-    persistApproval();
     logger.info(`${tool.command} ${pinnedVersion} is already installed at ${existing.path}.`);
     return {
       command: tool.command,
@@ -502,9 +306,32 @@ export async function installNativeTool(
     // the latest-tag lookup and is fully offline; the recorded version is
     // read from the binary itself, and the next `@latest` install upgrades
     // it when a newer release exists.
+    // Captured once at adoption: the canonical legacy directory reused for
+    // both the copy and the post-commit cleanup, so a settings change or a
+    // raced symlink can never redirect either.
+    let adoptedLegacyDir: string | undefined;
     if (!existing && ref === 'latest' && tool.legacyInstallDir) {
-      const legacyBinary = path.join(readSettings().tools.rootFolder, tool.legacyInstallDir, binName);
-      if (fs.existsSync(legacyBinary) && !fs.lstatSync(legacyBinary).isSymbolicLink()) {
+      const toolsRoot = readSettings().tools.rootFolder;
+      // The segment itself must be a plain single name: path.join resolves
+      // '..' (and '.') lexically, so resolved-path equality downstream
+      // cannot catch either. '.' would adopt from and then recursively
+      // delete the entire tools root.
+      if (!isSafeLegacySegment(tool.legacyInstallDir))
+        throw new Error(`Legacy install directory escapes the tools root: ${tool.legacyInstallDir}`);
+      const segmentDir = path.join(toolsRoot, tool.legacyInstallDir);
+      const candidateBinary = path.join(segmentDir, binName);
+      // The catalog validates the segment; canonicalize before touching
+      // anything so a symlinked segment (inside or outside the root) is
+      // rejected instead of adopted or deleted.
+      if (fs.existsSync(candidateBinary)) {
+        const resolvedRoot = fs.realpathSync(toolsRoot);
+        const resolvedDir = fs.realpathSync(segmentDir);
+        if (resolvedDir !== path.join(resolvedRoot, tool.legacyInstallDir))
+          throw new Error(`Legacy install directory escapes the tools root: ${tool.legacyInstallDir}`);
+        adoptedLegacyDir = resolvedDir;
+      }
+      const legacyBinary = adoptedLegacyDir ? path.join(adoptedLegacyDir, binName) : candidateBinary;
+      if (adoptedLegacyDir && fs.existsSync(legacyBinary) && !fs.lstatSync(legacyBinary).isSymbolicLink()) {
         const legacyVersion = getVersionFromBinary(legacyBinary);
         if (legacyVersion && (!tool.minVersion || isVersionAtLeast(legacyVersion, tool.minVersion))) {
           logger.info(`Adopting the existing ${tool.command} ${legacyVersion} installation...`);
@@ -534,29 +361,10 @@ export async function installNativeTool(
     }
 
     if (!adopted) {
-      if (tool.release) {
-        // Resolve the tag first so an already-current `@latest` check only
-        // pays the redirect probe: no archive download for identical tags.
-        const tag = ref === 'latest' ? await resolveLatestTag(tool.release.repo) : ref;
-        if (existing && existing.version === tag && existing.source.id === sourceId) {
-          ensureCommandShim(tool.command, existing.path);
-          applyGrantChanges(tool.command);
-          persistApproval();
-          logger.info(`${tool.command} ${tag} is already installed at ${existing.path}.`);
-          return {
-            command: tool.command,
-            version: tag,
-            binaryPath: existing.path,
-            alreadyInstalled: true,
-            adopted: false,
-          };
-        }
-        planned = await planTemplateInstall(tool, tag);
+      if (tool.localDirectory) {
+        planned = planLocalInstall(tool);
       } else {
         planned = await planPlatformsInstall({ ...tool, version: tool.version ?? pinnedVersion ?? '' });
-        // GitHub provenance records the resolved release tag; the on-disk
-        // descriptor keeps the descriptor's own version field.
-        if (options.sourceKind === 'github') planned.version = ref;
       }
       plannedTempDir = planned.tempDir;
     }
@@ -571,37 +379,12 @@ export async function installNativeTool(
     if (process.platform !== 'win32') fs.chmodSync(stagedBinary, 0o755);
 
     // Content-pinned descriptors trust the SHA-256, not runnability: never
-    // launch their binary during install. Template sources keep the
-    // runnability gate (a binary that cannot run here is rejected).
-    const probed = tool.platforms ? null : getVersionFromBinary(stagedBinary);
-    let version: string;
-    if (!probed) {
-      if (tool.platforms) {
-        // Content-pinned descriptors trust the SHA-256, not runnability: a
-        // cross-built or fixture binary may not execute here. Record the
-        // pinned descriptor version instead of failing the install.
-        logger.warn(
-          `The installed ${tool.command} binary did not report a version; recording the pinned descriptor version ${planned.version}.`,
-        );
-        version = planned.version;
-      } else {
-        // Template sources trust the repository and published checksum, so
-        // the binary must prove it can run before being published.
-        fs.rmSync(stagedBinary, { force: true });
-        throw new Error(
-          `The installed ${tool.command} binary failed to run \`--version\`. ` +
-            'It may be incompatible with this system (e.g. missing glibc).',
-        );
-      }
-    } else {
-      version = probed;
-    }
-    if (tool.minVersion && !isVersionAtLeast(version, tool.minVersion)) {
-      logger.warn(
-        `${tool.command} ${version} is below the recommended minimum ${tool.minVersion}; ` +
-          'some offckb features may not work.',
-      );
-    }
+    // launch the binary during install; the pinned descriptor version is
+    // authoritative for every source.
+    // The pinned descriptor version is authoritative; there is no
+    // runnability gate and no below-minimum warning (the adoption gate
+    // already enforces the descriptor minimum).
+    const version = planned.version;
 
     const descriptor = { ...planned.descriptor, entry: binName };
     fs.writeFileSync(path.join(staging, 'offckb-tool.json'), JSON.stringify(descriptor, null, 2) + '\n', {
@@ -659,15 +442,15 @@ export async function installNativeTool(
     ensureCommandShim(tool.command, record.path);
     if (adopted) {
       // The adopted binary copied out of the legacy location; drop the empty
-      // shell so nothing probes it as an unmanaged install anymore.
-      const legacyDir = path.join(readSettings().tools.rootFolder, tool.legacyInstallDir!);
+      // shell so nothing probes it as an unmanaged install anymore. Uses the
+      // canonical path captured at adoption time, never a fresh lookup.
+      const legacyDir = adoptedLegacyDir!;
       try {
         if (fs.existsSync(legacyDir)) fs.rmSync(legacyDir, { recursive: true, force: true });
       } catch {
         logger.warn(`Adopted ${tool.command}, but legacy cleanup failed at ${legacyDir}; remove it manually.`);
       }
     }
-    persistApproval();
     logger.info(`✅ ${tool.command} installed successfully at ${record.path} (version ${version}).`);
     return {
       command: tool.command,
@@ -686,19 +469,6 @@ export async function installNativeTool(
       }
     }
   }
-}
-
-/** Resolve a catalog entry into the install shape. */
-export function descriptorFromCatalog(entry: CatalogEntry): NativeToolInstall {
-  return {
-    name: entry.name,
-    command: entry.command,
-    description: entry.description,
-    permissions: [],
-    release: entry.release,
-    ...(entry.minVersion ? { minVersion: entry.minVersion } : {}),
-    ...(entry.legacyInstallDir ? { legacyInstallDir: entry.legacyInstallDir } : {}),
-  };
 }
 
 // Re-exported for the legacy descriptor reader.

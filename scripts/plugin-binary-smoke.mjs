@@ -10,7 +10,6 @@ import { fileURLToPath } from 'node:url';
 const project = fileURLToPath(new URL('../', import.meta.url));
 const cli = path.join(project, 'build/index.js');
 const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'offckb binary smoke ')));
-const sandbox = process.argv.includes('--sandbox');
 const archiveIndex = process.argv.indexOf('--ckb-cli-archive');
 const archive = archiveIndex === -1 ? undefined : path.resolve(process.argv[archiveIndex + 1]);
 const realCkbCli = archive !== undefined || process.argv.includes('--ckb-cli');
@@ -75,9 +74,8 @@ try {
         : path.join(env.XDG_CONFIG_HOME, 'offckb-nodejs/settings.json');
   fs.mkdirSync(path.dirname(config), { recursive: true });
   fs.writeFileSync(config, JSON.stringify({ devnet: { rpcUrl: `http://127.0.0.1:${upstream.address().port}` } }));
-  const mode = sandbox ? [] : ['--trust'];
   if (realCkbCli) {
-    await invoke(['plugin', 'install', 'tool:ckb-cli', ...mode, '--allow', 'devnet-read']);
+    await invoke(['plugin', 'install', 'ckb-cli', '--allow', 'devnet-read']);
     assert.match((await invoke(['ckb-cli', '--help'])).stdout, /ckb-cli 2\.0\.0/i);
     const result = await invoke(['ckb-cli', '--local-only', '--output-format', 'json', 'rpc', 'get_tip_block_number']);
     assert.equal(JSON.parse(result.stdout), 42);
@@ -88,7 +86,7 @@ try {
     assert.ok(!calls.includes('clear_banned_addresses'));
     await invoke(['plugin', 'remove', 'ckb-cli']);
     console.log(
-      `PASS: pinned official ckb-cli install/help/read RPC/write denial/remove (${sandbox ? 'sandbox' : 'trusted'})`,
+      'PASS: pinned official ckb-cli install/help/read RPC/write denial/remove (trusted)',
     );
   } else {
     const directory = path.join(root, 'native probe');
@@ -122,7 +120,7 @@ try {
         },
       }),
     );
-    await invoke(['plugin', 'link', directory, ...mode, '--allow', 'devnet-read']);
+    await invoke(['plugin', 'install', directory, '--allow', 'devnet-read']);
     assert.match((await invoke(['native-probe', '--help'])).stdout, /Usage:/i);
     const result = JSON.parse((await invoke(['native-probe', 'a b', '--', '$literal'])).stdout);
     assert.deepEqual(result.args, ['a b', '--', '$literal']);
@@ -130,15 +128,17 @@ try {
     assert.equal(result.write, 403);
     assert.equal(result.secretFiltered, true);
     assert.equal(result.home, true);
-    assert.equal(result.denied, sandbox);
-    await invoke(['plugin', 'unlink', 'native-probe']);
-    console.log(`PASS: production native argv/context/storage/RPC/permissions (${sandbox ? 'sandbox' : 'trusted'})`);
+    // Managed binary tools always run natively with the user's permissions;
+    // OS-sandbox isolation is a JavaScript-plugin concept (sandbox smoke).
+    assert.equal(result.denied, false);
+    await invoke(['plugin', 'remove', 'native-probe']);
+    console.log('PASS: production native argv/context/storage/RPC/permissions (trusted)');
     if (process.platform !== 'win32') {
       fs.writeFileSync(
         path.join(directory, 'probe.cjs'),
         `const fs=require('fs');if(!process.stdin.isTTY||!process.stdout.isTTY)process.exit(2);process.stdin.setRawMode(true);process.stdin.setRawMode(false);console.log('NATIVE_TTY_OK');`,
       );
-      await invoke(['plugin', 'link', directory, ...mode, '--allow', 'devnet-read']);
+      await invoke(['plugin', 'install', directory, '--allow', 'devnet-read']);
       const python = `import os,pty,subprocess,select,time,sys\nm,s=pty.openpty()\np=subprocess.Popen(sys.argv[1:],stdin=s,stdout=s,stderr=s)\nos.close(s)\ndata=b''\nend=time.time()+25\nwhile time.time()<end:\n if select.select([m],[],[],0.1)[0]:\n  try: data+=os.read(m,65536)\n  except OSError: break\n if p.poll() is not None: break\nif p.poll() is None: p.kill()\np.wait()\nos.close(m)\nsys.stdout.buffer.write(data)\nsys.exit(0 if p.returncode==0 and b'NATIVE_TTY_OK' in data else 1)`;
       const child = spawn('python3', ['-c', python, process.execPath, '-e', worker, '--', 'native-probe'], { env });
       let output = '';
@@ -153,8 +153,8 @@ try {
         child.once('close', resolve);
       });
       assert.equal(code, 0, output);
-      await invoke(['plugin', 'unlink', 'native-probe']);
-      console.log(`PASS: real PTY inherited by native entry; raw-mode ioctl (${sandbox ? 'sandbox' : 'trusted'})`);
+      await invoke(['plugin', 'remove', 'native-probe']);
+      console.log('PASS: real PTY inherited by native entry; raw-mode ioctl (trusted)');
     }
   }
 } finally {

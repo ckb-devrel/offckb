@@ -21,22 +21,17 @@ jest.mock('child_process', () => ({
 }));
 
 import {
-  addTrustedSource,
   acquirePlugin,
   assertNativeRootSafe,
   commitNativeRegistration,
   commitPluginInstallation,
   getNativeBinaryPath,
-  isSourceTrusted,
   linkPlugin,
   listNativeTools,
   listPlugins,
-  listTrustedSources,
   nativeToolEnv,
-  normalizeTrustedSource,
   pluginNativeDir,
   removePlugin,
-  removeTrustedSource,
   unlinkPlugin,
 } from '../src/plugins/store';
 import { ensureCommandShim, removeCommandShims, shimMarkerPath } from '../src/plugins/shims';
@@ -55,54 +50,12 @@ afterEach(() => {
   fs.rmSync(root, { recursive: true, force: true });
 });
 
-describe('trusted-source allowlist', () => {
-  it('normalizes and validates source identities', () => {
-    expect(normalizeTrustedSource('SomeOwner/SomeRepo')).toBe('someowner/somerepo');
-    expect(normalizeTrustedSource('@MyScope/pkg')).toBe('@myscope/pkg');
-    expect(() => normalizeTrustedSource('../evil')).toThrow('Invalid trusted source');
-    expect(() => normalizeTrustedSource('a repo')).toThrow('Invalid trusted source');
-    expect(() => normalizeTrustedSource('')).toThrow('Invalid trusted source');
-  });
-
-  it('supports the documented @scope/* approval shorthand and rejects bare wildcards', () => {
-    addTrustedSource('@MyOrg/*');
-    expect(listTrustedSources()).toEqual(['@myorg/*']);
-    expect(isSourceTrusted('@myorg/pkg')).toBe(true);
-    expect(isSourceTrusted('@myorg/other-tool')).toBe(true);
-    expect(isSourceTrusted('@other/pkg')).toBe(false);
-    expect(() => normalizeTrustedSource('*')).toThrow('Invalid trusted source');
-    expect(() => normalizeTrustedSource('owner/*')).toThrow('Invalid trusted source');
-  });
-
-  it('reports an actionable error when the plugin home is occupied by a file', () => {
-    const fileHome = path.join(root, 'file-home');
-    fs.writeFileSync(fileHome, 'not a directory');
-    const currentHome = process.env.OFFCKB_PLUGIN_HOME;
-    process.env.OFFCKB_PLUGIN_HOME = fileHome;
-    try {
-      expect(() => addTrustedSource('owner/repo')).toThrow(/Cannot create the plugin home/);
-    } finally {
-      if (currentHome === undefined) delete process.env.OFFCKB_PLUGIN_HOME;
-      else process.env.OFFCKB_PLUGIN_HOME = currentHome;
-    }
-  });
-
-  it('adds, lists and removes approvals idempotently', () => {
-    expect(listTrustedSources()).toEqual([]);
-    addTrustedSource('owner/repo');
-    addTrustedSource('owner/repo');
-    addTrustedSource('@scope/pkg');
-    expect(listTrustedSources()).toEqual(['owner/repo', '@scope/pkg']);
-    removeTrustedSource('owner/repo');
-    expect(listTrustedSources()).toEqual(['@scope/pkg']);
-    // Removing an unknown source is a no-op.
-    removeTrustedSource('unknown/tool');
-    expect(listTrustedSources()).toEqual(['@scope/pkg']);
-  });
-});
-
 describe('native tool registrations', () => {
   const command = 'my-tool';
+
+  function fakeBinary(version: string): string {
+    return `#!/bin/sh\necho my-tool ${version}\n`;
+  }
 
   function commitTool(
     version = 'v0.1.0',
@@ -263,9 +216,11 @@ describe('native tool registrations', () => {
       JSON.stringify({ name: 'js-tamper', version: '1.0.0', offckb: { apiVersion: 1, command: 'js-tamper', entry: 'entry.mjs' } }),
     );
     linkPlugin(jsRoot, new Set());
-    // A valid binary descriptor appearing in a linked directory is honored
-    // (the user owns the directory); it still runs sandboxed unless the link
-    // was explicitly trusted, so nothing silently escalates.
+    // A valid binary descriptor appearing in a linked directory changes the
+    // registration kind after the fact. Linked binaries are not a supported
+    // execution mode (binary tools are managed copies), so acquisition must
+    // fail fast with the repair path instead of drifting into a runtime
+    // sandbox error — the D5/D6 fail-closed rule at the registry boundary.
     const tamperBin = process.platform === 'win32' ? 'js-tamper.exe' : 'js-tamper';
     fs.writeFileSync(path.join(jsRoot, tamperBin), '#!/bin/sh\n');
     if (process.platform !== 'win32') fs.chmodSync(path.join(jsRoot, tamperBin), 0o755);
@@ -281,13 +236,7 @@ describe('native tool registrations', () => {
         permissions: [],
       }),
     );
-    const tampered = acquirePlugin('js-tamper');
-    try {
-      expect(tampered.plugin.kind).toBe('binary');
-      expect(tampered.mode).toBe('sandbox');
-    } finally {
-      tampered.release();
-    }
+    expect(() => acquirePlugin('js-tamper')).toThrow(/registration kind changed/);
 
     // A MANAGED native registration whose directory is swapped to a JS
     // manifest must still fail closed.
@@ -299,51 +248,6 @@ describe('native tool registrations', () => {
       JSON.stringify({ name: 'my-tool', version: '0.1.0', offckb: { apiVersion: 1, command, entry: 'x.mjs' } }),
     );
     expect(() => acquirePlugin(command)).toThrow('registration kind changed');
-  });
-
-  it('links local binary tool directories like local development tools', () => {
-    const binaryDir = path.join(root, 'linked-binary');
-    fs.mkdirSync(binaryDir);
-    const linkedBin = process.platform === 'win32' ? 'tool.exe' : 'tool';
-    fs.writeFileSync(path.join(binaryDir, linkedBin), '#!/bin/sh\n');
-    if (process.platform !== 'win32') fs.chmodSync(path.join(binaryDir, linkedBin), 0o755);
-    fs.writeFileSync(
-      path.join(binaryDir, 'offckb-tool.json'),
-      JSON.stringify({
-        apiVersion: 1,
-        name: 'linked-binary',
-        version: '0.1.0',
-        command: 'linked-binary',
-        description: 'Linked binary tool',
-        entry: linkedBin,
-        permissions: [],
-      }),
-    );
-    // Local directories are user-consented (like running the binary
-    // directly): they link in place, default to sandbox mode, and unregister
-    // with unlink like any local link.
-    linkPlugin(binaryDir, new Set());
-    const [info] = listPlugins(new Set());
-    expect(info).toMatchObject({ command: 'linked-binary', kind: 'binary', mode: 'sandbox', state: 'available' });
-    expect(getNativeBinaryPath('linked-binary')).toBeNull(); // no managed stable path
-    unlinkPlugin('linked-binary');
-    expect(listPlugins(new Set())).toEqual([]);
-
-    // The npm install path still refuses binary descriptors: remote packages
-    // must come through the native installer.
-    expect(() =>
-      commitPluginInstallation(
-        binaryDir,
-        {
-          id: '11111111-2222-4333-8444-555555555555',
-          name: 'linked-binary',
-          source: { kind: 'npm', requested: 'linked-binary', resolved: 'linked-binary@0.1.0' },
-          allowScripts: false,
-        },
-        new Set(),
-        {},
-      ),
-    ).toThrow('binary tool descriptor');
   });
 
   it('routes binary tools to plugin remove instead of unlink', () => {
@@ -414,6 +318,37 @@ describe('native tool registrations', () => {
     // command has no registration yet, which must not bypass the check.
     expect(() => commitTool('v0.1.0', { command: 'my-tool-two' })).toThrow('changed its command');
     expect(getNativeBinaryPath('my-tool-two')).toBeNull();
+  });
+
+  it('rejects a different source identity silently taking over a command', () => {
+    commitTool('v0.1.0');
+    // A descriptor with a new identity but the same command (e.g. a renamed
+    // copy of a catalog descriptor) must not silently replace the owner.
+    expect(() =>
+      commitNativeRegistration(
+        command,
+        {
+          binName: 'my-tool',
+          version: 'v9.9.9',
+          path: path.join(pluginNativeDir(command), 'my-tool'),
+          source: { kind: 'descriptor', id: '@evil/my-tool-copy', requested: './copy.json', resolved: '@evil/my-tool-copy@v9.9.9' },
+        },
+        [],
+        new Set(),
+        () => undefined,
+        () => undefined,
+      ),
+    ).toThrow('already owned by source "my-tool"; remove it first with: offckb plugin remove my-tool');
+    // The original registration is untouched.
+    expect(getNativeBinaryPath(command)).toBe(path.join(pluginNativeDir(command), process.platform === 'win32' ? 'my-tool.exe' : 'my-tool'));
+  });
+
+  it('still allows same-source upgrades after the ownership guard', () => {
+    commitTool('v0.1.0');
+    // Same source id, newer version: the supported upgrade path.
+    commitTool('v0.2.0');
+    const [info] = listPlugins(new Set());
+    expect(info).toMatchObject({ command, version: 'v0.2.0', state: 'available' });
   });
 
   it('rejects a registration whose directory escapes the native command root', () => {

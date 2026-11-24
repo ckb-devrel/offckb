@@ -130,6 +130,36 @@ it('allows removal of a broken package and blocks unlink/relink during a foregro
   unlinkPlugin('probe');
 });
 
+it('marks a linked plugin whose manifest drifts to a binary descriptor as invalid', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'offckb-drift-'));
+  try {
+    driftBody(directory);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+function driftBody(directory: string): void {
+  fs.writeFileSync(path.join(directory, 'entry.mjs'), '');
+  fs.writeFileSync(
+    path.join(directory, 'package.json'),
+    JSON.stringify({ name: 'drift', version: '1.0.0', offckb: { apiVersion: 1, command: 'drift', entry: 'entry.mjs' } }),
+  );
+  linkPlugin(directory, new Set());
+  // The user swaps the linked directory's declaration for a binary descriptor.
+  const bin = process.platform === 'win32' ? 'drift.exe' : 'drift';
+  fs.writeFileSync(path.join(directory, bin), '#!/bin/sh\n');
+  if (process.platform !== 'win32') fs.chmodSync(path.join(directory, bin), 0o755);
+  fs.writeFileSync(
+    path.join(directory, 'offckb-tool.json'),
+    JSON.stringify({ apiVersion: 1, name: 'drift', version: '1.0.0', command: 'drift', description: 'x', entry: bin, permissions: [] }),
+  );
+  const [info] = listPlugins(new Set());
+  expect(info.state).toBe('invalid');
+  expect(info.error).toMatch(/registration kind changed/);
+  expect(() => acquirePlugin('drift')).toThrow(/registration kind changed/);
+}
+
 it('preserves a corrupt registry instead of overwriting it', () => {
   fs.mkdirSync(process.env.OFFCKB_PLUGIN_HOME!);
   const file = path.join(process.env.OFFCKB_PLUGIN_HOME!, 'registry.json');

@@ -1,0 +1,37 @@
+{
+  "apiVersion": 1,
+  "name": "ckb-debugger",
+  "version": "1.1.2",
+  "command": "ckb-debugger",
+  "description": "CKB standalone debugger (native binary)",
+  "entry": "ckb-debugger",
+  "permissions": [],
+  "minVersion": "0.200.0",
+  "legacyInstallDir": "ckb-debugger",
+  "platforms": {
+    "darwin-arm64": {
+      "url": "https://github.com/nervosnetwork/ckb-standalone-debugger/releases/download/v1.1.2/ckb-debugger_v1.1.2_aarch64-apple-darwin.tar.gz",
+      "sha256": "2d83eafcbb338f597ab1d1d469602f6ecfdad17c7e9e756e162908a79fefe29d",
+      "format": "tar.gz",
+      "executable": "ckb-debugger"
+    },
+    "linux-arm64": {
+      "url": "https://github.com/nervosnetwork/ckb-standalone-debugger/releases/download/v1.1.2/ckb-debugger_v1.1.2_aarch64-unknown-linux-gnu.tar.gz",
+      "sha256": "17bc11cfdc07f3958adc13528dced1fd9bc9d599c3fe898ef8c96d396c907ed3",
+      "format": "tar.gz",
+      "executable": "ckb-debugger"
+    },
+    "linux-x64": {
+      "url": "https://github.com/nervosnetwork/ckb-standalone-debugger/releases/download/v1.1.2/ckb-debugger_v1.1.2_x86_64-unknown-linux-gnu.tar.gz",
+      "sha256": "f51dacde2ad462424add10b704fbc01520cc9114e44117242129002209769054",
+      "format": "tar.gz",
+      "executable": "ckb-debugger"
+    },
+    "win32-x64": {
+      "url": "https://github.com/nervosnetwork/ckb-standalone-debugger/releases/download/v1.1.2/ckb-debugger_v1.1.2_x86_64-pc-windows-msvc.tar.gz",
+      "sha256": "1b03e2b6b83be85c1fa2410140eb75aa699a08ab430ecfc6d4fad99443b5b690",
+      "format": "tar.gz",
+      "executable": "ckb-debugger.exe"
+    }
+  }
+}

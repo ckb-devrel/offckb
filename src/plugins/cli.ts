@@ -1,17 +1,15 @@
 import { Command, CommanderError, InvalidArgumentError } from 'commander';
 import { confirm } from '@inquirer/prompts';
 import { logger } from '../util/logger';
+import { catalogEntries } from './catalog';
 import {
-  addTrustedSource,
   getNativeBinaryPath,
   linkPlugin,
   listNativeTools,
   listPlugins,
-  listTrustedSources,
   PluginLinkOptions,
   PluginSource,
   removePlugin,
-  removeTrustedSource,
   unlinkPlugin,
 } from './store';
 import { PluginManifest, PluginPermission } from './manifest';
@@ -129,12 +127,11 @@ export function registerPluginManagement(program: Command): {
     management
       .command('install <source>')
       .description(
-        'Install from npm/GitHub (terminal permission prompt), github:owner/repo, a catalog tool name, tool:<name>, or a local/HTTPS tool descriptor (.json)',
+        'Install an npm package, github:owner/repo (JavaScript plugins), a catalog tool name, or a local binary tool directory',
       ),
   )
     .option('--allow-scripts', 'Allow npm install/build scripts outside the runtime sandbox (requires --trust)', false)
-    .option('--trust-source <source>', 'Approve a third-party binary tool source and install it in one step')
-    .action(async (source: string, options: PluginLinkOptions & { allowScripts: boolean; trustSource?: string }) => {
+    .action(async (source: string, options: PluginLinkOptions & { allowScripts: boolean }) => {
       const interactive =
         process.stdin.isTTY &&
         process.stdout.isTTY &&
@@ -182,7 +179,7 @@ export function registerPluginManagement(program: Command): {
     });
   management
     .command('list')
-    .description('List linked plugins and compatibility diagnostics without executing them')
+    .description('List installed plugins and available catalog tools')
     .action(() => {
       const plugins = listPlugins(reserved(), checkMode);
       for (const plugin of plugins)
@@ -191,7 +188,26 @@ export function registerPluginManagement(program: Command): {
             plugin.source ? ` (${plugin.source.resolved})` : ''
           }${plugin.error ? ` — ${plugin.error}` : ''}`,
         );
-      logger.result({ command: 'plugin.list', plugins });
+      // Catalog visibility: the same list answers "what can I install?".
+      // Installed state is derived from the registry, so a tool installed
+      // from any source shows its check mark here.
+      const installed = new Set(plugins.filter((plugin) => plugin.kind === 'binary').map((plugin) => plugin.command));
+      const catalog = Object.values(catalogEntries()).map((entry) => ({
+        command: entry.command,
+        name: entry.install.name,
+        version: entry.install.version,
+        description: entry.install.description,
+        installed: installed.has(entry.command),
+      }));
+      if (catalog.length > 0)
+        logger.info('Binary tools: install with `offckb plugin install <name>` (✓ installed, ✗ available)');
+      for (const entry of catalog)
+        logger.info(
+          `  ${entry.installed ? '✓' : '✗'} ${entry.command}  ${entry.description}${
+            entry.installed ? ' (installed)' : ''
+          }`,
+        );
+      logger.result({ command: 'plugin.list', plugins, catalog });
     });
   management
     .command('which <command>')
@@ -216,36 +232,6 @@ export function registerPluginManagement(program: Command): {
         for (const tool of tools) process.stdout.write(`${tool.envName}=${quote(tool.path)}\n`);
       }
       logger.result({ command: 'plugin.env', tools });
-    });
-  const trust = management
-    .command('trust')
-    .description('Manage the trusted-source allowlist for third-party binary tool plugins');
-  trust
-    .command('add <source>')
-    .description('Approve a GitHub owner/repo or npm package/scope to install binary tools from')
-    .action((source: string) => {
-      const sources = addTrustedSource(source);
-      logger.warn(
-        `Approved ${source}: binaries from it run with your user permissions and are placed on PATH. ` +
-          'Review the source before approving; versions stay pinned per install.',
-      );
-      logger.result({ command: 'plugin.trust.add', source, sources });
-    });
-  trust
-    .command('list')
-    .description('List approved third-party binary tool sources')
-    .action(() => {
-      const sources = listTrustedSources();
-      if (!logger.isJsonMode()) for (const source of sources) process.stdout.write(`${source}\n`);
-      logger.result({ command: 'plugin.trust.list', sources });
-    });
-  trust
-    .command('remove <source>')
-    .description('Remove a source; its existing installs stay frozen until re-approved')
-    .action((source: string) => {
-      const sources = removeTrustedSource(source);
-      logger.info(`Removed ${source}; existing installs keep their pinned version.`);
-      logger.result({ command: 'plugin.trust.remove', source, sources });
     });
   management
     .command('remove <command>')
@@ -275,7 +261,6 @@ export function registerPluginManagement(program: Command): {
         command.setOptionValueWithSource('trust', false, 'default');
       }
       install.setOptionValueWithSource('allowScripts', false, 'default');
-      install.setOptionValueWithSource('trustSource', undefined, 'default');
       for (const command of dynamic) {
         const index = program.commands.indexOf(command);
         // Commander exposes a readonly view of its mutable registration array.

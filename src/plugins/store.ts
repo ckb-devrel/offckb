@@ -413,6 +413,11 @@ export function listPlugins(reserved: ReadonlySet<string>, checkMode?: (mode: Pl
       try {
         plugin = readPluginManifest(directory);
         if (plugin.command !== command) throw new Error('Plugin command changed; unlink and link the package again');
+        // The registry and the on-disk manifest must agree on the kind: a
+        // linked JS directory swapped for a binary descriptor (or a managed
+        // binary swapped for a JS package) is invalid here, not a sandbox
+        // error at run time.
+        if ((binary ? 'binary' : 'js') !== plugin.kind) throw new Error(registrationKindChangedMessage);
         assertPermissions(plugin, permissions);
         assertTrustedIdentity(plugin, trusted);
       } catch (error) {
@@ -459,12 +464,14 @@ export function linkPlugin(
 ): PluginManifest {
   return withRegistryLock(() => {
     const plugin = readPluginManifest(directory);
-    // Linked binary tools are local development tools: the user pointed at
-    // the directory themselves, exactly like running the binary directly.
-    // They register in place (no managed native record, no stable path) and
-    // follow the standard trust model — sandbox by default, native only
-    // with an explicit --trust at link time. Remote binary sources stay
-    // gated by the trusted-source allowlist.
+    // Linking is the JavaScript plugin development flow: it references the
+    // user's directory in place. Binary tools take the other verb — a
+    // managed copy via `offckb plugin install ./dir` — because their
+    // contract is the file itself, not live edits.
+    if (plugin.kind === 'binary')
+      throw new Error(
+        `${directory} declares a binary tool; install a managed copy instead: offckb plugin install ${directory}`,
+      );
     assertPluginCompatible(plugin);
     assertPermissions(plugin, options.allow ?? []);
     if (options.allow?.some((permission) => !plugin.permissions.includes(permission as PluginPermission)))
@@ -514,11 +521,11 @@ export function commitPluginInstallation(
   let previousRoot: string | undefined;
   const plugin = withRegistryLock(() => {
     const candidate = readPluginManifest(directory);
-    // The npm install path only registers JS plugins; binary descriptors are
-    // handled by the native installer with its trusted-source allowlist.
+    // The npm install path only registers JS plugins; binary tools come from
+    // the catalog or a local directory install.
     if (candidate.kind !== 'js') {
       throw new Error(
-        'Installed package declares a binary tool descriptor; install it as a binary tool source instead',
+        'Installed package declares a binary tool descriptor; install it from the catalog or a local directory instead',
       );
     }
     assertPluginCompatible(candidate);
@@ -603,6 +610,16 @@ export function removePlugin(command: string): void {
 }
 
 /**
+ * Legacy bundled-tool registrations recorded ids as `tool:<name>`; the
+ * unified catalog identifies a tool by its descriptor name. Comparing
+ * normalized ids lets pre-merge installs upgrade through the catalog
+ * instead of tripping the ownership guard.
+ */
+function normalizeSourceId(id: string): string {
+  return id.startsWith('tool:') ? id.slice('tool:'.length) : id;
+}
+
+/**
  * Binary tool registrations are trusted natively; catalog/GitHub source is recorded for display.
  * `swapIntoPlace` runs inside the registry lock, before the registry write, so a failed swap
  * (e.g. the old binary still running on Windows) never leaves a committed-but-missing tool.
@@ -625,12 +642,24 @@ export function commitNativeRegistration(
       : undefined;
     if (previous && !previous.binary)
       throw new Error(`Plugin command ${command} is already linked; remove/unlink it explicitly first`);
+    // Command ownership binds to the source identity of the first install.
+    // A different identity (e.g. a local descriptor reusing the command of a
+    // catalog tool) must be explicit: swap-in from a new owner would silently
+    // retarget every consumer of this command.
+    if (previous?.binary && normalizeSourceId(previous.binary.source.id) !== normalizeSourceId(record.source.id))
+      throw new Error(
+        `Plugin command ${command} is already owned by source "${previous.binary.source.id}"; ` +
+          `remove it first with: offckb plugin remove ${command}`,
+      );
     // Compare stable package identity (without version), matching the JS
     // installation check: one package must not claim two commands, even when
     // the new command has no registration yet.
     if (
       Object.entries(registry.plugins).some(
-        ([name, entry]) => name !== command && entry.binary?.source.id === record.source.id,
+        ([name, entry]) =>
+          name !== command &&
+          entry.binary !== undefined &&
+          normalizeSourceId(entry.binary.source.id) === normalizeSourceId(record.source.id),
       )
     )
       throw new Error('This tool changed its command; remove its previous registration first');
@@ -739,104 +768,11 @@ export function nativeToolEnv(): Record<string, string> {
   return Object.fromEntries(listNativeTools().map((tool) => [tool.envName, tool.path]));
 }
 
-// --- Trusted-source allowlist for third-party binary tools ---
-// The catalog is implicitly trusted; anything else must be approved locally
-// first. Approval binds the source identity (owner/repo, or npm package or
-// scope), never a version: installs stay pinned per install, and upgrading
-// from an approved source never re-prompts.
-
-const TRUSTED_SOURCES_FILE = 'trusted-sources.json';
-
-interface TrustedSourcesFile {
-  apiVersion: 1;
-  sources: Array<{ source: string; addedAt: string }>;
-}
-
-function trustedSourcesPath(): string {
-  return path.join(pluginHome(), TRUSTED_SOURCES_FILE);
-}
-
-export function normalizeTrustedSource(source: string): string {
-  const trimmed = source.trim();
-  // Identities are case-insensitive on both GitHub and the npm registry;
-  // the normalized form is the lowercase spelling.
-  // An npm scope may be approved as a whole with the documented `@scope/*`
-  // shorthand; a wildcard is only valid after a scope.
-  const npmName = /^(?:@[a-z0-9][a-z0-9._-]*\/(?:[a-z0-9][a-z0-9._-]*|\*)|[a-z0-9][a-z0-9._-]*)$/i;
-  const githubRepo = /^[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9._-]*$/i;
-  if (!npmName.test(trimmed) && !githubRepo.test(trimmed)) {
-    throw new Error('Invalid trusted source: use a GitHub owner/repo or an npm package/scope name');
-  }
-  return trimmed.toLowerCase();
-}
-
-function readTrustedSources(): TrustedSourcesFile {
-  let value: unknown;
-  try {
-    value = readJsonFile(trustedSourcesPath());
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { apiVersion: 1, sources: [] };
-    throw new Error(`Cannot read trusted sources ${trustedSourcesPath()}: ${(error as Error).message}`);
-  }
-  const file = value as TrustedSourcesFile;
-  if (
-    file?.apiVersion !== 1 ||
-    !Array.isArray(file.sources) ||
-    file.sources.some((entry) => !entry || typeof entry.source !== 'string' || typeof entry.addedAt !== 'string')
-  )
-    throw new Error(`Invalid trusted sources file: ${trustedSourcesPath()}`);
-  return file;
-}
-
-function writeTrustedSources(file: TrustedSourcesFile): void {
-  const temporary = `${trustedSourcesPath()}.${randomUUID()}.tmp`;
-  try {
-    fs.writeFileSync(temporary, JSON.stringify(file, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
-    fs.renameSync(temporary, trustedSourcesPath());
-  } finally {
-    try {
-      fs.rmSync(temporary, { force: true });
-    } catch {
-      logger.warn(`Trusted sources temporary-file cleanup failed at ${temporary}.`);
-    }
-  }
-}
-
-export function listTrustedSources(): string[] {
-  return readTrustedSources().sources.map((entry) => entry.source);
-}
-
-export function isSourceTrusted(source: string): boolean {
-  const normalized = normalizeTrustedSource(source);
-  return listTrustedSources().some(
-    (entry) => entry === normalized || (entry.endsWith('/*') && normalized.startsWith(entry.slice(0, -1))),
-  );
-}
-
-export function addTrustedSource(source: string): string[] {
-  const normalized = normalizeTrustedSource(source);
-  return withRegistryLock(() => {
-    const file = readTrustedSources();
-    if (!file.sources.some((entry) => entry.source === normalized)) {
-      file.sources.push({ source: normalized, addedAt: new Date().toISOString() });
-      writeTrustedSources(file);
-    }
-    return file.sources.map((entry) => entry.source);
-  });
-}
-
-/** Removing a source freezes its existing installs in place; upgrades/reinstalls require re-approval. */
-export function removeTrustedSource(source: string): string[] {
-  const normalized = normalizeTrustedSource(source);
-  return withRegistryLock(() => {
-    const file = readTrustedSources();
-    file.sources = file.sources.filter((entry) => entry.source !== normalized);
-    writeTrustedSources(file);
-    return file.sources.map((entry) => entry.source);
-  });
-}
-
 /** A foreground lease prevents unlink/relink; it never authorizes signaling a saved PID. */
+/** One message for every registry-vs-manifest kind mismatch, from list and from acquire. */
+export const registrationKindChangedMessage =
+  'Plugin registration kind changed; remove and reinstall the tool: offckb plugin remove <command>, then install or link it again';
+
 export function acquirePlugin(
   command: string,
   checkMode?: (mode: PluginMode) => void,
@@ -857,9 +793,11 @@ export function acquirePlugin(
     // A managed native registration and the on-disk declaration must agree,
     // so a swapped descriptor can never retarget where the host runs a
     // managed binary from. Linked directories follow the normal link rules.
-    if (entry.binary && plugin.kind !== 'binary') {
-      throw new Error('Plugin registration kind changed; remove and reinstall the tool');
-    }
+    // A registration whose on-disk manifest changed kind (managed binary
+    // swapped for JS, or a linked JS directory swapped for a binary
+    // descriptor) is never silently re-interpreted: binary tools are managed
+    // copies, JS plugins are the only sandboxed kind. One shared message.
+    if ((entry.binary ? 'binary' : 'js') !== plugin.kind) throw new Error(registrationKindChangedMessage);
     if (entry.binary && fs.realpathSync(plugin.entry!) !== fs.realpathSync(entry.binary.path)) {
       throw new Error('Managed binary identity changed; remove and reinstall the tool');
     }
