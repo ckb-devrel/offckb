@@ -108,7 +108,7 @@ issue [#555 评论](https://github.com/ckb-devrel/offckb/issues/555#issuecomment
 
 迁移路径（ckb-debugger 已按此落地）：
 
-1. 把 `ckb-debugger-install.ts` 的单体实现泛化为 plugin host 的 native 流水线（`src/plugins/native.ts`），ckb-debugger 成为 catalog 第一个条目；旧 `offckb install ckb-debugger` 转为 catalog alias；既有 `<data>/tools/ckb-debugger` 安装在首次安装时**搬入** native 目录（离线收编，版本以二进制实测为准），shim 同步刷新。
+1. 把 `ckb-debugger-install.ts` 的单体实现泛化为 plugin host 的 native 流水线（`src/plugins/native.ts`），ckb-debugger 成为 catalog 第一个条目；旧 `offckb install ckb-debugger` 转为 `plugin install` 的完整别名（参数面完全对齐，catalog 名/npm 包/github 仓库/本地目录及 `--trust`/`--allow`/`--read`/`--allow-scripts` 全部等价）；既有 `<data>/tools/ckb-debugger` 安装在首次安装时**搬入** native 目录（离线收编，版本以二进制实测为准），shim 同步刷新。
 2. `offckb debugger` 旧命令保留，经 registry 解析二进制路径后 spawn（并修复了透传参数带入命令名本身的既有 bug）。
 3. ckb-tui、ckb-tx-dumper、CKB/fnn node binary 逐个 catalog 化，`bins/` 与 `tools/` 两个散落目录最终收进同一 plugin home（P3）。
 
@@ -116,8 +116,9 @@ issue [#555 评论](https://github.com/ckb-devrel/offckb/issues/555#issuecomment
 
 ```sh
 offckb plugin install ckb-debugger@v1.1.2     # catalog 名（精确 tag，重复安装零网络）
-offckb plugin install ckb-debugger@latest    # 升级 = 再装一次：探远端 tag，不同则原子替换
-offckb plugin install ckb-debugger           # create 流程用：本地满足 minVersion 时离线短路
+offckb plugin install ckb-debugger@latest    # = 当前 catalog 固定版本（同版本重复安装零网络）；升级随 offckb 更新到达
+offckb plugin install ckb-debugger           # = offckb install ckb-debugger（完整别名，参数面一致）
+# offckb create 的宽松短路在 create 链路里：已装版本满足 minVersion 即离线通过，不强制升级
 offckb plugin install github:owner/repo#v1 --trust-source owner/repo   # 三方源：审批+安装一步
 offckb plugin trust add owner/repo           # 单独审批一个三方源
 offckb plugin trust list                     # 查看已审批源

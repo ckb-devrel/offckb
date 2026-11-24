@@ -16,8 +16,10 @@ jest.mock('fs', () => ({
 jest.mock('../src/plugins/store', () => ({
   getNativeBinaryPath: jest.fn(),
 }));
+jest.mock('../src/plugins/install', () => ({ installPlugin: jest.fn() }));
+jest.mock('../src/plugins/shims', () => ({ ensureCommandShim: jest.fn() }));
 jest.mock('../src/cfg/setting', () => ({
-  readSettings: () => ({ tools: { rootFolder: '/legacy/tools' } }),
+  readSettings: () => ({ tools: { rootFolder: '/legacy/tools', ckbDebugger: { minVersion: '0.200.0' } } }),
 }));
 
 const mockSpawnSync = spawnSync as jest.Mock;
@@ -114,6 +116,42 @@ describe('CKBDebugger', () => {
       ['--version'],
       expect.objectContaining({ env: expect.objectContaining({ [GUARD]: '1' }) }),
     );
+  });
+});
+
+describe('CKBDebugger.installCKBDebuggerBinary', () => {
+  // The lenient minVersion short-circuit belongs to the `offckb create` flow:
+  // it must stay local-only and never reach the plugin installer.
+  const installPluginMock = () =>
+    jest.requireMock('../src/plugins/install').installPlugin as jest.Mock;
+
+  it('short-circuits locally when the installed binary satisfies the pinned minimum', async () => {
+    mockGetNativeBinaryPath.mockReturnValue('/native/ckb-debugger');
+    mockSpawnSync.mockReturnValue({ status: 0, stdout: 'ckb-debugger 1.1.2\n' });
+
+    const result = await CKBDebugger.installCKBDebuggerBinary();
+
+    expect(installPluginMock()).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ binaryPath: '/native/ckb-debugger', version: '1.1.2', alreadyInstalled: true });
+  });
+
+  it('delegates to the plugin installer when the installed binary is below the minimum', async () => {
+    mockGetNativeBinaryPath.mockReturnValue('/native/ckb-debugger');
+    mockSpawnSync.mockReturnValue({ status: 0, stdout: 'ckb-debugger 0.100.0\n' });
+    installPluginMock().mockResolvedValue({ plugin: {}, source: {} });
+
+    await CKBDebugger.installCKBDebuggerBinary(new Set(['help']));
+
+    expect(installPluginMock()).toHaveBeenCalledWith('ckb-debugger', expect.any(Set), {});
+  });
+
+  it('delegates to the plugin installer when nothing is installed', async () => {
+    mockGetNativeBinaryPath.mockReturnValue(null);
+    installPluginMock().mockResolvedValue({ plugin: {}, source: {} });
+
+    await CKBDebugger.installCKBDebuggerBinary();
+
+    expect(installPluginMock()).toHaveBeenCalledWith('ckb-debugger', new Set(), {});
   });
 });
 
