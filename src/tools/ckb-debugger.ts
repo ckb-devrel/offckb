@@ -7,6 +7,7 @@ import { getNativeBinaryPath } from '../plugins/store';
 import { ensureCommandShim } from '../plugins/shims';
 import { installPlugin } from '../plugins/install';
 import { getVersionFromBinary, isVersionAtLeast } from '../plugins/native';
+import { logger } from '../util/logger';
 
 export interface DebugOption {
   fullTxJsonFilePath: string;
@@ -128,6 +129,7 @@ export class CKBDebugger {
         const version = getVersionFromBinary(existing);
         if (version && isVersionAtLeast(version, readSettings().tools.ckbDebugger.minVersion)) {
           ensureCommandShim('ckb-debugger', existing);
+          logger.info(`ckb-debugger ${version} is already installed at ${existing}; nothing to do.`);
           return Promise.resolve({ binaryPath: existing, version, alreadyInstalled: true });
         }
       }
