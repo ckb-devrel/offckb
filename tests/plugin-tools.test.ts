@@ -26,7 +26,8 @@ function descriptor() {
     version: '1.0.0',
     command: 'native-probe',
     description: 'Native probe',
-    entry: 'bin/probe',
+    // Windows entries must be .exe (enforced by the local installer).
+    entry: process.platform === 'win32' ? 'bin/probe.exe' : 'bin/probe',
     permissions: [],
     execution: { args: [], env: {} },
     platforms: {
@@ -42,7 +43,8 @@ function descriptor() {
 function writeToolDir(value: unknown = descriptor(), binary: Buffer | string = bytes) {
   const dir = path.join(root, 'tool');
   fs.mkdirSync(path.join(dir, 'bin'), { recursive: true });
-  fs.writeFileSync(path.join(dir, 'bin', 'probe'), binary, { mode: 0o755 });
+  const entryName = process.platform === 'win32' ? 'probe.exe' : 'probe';
+  fs.writeFileSync(path.join(dir, 'bin', entryName), binary, { mode: 0o755 });
   fs.writeFileSync(path.join(dir, 'offckb-tool.json'), JSON.stringify(value));
   return dir;
 }

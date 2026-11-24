@@ -48,14 +48,15 @@ export async function preparePluginExecution(
   port = 7070,
   mode: PluginMode = 'sandbox',
 ): Promise<{ command: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv; dispose: () => void }> {
-  if (mode === 'sandbox') assertSandboxSupported();
   // Binary tools always run natively with the user's permissions (their
   // primary channel is direct PATH spawn, which no host sandbox can cover);
   // only JavaScript plugins have a sandbox mode. Managed binary
   // registrations always resolve to trusted mode; this fails closed if a
-  // binary ever reaches the sandbox path.
+  // binary ever reaches the sandbox path. This invariant is independent of
+  // the sandbox runtime or Node version, so it precedes both checks.
   if (plugin.kind === 'binary' && mode === 'sandbox')
     throw new Error(`Binary tool ${plugin.command} cannot run in the sandbox; it always runs natively`);
+  if (mode === 'sandbox') assertSandboxSupported();
   if (plugin.kind === 'js' && !plugin.entry) {
     throw new Error(`${plugin.command} has no JavaScript entry`);
   }
