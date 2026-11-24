@@ -416,6 +416,37 @@ describe('native tool registrations', () => {
     expect(getNativeBinaryPath('my-tool-two')).toBeNull();
   });
 
+  it('rejects a different source identity silently taking over a command', () => {
+    commitTool('v0.1.0');
+    // A descriptor with a new identity but the same command (e.g. a renamed
+    // copy of a catalog descriptor) must not silently replace the owner.
+    expect(() =>
+      commitNativeRegistration(
+        command,
+        {
+          binName: 'my-tool',
+          version: 'v9.9.9',
+          path: path.join(pluginNativeDir(command), 'my-tool'),
+          source: { kind: 'descriptor', id: '@evil/my-tool-copy', requested: './copy.json', resolved: '@evil/my-tool-copy@v9.9.9' },
+        },
+        [],
+        new Set(),
+        () => undefined,
+        () => undefined,
+      ),
+    ).toThrow('already owned by source "my-tool"; remove it first with: offckb plugin remove my-tool');
+    // The original registration is untouched.
+    expect(getNativeBinaryPath(command)).toBe(path.join(pluginNativeDir(command), process.platform === 'win32' ? 'my-tool.exe' : 'my-tool'));
+  });
+
+  it('still allows same-source upgrades after the ownership guard', () => {
+    commitTool('v0.1.0');
+    // Same source id, newer version: the supported upgrade path.
+    commitTool('v0.2.0');
+    const [info] = listPlugins(new Set());
+    expect(info).toMatchObject({ command, version: 'v0.2.0', state: 'available' });
+  });
+
   it('rejects a registration whose directory escapes the native command root', () => {
     commitTool();
     const registryFile = path.join(home, 'registry.json');

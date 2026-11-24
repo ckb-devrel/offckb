@@ -625,6 +625,15 @@ export function commitNativeRegistration(
       : undefined;
     if (previous && !previous.binary)
       throw new Error(`Plugin command ${command} is already linked; remove/unlink it explicitly first`);
+    // Command ownership binds to the source identity of the first install.
+    // A different identity (e.g. a local descriptor reusing the command of a
+    // catalog tool) must be explicit: swap-in from a new owner would silently
+    // retarget every consumer of this command.
+    if (previous?.binary && previous.binary.source.id !== record.source.id)
+      throw new Error(
+        `Plugin command ${command} is already owned by source "${previous.binary.source.id}"; ` +
+          `remove it first with: offckb plugin remove ${command}`,
+      );
     // Compare stable package identity (without version), matching the JS
     // installation check: one package must not claim two commands, even when
     // the new command has no registration yet.
