@@ -33,7 +33,7 @@ export interface PluginInstallSpec {
   spec: string;
   name?: string;
   repository?: string;
-  /** catalog: release tag or 'latest'; github: optional ref for binary descriptor probing. */
+  /** catalog: 'latest' or the pinned version. */
   ref?: string;
 }
 
@@ -59,11 +59,11 @@ function npmPackageLocation(resolved: string | undefined): string | undefined {
 }
 
 /**
- * Deliberately accept registry packages, HTTPS GitHub repositories,
- * first-party catalog names and explicit tool descriptors — not arbitrary npm
- * spec spec protocols. Catalog names are checked before npm packages; an npm
- * package that literally shares a catalog name can still be requested with
- * the explicit `npm:` prefix.
+ * Deliberately accept registry packages, HTTPS GitHub repositories and
+ * first-party catalog names — not arbitrary npm spec protocols. Catalog
+ * names are checked before npm packages; an npm package that literally
+ * shares a catalog name can still be requested with the explicit `npm:`
+ * prefix. Local binary directories are detected before spec parsing.
  */
 export function parsePluginInstallSpec(input: string): PluginInstallSpec {
   if (!input || input.length > 1024 || /[\x00-\x1f\x7f]/.test(input)) throw new Error('Invalid plugin source');
@@ -221,7 +221,7 @@ export async function installPlugin(
   reserved: ReadonlySet<string>,
   options: PluginInstallOptions = {},
 ): Promise<{ plugin: ReturnType<typeof readPluginManifest>; source: PluginSource | NativeSource }> {
-  // Explicit tool descriptors and bundled tools take the native installer path.
+  // Local binary tool directories take the native installer path.
   if (isToolSource(input)) return installBinaryTool(input, reserved, options);
   const source = parsePluginInstallSpec(input);
   if (options.allowScripts && !options.trust)
