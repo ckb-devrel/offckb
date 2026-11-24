@@ -1,6 +1,7 @@
 import { Command, CommanderError, InvalidArgumentError } from 'commander';
 import { confirm } from '@inquirer/prompts';
 import { logger } from '../util/logger';
+import { catalogEntries } from './catalog';
 import {
   addTrustedSource,
   getNativeBinaryPath,
@@ -182,7 +183,7 @@ export function registerPluginManagement(program: Command): {
     });
   management
     .command('list')
-    .description('List linked plugins and compatibility diagnostics without executing them')
+    .description('List installed plugins and available catalog tools')
     .action(() => {
       const plugins = listPlugins(reserved(), checkMode);
       for (const plugin of plugins)
@@ -191,7 +192,26 @@ export function registerPluginManagement(program: Command): {
             plugin.source ? ` (${plugin.source.resolved})` : ''
           }${plugin.error ? ` — ${plugin.error}` : ''}`,
         );
-      logger.result({ command: 'plugin.list', plugins });
+      // Catalog visibility: the same list answers "what can I install?".
+      // Installed state is derived from the registry, so a tool installed
+      // from any source shows its check mark here.
+      const installed = new Set(plugins.filter((plugin) => plugin.kind === 'binary').map((plugin) => plugin.command));
+      const catalog = Object.values(catalogEntries()).map((entry) => ({
+        command: entry.command,
+        name: entry.install.name,
+        version: entry.install.version,
+        description: entry.install.description,
+        installed: installed.has(entry.command),
+      }));
+      if (catalog.length > 0)
+        logger.info('Binary tools: install with `offckb plugin install <name>` (✓ installed, ✗ available)');
+      for (const entry of catalog)
+        logger.info(
+          `  ${entry.installed ? '✓' : '✗'} ${entry.command}  ${entry.description}${
+            entry.installed ? ' (installed)' : ''
+          }`,
+        );
+      logger.result({ command: 'plugin.list', plugins, catalog });
     });
   management
     .command('which <command>')
