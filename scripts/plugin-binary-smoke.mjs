@@ -10,7 +10,6 @@ import { fileURLToPath } from 'node:url';
 const project = fileURLToPath(new URL('../', import.meta.url));
 const cli = path.join(project, 'build/index.js');
 const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'offckb binary smoke ')));
-const sandbox = process.argv.includes('--sandbox');
 const archiveIndex = process.argv.indexOf('--ckb-cli-archive');
 const archive = archiveIndex === -1 ? undefined : path.resolve(process.argv[archiveIndex + 1]);
 const realCkbCli = archive !== undefined || process.argv.includes('--ckb-cli');
@@ -75,7 +74,6 @@ try {
         : path.join(env.XDG_CONFIG_HOME, 'offckb-nodejs/settings.json');
   fs.mkdirSync(path.dirname(config), { recursive: true });
   fs.writeFileSync(config, JSON.stringify({ devnet: { rpcUrl: `http://127.0.0.1:${upstream.address().port}` } }));
-  const mode = sandbox ? [] : ['--trust'];
   if (realCkbCli) {
     await invoke(['plugin', 'install', 'ckb-cli', ...mode, '--allow', 'devnet-read']);
     assert.match((await invoke(['ckb-cli', '--help'])).stdout, /ckb-cli 2\.0\.0/i);
@@ -88,7 +86,7 @@ try {
     assert.ok(!calls.includes('clear_banned_addresses'));
     await invoke(['plugin', 'remove', 'ckb-cli']);
     console.log(
-      `PASS: pinned official ckb-cli install/help/read RPC/write denial/remove (${sandbox ? 'sandbox' : 'trusted'})`,
+      'PASS: pinned official ckb-cli install/help/read RPC/write denial/remove (trusted)',
     );
   } else {
     const directory = path.join(root, 'native probe');

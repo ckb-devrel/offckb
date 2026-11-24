@@ -28,9 +28,10 @@ import { ensureCommandShim } from './shims';
  * host-owned directory and exposed through a stable path, PATH shims and
  * OFFCKB_TOOL_* env vars so other tools can spawn them directly (issue #555).
  *
- * Every source (catalog, local/HTTPS descriptors, third-party GitHub repos)
- * feeds one download shape: per-platform URLs and SHA-256 digests pinned in
- * the descriptor and verified against the downloaded bytes.
+ * Every source (the first-party catalog and local directory descriptors)
+ * feeds one shape: per-platform URLs and SHA-256 digests pinned in the
+ * descriptor and verified against the downloaded bytes, or a declared
+ * executable copied from a local directory.
  *
  * Source trust: catalog tools ship with offckb (implicitly trusted, pinned
  * per release); local directory descriptors pin their own content by copying
@@ -72,6 +73,17 @@ export interface NativeInstallResult {
   alreadyInstalled: boolean;
   /** True when a pre-plugin managed binary was adopted instead of downloading. */
   adopted: boolean;
+}
+
+/**
+ * A legacyInstallDir segment names the pre-plugin install directory adopted
+ * from under the tools root. It must be a single plain directory name: the
+ * adoption copies from it and later deletes it recursively, so a traversal
+ * or the tools root itself ('.') would be catastrophic. Shared by the
+ * catalog loader and the installer.
+ */
+export function isSafeLegacySegment(segment: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(segment) && !segment.includes('..');
 }
 
 /**
@@ -301,8 +313,10 @@ export async function installNativeTool(
     if (!existing && ref === 'latest' && tool.legacyInstallDir) {
       const toolsRoot = readSettings().tools.rootFolder;
       // The segment itself must be a plain single name: path.join resolves
-      // '..' lexically, so equality checks downstream cannot catch it.
-      if (tool.legacyInstallDir !== path.basename(tool.legacyInstallDir) || tool.legacyInstallDir.includes('..'))
+      // '..' (and '.') lexically, so resolved-path equality downstream
+      // cannot catch either. '.' would adopt from and then recursively
+      // delete the entire tools root.
+      if (!isSafeLegacySegment(tool.legacyInstallDir))
         throw new Error(`Legacy install directory escapes the tools root: ${tool.legacyInstallDir}`);
       const segmentDir = path.join(toolsRoot, tool.legacyInstallDir);
       const candidateBinary = path.join(segmentDir, binName);

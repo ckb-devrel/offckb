@@ -236,7 +236,7 @@ describe('native tool registrations', () => {
         permissions: [],
       }),
     );
-    expect(() => acquirePlugin('js-tamper')).toThrow(/remove the link and install a managed copy/);
+    expect(() => acquirePlugin('js-tamper')).toThrow(/registration kind changed/);
 
     // A MANAGED native registration whose directory is swapped to a JS
     // manifest must still fail closed.

@@ -2,4 +2,4 @@
 '@offckb/cli': minor
 ---
 
-Support native binary plugins from bundled, local, or third-party HTTPS JSON descriptors without npm packaging or install scripts. Reuse explicit grants, managed upgrades/removal and sandboxed execution, and ship a pinned ckb-cli descriptor with independent storage and read-only devnet RPC. Accept null or omitted empty RPC parameters used by Rust clients. Keep the existing status dashboard until an upstream ckb-cli release includes its integrated TUI.
+The official binary tool catalog now uses pinned per-platform descriptors (`tools/*.json`): every catalog entry declares exact asset URLs, SHA-256 digests, archive members and argument/environment bindings as data, reviewed with each offckb release. Binary tools install from the catalog by name or from a local directory (`offckb plugin install ./dir`, a managed copy of the declared executable), always run natively with the user permissions, and never execute during installation. `offckb plugin list` shows the catalog with check marks for installed tools.

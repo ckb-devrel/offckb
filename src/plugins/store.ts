@@ -417,8 +417,7 @@ export function listPlugins(reserved: ReadonlySet<string>, checkMode?: (mode: Pl
         // linked JS directory swapped for a binary descriptor (or a managed
         // binary swapped for a JS package) is invalid here, not a sandbox
         // error at run time.
-        if ((binary ? 'binary' : 'js') !== plugin.kind)
-          throw new Error('Plugin registration kind changed; remove and reinstall the tool');
+        if ((binary ? 'binary' : 'js') !== plugin.kind) throw new Error(registrationKindChangedMessage);
         assertPermissions(plugin, permissions);
         assertTrustedIdentity(plugin, trusted);
       } catch (error) {
@@ -522,11 +521,11 @@ export function commitPluginInstallation(
   let previousRoot: string | undefined;
   const plugin = withRegistryLock(() => {
     const candidate = readPluginManifest(directory);
-    // The npm install path only registers JS plugins; binary descriptors are
-    // handled by the native installer with its trusted-source allowlist.
+    // The npm install path only registers JS plugins; binary tools come from
+    // the catalog or a local directory install.
     if (candidate.kind !== 'js') {
       throw new Error(
-        'Installed package declares a binary tool descriptor; install it as a binary tool source instead',
+        'Installed package declares a binary tool descriptor; install it from the catalog or a local directory instead',
       );
     }
     assertPluginCompatible(candidate);
@@ -770,6 +769,10 @@ export function nativeToolEnv(): Record<string, string> {
 }
 
 /** A foreground lease prevents unlink/relink; it never authorizes signaling a saved PID. */
+/** One message for every registry-vs-manifest kind mismatch, from list and from acquire. */
+export const registrationKindChangedMessage =
+  'Plugin registration kind changed; remove and reinstall the tool: offckb plugin remove <command>, then install or link it again';
+
 export function acquirePlugin(
   command: string,
   checkMode?: (mode: PluginMode) => void,
@@ -790,17 +793,11 @@ export function acquirePlugin(
     // A managed native registration and the on-disk declaration must agree,
     // so a swapped descriptor can never retarget where the host runs a
     // managed binary from. Linked directories follow the normal link rules.
-    if (entry.binary && plugin.kind !== 'binary') {
-      throw new Error('Plugin registration kind changed; remove and reinstall the tool');
-    }
-    // A linked JavaScript directory whose manifest was swapped for a binary
-    // descriptor is not a sandbox-capable registration: binary tools are
-    // managed copies. Fail here with the repair path, not at run time.
-    if (!entry.binary && plugin.kind === 'binary') {
-      throw new Error(
-        `Linked plugin ${command} now declares a binary tool; remove the link and install a managed copy instead: offckb plugin remove ${command} && offckb plugin install <directory>`,
-      );
-    }
+    // A registration whose on-disk manifest changed kind (managed binary
+    // swapped for JS, or a linked JS directory swapped for a binary
+    // descriptor) is never silently re-interpreted: binary tools are managed
+    // copies, JS plugins are the only sandboxed kind. One shared message.
+    if ((entry.binary ? 'binary' : 'js') !== plugin.kind) throw new Error(registrationKindChangedMessage);
     if (entry.binary && fs.realpathSync(plugin.entry!) !== fs.realpathSync(entry.binary.path)) {
       throw new Error('Managed binary identity changed; remove and reinstall the tool');
     }

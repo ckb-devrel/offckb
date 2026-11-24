@@ -41,7 +41,7 @@ jest.mock('../src/cfg/setting', () => ({
 }));
 
 import { installPlugin, parsePluginInstallSpec } from '../src/plugins/install';
-import { installNativeTool } from '../src/plugins/native';
+import { installNativeTool, isSafeLegacySegment } from '../src/plugins/native';
 import { Request } from '../src/util/request';
 import { catalogEntry } from '../src/plugins/catalog';
 import {
@@ -247,6 +247,35 @@ describe('binary tool installation', () => {
     // Nothing was adopted or deleted.
     expect(fs.existsSync(path.join(victim, 'ckb-debugger', BINARY_NAME))).toBe(true);
     expect(getNativeBinaryPath('ckb-debugger')).toBeNull();
+  });
+
+  it.each(['.', '..', '../victim', 'a/b', 'a\\\\b', '/abs', '..\\x'])(
+    'rejects an unsafe legacy segment %j before touching the filesystem',
+    async (segment) => {
+      await expect(
+        installNativeTool(
+          {
+            name: 'ckb-debugger',
+            version: '1.1.2',
+            command: 'ckb-debugger',
+            description: 'CKB standalone debugger',
+            platforms: {
+              'linux-x64': { url: 'https://e.example/a', sha256: '0'.repeat(64), format: 'raw', executable: 'a' },
+            },
+            legacyInstallDir: segment,
+          },
+          'latest',
+          { requested: 'ckb-debugger', sourceKind: 'catalog', reserved: new Set() },
+        ),
+      ).rejects.toThrow(/escapes the tools root/);
+    },
+  );
+
+  it('accepts a plain legacy segment', () => {
+    // The validator is shared with the catalog loader; exercise it directly
+    // so both POSIX and Windows-shaped names are pinned.
+    expect(isSafeLegacySegment('ckb-debugger')).toBe(true);
+    expect(isSafeLegacySegment('tool.v2_name-1')).toBe(true);
   });
 
   it('refuses a symlinked legacy install segment', async () => {

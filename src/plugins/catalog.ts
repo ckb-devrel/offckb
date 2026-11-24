@@ -1,6 +1,6 @@
 import ckbCli from '../../tools/ckb-cli.json';
 import ckbDebugger from '../../tools/ckb-debugger.json';
-import { NativeToolInstall } from './native';
+import { isSafeLegacySegment, NativeToolInstall } from './native';
 import { parseToolDescriptor } from './tool-descriptor';
 
 /**
@@ -35,14 +35,11 @@ function toCatalogEntry({ file, data }: CatalogFile): CatalogEntry {
   const tool = parseToolDescriptor(data, false);
   const metadata = data as { minVersion?: unknown; legacyInstallDir?: unknown };
   // legacyInstallDir names a leftover pre-plugin install directory under the
-  // tools root that is adopted once and then deleted: it must be a single
-  // plain segment, never a path (a traversal here would recurse-delete
-  // outside the tools root after a successful adoption).
+  // tools root that is adopted once and then deleted; the shared validator
+  // rejects paths, traversal and the tools root itself.
   if (
     metadata.legacyInstallDir !== undefined &&
-    (typeof metadata.legacyInstallDir !== 'string' ||
-      !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(metadata.legacyInstallDir) ||
-      metadata.legacyInstallDir.includes('..'))
+    (typeof metadata.legacyInstallDir !== 'string' || !isSafeLegacySegment(metadata.legacyInstallDir))
   )
     throw new Error(`Invalid legacyInstallDir in ${file}`);
   return {

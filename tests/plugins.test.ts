@@ -132,6 +132,14 @@ it('allows removal of a broken package and blocks unlink/relink during a foregro
 
 it('marks a linked plugin whose manifest drifts to a binary descriptor as invalid', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'offckb-drift-'));
+  try {
+    driftBody(directory);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+function driftBody(directory: string): void {
   fs.writeFileSync(path.join(directory, 'entry.mjs'), '');
   fs.writeFileSync(
     path.join(directory, 'package.json'),
@@ -149,9 +157,8 @@ it('marks a linked plugin whose manifest drifts to a binary descriptor as invali
   const [info] = listPlugins(new Set());
   expect(info.state).toBe('invalid');
   expect(info.error).toMatch(/registration kind changed/);
-  expect(() => acquirePlugin('drift')).toThrow(/remove the link and install a managed copy/);
-});
-
+  expect(() => acquirePlugin('drift')).toThrow(/registration kind changed/);
+}
 
 it('preserves a corrupt registry instead of overwriting it', () => {
   fs.mkdirSync(process.env.OFFCKB_PLUGIN_HOME!);
