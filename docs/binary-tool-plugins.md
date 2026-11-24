@@ -1,3 +1,9 @@
+> **SUPERSEDED (2025-11)**: 本文件是二进制插件的**历史设计记录**。其中的来源白名单、
+> `tool:`/HTTPS/本地 descriptor 安装、release 模板 catalog、linked-binary sandbox 等设计
+> 已全部移除。现行设计见 [plugins.md](plugins.md)（入口矩阵）与
+> [binary-tools.md](binary-tools.md)（catalog + 本地目录 + 维护者 descriptor 格式）。
+> 保留原文以供追溯讨论脉络。
+>
 # 二进制工具插件化方案
 
 状态：**已与 develop 的 `tool:` 描述符体系合并（#553 + #559）**。JS 插件协议见 [plugin-system-proposal.md](plugin-system-proposal.md) 与 [plugins.md](plugins.md)；本文档为二进制 kind 的设计与实现记录。

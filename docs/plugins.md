@@ -1,8 +1,33 @@
 # Local tool plugins
 
-Plugins have a static declaration and a JavaScript or native binary entry. JavaScript adapters use npm-shaped packages; [native tools](binary-tools.md) may instead use standalone JSON descriptors maintained here or by any third party. The host supplies a versioned context and runs each tool in a separate process. Execution uses an OS sandbox by default; users may explicitly trust an individual package for native execution. The host provides npm/GitHub and binary installation, managed replacement/removal, local linking, foreground execution and capability grants. Background services and dependencies between offckb plugins are deferred.
+Plugins have a static declaration and a JavaScript or native binary entry. One registry and one
+install/remove/list lifecycle serve both kinds; execution differs per kind. Background services and
+dependencies between offckb plugins are deferred.
 
-> **Binary tool plugins**: a second plugin kind manages native binaries (starting with ckb-debugger) instead of JavaScript entries. Binary tools share the registry and install/remove/list lifecycle but are exposed through a stable path, PATH shims and `OFFCKB_TOOL_*` environment variables rather than the context/sandbox protocol, and third-party sources require the trusted-source allowlist. See [binary-tool-plugins.md](binary-tool-plugins.md).
+## What to type, in one table
+
+| You have | Command | Kind | Execution |
+| --- | --- | --- | --- |
+| A tool name (official catalog or npm package) | `offckb plugin install <name>[@version]` | catalog hit: binary; miss: JS | binary: always native; JS: sandbox by default, `--trust` to opt out |
+| A GitHub repository (npm-shaped JS plugin) | `offckb plugin install github:owner/repo[#ref]` | JS | sandbox by default, `--trust` on Windows |
+| A local binary directory (`offckb-tool.json` + executable) | `offckb plugin install ./dir` | binary (managed copy) | always native |
+| A local JS plugin directory, in development | `offckb plugin link ./dir` | JS (referenced in place) | sandbox by default, `--trust` on Windows |
+| Anything | `offckb plugin list` | — | shows installed plugins (✓) and available catalog tools (✗) |
+
+Binary tools come from two places only: the **official catalog** (pinned descriptors in `tools/`,
+reviewed per offckb release — installing them is trusting offckb itself) and **local directories**
+you point at yourself. Binary tools always run natively with your user permissions and are exposed
+through a stable path, PATH shims and `OFFCKB_TOOL_*` environment variables; there is no sandbox
+for them because their primary channel is direct PATH spawn, which no host sandbox can cover.
+See [binary tools](binary-tools.md) for the catalog, local installs and the descriptor format.
+
+> **History**: the retired third-party binary descriptor sources and the trusted-source allowlist
+> are recorded in [binary-tool-plugins.md](binary-tool-plugins.md) (superseded design record).
+
+JavaScript plugins use npm-shaped packages. The host supplies a versioned context and runs each
+tool in a separate process. Execution uses an OS sandbox by default; users may explicitly trust an
+individual package for native execution. The host provides npm/GitHub installation, managed
+replacement/removal, local linking, foreground execution and capability grants.
 
 ## Platform boundary
 
@@ -173,7 +198,13 @@ In sandbox mode both macOS and Linux keep Unix-socket creation/access blocked; n
 
 ## Third-party adapters
 
-Each adapter is maintained and released independently by its author. Optional native-tool descriptors may be shipped here (the first is ckb-cli); their version pins and bindings are data, separate from the generic installer/runner. They are never automatically installed or granted permissions. Third-party descriptors use the same protocol without inclusion in this repository. The host has no application-specific readiness logic. No particular adapter's upstream merge or release gates delivery of this generic plugin host.
+Each adapter is maintained and released independently by its author. Native binaries join the
+official catalog as pinned descriptors in `tools/` (ckb-debugger and ckb-cli today); their version
+pins and bindings are data, separate from the generic installer/runner, and they are never
+automatically installed or granted permissions. Authors of unadapted binaries do not need to do
+anything: request a catalog entry (issue/PR), or install a local copy with
+`offckb plugin install ./dir`. The host has no application-specific readiness logic. No particular
+adapter's upstream merge or release gates delivery of this generic plugin host.
 
 Adapters consume the declared context/capabilities and keep their application's CLI flags, supported chains, version checks, readiness/output translation and dependencies in their own package. Use a dependency's public, versioned interfaces and maintain its integration tests in the adapter repository. Default host tests use synthetic fixtures. The optional [real ckb-cli archive smoke](binary-tools.md#validation) also exercises an official binary against a local RPC fixture.
 

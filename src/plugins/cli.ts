@@ -127,7 +127,7 @@ export function registerPluginManagement(program: Command): {
     management
       .command('install <source>')
       .description(
-        'Install from npm/GitHub (terminal permission prompt), github:owner/repo, a catalog tool name, tool:<name>, or a local/HTTPS tool descriptor (.json)',
+        'Install an npm package, github:owner/repo (JavaScript plugins), a catalog tool name, or a local binary tool directory',
       ),
   )
     .option('--allow-scripts', 'Allow npm install/build scripts outside the runtime sandbox (requires --trust)', false)
