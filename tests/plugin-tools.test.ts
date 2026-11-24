@@ -230,6 +230,19 @@ it('links native entries without executing metadata and rejects escaping executa
   expect(() => readPluginManifest(root)).toThrow('inside');
 });
 
+it('refuses sandbox preparation for binary tools; they always run natively', async () => {
+  const entry = process.platform === 'win32' ? 'node.exe' : 'node';
+  fs.copyFileSync(process.execPath, path.join(root, entry));
+  fs.writeFileSync(
+    path.join(root, 'offckb-tool.json'),
+    JSON.stringify({ ...descriptor(), entry, permissions: [] }),
+  );
+  const plugin = readPluginManifest(root);
+  await expect(preparePluginExecution(plugin, undefined, [], ['--help'], 0, 'sandbox')).rejects.toThrow(
+    'cannot run in the sandbox',
+  );
+});
+
 it('executes a real native entry directly with literal argv, isolated storage binding and offline help', async () => {
   const entry = process.platform === 'win32' ? 'node.exe' : 'node';
   fs.copyFileSync(process.execPath, path.join(root, entry));
