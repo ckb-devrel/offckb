@@ -1,3 +1,4 @@
+import fs from 'fs';
 import path from 'path';
 import AdmZip from 'adm-zip';
 import * as tar from 'tar';
@@ -12,7 +13,14 @@ const MAX_BINARY = 256 * 1024 * 1024;
 const MAX_EXPANDED = 512 * 1024 * 1024;
 
 export function isToolSource(input: string): boolean {
-  return input.endsWith('.json');
+  // Only local directories are binary install sources: a directory holding
+  // an offckb-tool.json and its executable installs as a managed copy.
+  // Remote descriptors and the retired tool:/.json spellings are gone.
+  try {
+    return fs.statSync(path.resolve(input)).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 /** Explicit redirects keep HTTPS validation on every hop. One deadline includes body reads. */
@@ -137,16 +145,9 @@ export async function installBinaryTool(
   options: PluginLinkOptions & { allowScripts?: boolean },
 ): Promise<{ plugin: ReturnType<typeof readPluginManifest>; source: PluginSource | NativeSource }> {
   if (options.allowScripts) throw new Error('Binary tools do not support installation scripts');
-  let value: unknown;
-  let sourceKind: NativeSource['kind'];
-  if (input.startsWith('https:')) {
-    value = JSON.parse((await downloadToolFile(input, 1024 * 1024)).toString('utf8'));
-    sourceKind = 'descriptor';
-  } else {
-    value = readJsonFile(path.resolve(input));
-    sourceKind = 'descriptor';
-  }
-  const tool = parseToolDescriptor(value, true);
+  const directory = fs.realpathSync(path.resolve(input));
+  if (!fs.statSync(directory).isDirectory()) throw new Error(`Not a binary tool directory: ${input}`);
+  const tool = parseToolDescriptor(readJsonFile(path.join(directory, 'offckb-tool.json')), false);
   if (tool.permissions.some((permission) => !options.allow?.includes(permission)))
     throw new Error(`Tool requires explicit grants: ${tool.permissions.map((p) => `--allow ${p}`).join(' ')}`);
   if (options.allow?.some((permission) => !tool.permissions.includes(permission as (typeof tool.permissions)[number])))
@@ -160,12 +161,14 @@ export async function installBinaryTool(
       description: tool.description,
       permissions: tool.permissions,
       execution: tool.execution,
-      platforms: tool.platforms!,
+      platforms: {},
+      entry: tool.entry,
+      localDirectory: directory,
     },
     tool.version,
     {
-      requested: input.startsWith('https:') ? input : path.resolve(input),
-      sourceKind,
+      requested: input,
+      sourceKind: 'descriptor',
       allow: tool.permissions,
       reserved,
     },
@@ -173,9 +176,9 @@ export async function installBinaryTool(
   return {
     plugin: readPluginManifest(pluginNativeDir(result.command)),
     source: {
-      kind: sourceKind,
+      kind: 'descriptor',
       id: tool.name,
-      requested: input.startsWith('https:') ? input : path.resolve(input),
+      requested: input,
       resolved: result.version.includes('#') ? result.version : `${tool.name}@${result.version}`,
     },
   };

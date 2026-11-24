@@ -459,12 +459,14 @@ export function linkPlugin(
 ): PluginManifest {
   return withRegistryLock(() => {
     const plugin = readPluginManifest(directory);
-    // Linked binary tools are local development tools: the user pointed at
-    // the directory themselves, exactly like running the binary directly.
-    // They register in place (no managed native record, no stable path) and
-    // follow the standard trust model — sandbox by default, native only
-    // with an explicit --trust at link time. Remote binary sources stay
-    // gated by the trusted-source allowlist.
+    // Linking is the JavaScript plugin development flow: it references the
+    // user's directory in place. Binary tools take the other verb — a
+    // managed copy via `offckb plugin install ./dir` — because their
+    // contract is the file itself, not live edits.
+    if (plugin.kind === 'binary')
+      throw new Error(
+        `${directory} declares a binary tool; install a managed copy instead: offckb plugin install ${directory}`,
+      );
     assertPluginCompatible(plugin);
     assertPermissions(plugin, options.allow ?? []);
     if (options.allow?.some((permission) => !plugin.permissions.includes(permission as PluginPermission)))

@@ -102,7 +102,10 @@ export function parsePluginInstallSpec(input: string): PluginInstallSpec {
     !version ||
     (!semver.validRange(version) && !/^[A-Za-z][A-Za-z0-9._-]*$/.test(version))
   )
-    throw new Error('Use an npm package[@version], github:owner/repo[#tag-or-commit], or a catalog tool name');
+    throw new Error(
+      'Unknown plugin source. Use an npm package name, github:owner/repo[#ref], a catalog tool name ' +
+        '(see `offckb plugin list`), or a local binary directory: offckb plugin install ./dir',
+    );
   return { kind: 'npm', requested: input, spec: `${name}@${version}`, name };
 }
 

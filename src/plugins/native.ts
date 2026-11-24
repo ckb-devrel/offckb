@@ -1,5 +1,6 @@
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { randomUUID } from 'crypto';
@@ -55,6 +56,10 @@ export interface NativeToolInstall {
   legacyInstallDir?: string;
   execution?: ToolExecution;
   platforms: Record<string, ToolAsset>;
+  /** Descriptor-declared executable, relative to the package root. */
+  entry?: string;
+  /** Local directory sources: copy this declared executable instead of downloading. */
+  localDirectory?: string;
 }
 
 export interface NativeInstallOptions {
@@ -226,6 +231,39 @@ async function planPlatformsInstall(tool: NativeToolInstall): Promise<PlannedIns
   return { version: tool.version!, descriptor, binary, binaryIsFile: false, descriptorHash };
 }
 
+/** Plan a local directory source: validate and copy the declared executable. */
+function planLocalInstall(tool: NativeToolInstall): PlannedInstall {
+  const directory = tool.localDirectory!;
+  const declared = path.resolve(directory, tool.entry!);
+  const resolved = fs.realpathSync(declared);
+  if (resolved !== declared || !resolved.startsWith(directory + path.sep))
+    throw new Error(`Binary tool entry must be a regular file inside ${directory}`);
+  const stat = fs.lstatSync(resolved);
+  if (!stat.isFile() || fs.lstatSync(resolved).isSymbolicLink())
+    throw new Error(`Binary tool entry must be a regular file: ${tool.entry}`);
+  const windows = process.platform === 'win32';
+  if (windows && !resolved.toLowerCase().endsWith('.exe'))
+    throw new Error('Binary tool entries on Windows must be .exe files');
+  if (!windows) fs.accessSync(resolved, fs.constants.X_OK); // throws without the executable bit
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `offckb-${tool.command}-`));
+  const scratch = path.join(tempDir, path.basename(resolved));
+  // Copy, never move: the user's directory stays intact on any failure.
+  fs.copyFileSync(resolved, scratch);
+  if (!windows) fs.chmodSync(scratch, 0o755);
+  const descriptor = {
+    apiVersion: 1,
+    name: tool.name,
+    version: tool.version!,
+    command: tool.command,
+    description: tool.description,
+    entry: '',
+    permissions: tool.permissions ?? [],
+    ...(tool.execution ? { execution: tool.execution } : {}),
+  };
+  const descriptorHash = crypto.createHash('sha256').update(JSON.stringify(descriptor)).digest('hex');
+  return { version: tool.version!, descriptor, binary: scratch, binaryIsFile: true, descriptorHash, tempDir };
+}
+
 /**
  * Install (or atomically replace) a native tool plugin. Throws on any
  * failure; an existing registration and its binary are left untouched until
@@ -237,8 +275,8 @@ export async function installNativeTool(
   options: NativeInstallOptions,
 ): Promise<NativeInstallResult> {
   if (!isBinaryName(tool.command)) throw new Error(`Invalid binary tool command: ${tool.command}`);
-  if (!tool.platforms || !Object.keys(tool.platforms).length)
-    throw new Error('A native tool install requires pinned platform assets');
+  if (!tool.localDirectory && (!tool.platforms || !Object.keys(tool.platforms).length))
+    throw new Error('A native tool install requires pinned platform assets or a local directory');
   // Source approval: catalog tools ship with offckb and are implicitly
   // trusted; explicit descriptors pin their own content; third-party GitHub
   // sources require the local allowlist. `--trust-source` is a one-shot
@@ -402,10 +440,14 @@ export async function installNativeTool(
     }
 
     if (!adopted) {
-      planned = await planPlatformsInstall({ ...tool, version: tool.version ?? pinnedVersion ?? '' });
-      // GitHub provenance records the resolved release tag; the on-disk
-      // descriptor keeps the descriptor's own version field.
-      if (options.sourceKind === 'github') planned.version = ref;
+      if (tool.localDirectory) {
+        planned = planLocalInstall(tool);
+      } else {
+        planned = await planPlatformsInstall({ ...tool, version: tool.version ?? pinnedVersion ?? '' });
+        // GitHub provenance records the resolved release tag; the on-disk
+        // descriptor keeps the descriptor's own version field.
+        if (options.sourceKind === 'github') planned.version = ref;
+      }
       plannedTempDir = planned.tempDir;
     }
 
