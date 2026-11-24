@@ -407,17 +407,6 @@ mainnetForkOverrideOption(
 });
 
 program
-  .command('install')
-  .description('Install a tool binary used by offckb (e.g. the native ckb-debugger)')
-  .addArgument(new Argument('<tool>', 'The tool to install').choices(['ckb-debugger']))
-  .action(async (tool: string) => {
-    // The install alias goes through the same binary tool plugin registry as
-    // `offckb plugin install`, so every managed tool shares one lifecycle.
-    await CKBDebugger.installCKBDebuggerBinary(plugins.reserved());
-    void tool;
-  });
-
-program
   .command('debugger')
   .description('Port of the raw CKB Standalone Debugger')
   .passThroughOptions()

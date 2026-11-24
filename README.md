@@ -89,7 +89,7 @@ Commands:
   transfer [options] [toAddress] [amountInCKB]  Transfer CKB tokens to address, only devnet and testnet
   transfer-all [options] [toAddress]            Transfer All CKB tokens to address, only devnet and testnet
   balance [options] [toAddress]                 Check account balance, only devnet and testnet
-  install <tool>                                Install a tool binary used by offckb (e.g. the native ckb-debugger)
+  install [options] <source>                    Alias for `offckb plugin install <source>` (plugins and binary tools)
   debugger                                      Port of the raw CKB Standalone Debugger
   status [options]                              Show ckb-tui status interface
   logs [options] [target]                       Show devnet logs: node (default), contract script debug output, miner, or RPC proxy events
@@ -233,6 +233,8 @@ The generated project uses `ckb-testtool` with the WASM debugger by default, whi
 offckb install ckb-debugger
 ```
 
+(`offckb install <source>` is an alias of `offckb plugin install <source>`; both share one install lifecycle.)
+
 This downloads the prebuilt `ckb-debugger` binary for your platform from the official [ckb-standalone-debugger releases](https://github.com/nervosnetwork/ckb-standalone-debugger/releases) and puts a `ckb-debugger` shim next to the offckb binary so it is available on PATH.
 
 Then disable the WASM debugger in your mock test file:
@@ -332,9 +334,9 @@ All debug utilities are powered by [ckb-debugger](https://github.com/nervosnetwo
 offckb install ckb-debugger
 ```
 
-This downloads the prebuilt binary for your platform from the official [ckb-standalone-debugger releases](https://github.com/nervosnetwork/ckb-standalone-debugger/releases) (no Rust toolchain or compilation needed), verifies its checksum, and exposes it on PATH.
+This is the alias of `offckb plugin install ckb-debugger`. It downloads the prebuilt binary for your platform from the official [ckb-standalone-debugger releases](https://github.com/nervosnetwork/ckb-standalone-debugger/releases) (no Rust toolchain or compilation needed), verifies its checksum, and exposes it on PATH.
 
-To uninstall, remove the binary under the offckb data directory (see `offckb config list`) and the `ckb-debugger` shim next to the offckb binary.
+To uninstall, run `offckb plugin remove ckb-debugger`; it removes the managed binary and the offckb-owned shim while keeping data and cache.
 
 ### 5. Explore Built-in Scripts {#explore-scripts}
 
@@ -610,7 +612,7 @@ npm install -g @offckb/cli
 
 Interactive npm/GitHub installs show the requested permissions for one confirmation; no repeated `--allow` flags are needed. Same-source managed updates reuse approved capabilities and ask again for additions. CI, pipes and `--json` mode require explicit grants for first installs or expanded permissions. Trusting native execution and allowing install scripts remain separate choices.
 
-Install tool plugins with `offckb plugin install <npm-package|github:owner/repo[#ref]>`, or link a development directory with `offckb plugin link <directory>`. Inspect them with `offckb plugin list`, and run them as `offckb <plugin-command>`. Default sandbox mode requires macOS/Linux and Node 22.21+ (22.x) or 24.5+. Windows users can run plugins natively with Node 20+ by explicitly installing/linking with `--trust`; this mode runs with the user's OS permissions and needs no WSL or sandbox setup. Both modes filter inherited credentials, supply minimal devnet context/read-RPC interfaces and own foreground cleanup. A sandbox failure never silently enables trusted execution. See the [plugin guide](docs/plugins.md) for grants, mode differences and security limits. Reinstall to update a managed package; `offckb plugin remove <command>` removes its package while keeping data/cache. Install scripts are disabled unless explicitly authorized with `--trust --allow-scripts`. For npm/GitHub installation, the bundled npm CLI requires Node 20.17+ (20.x) or 22.9+; GitHub sources also require Git. Background plugins and automatic upgrades are deferred.
+Install tool plugins with `offckb plugin install <npm-package|github:owner/repo[#ref]>` (the top-level `offckb install <source>` is an equivalent alias), or link a development directory with `offckb plugin link <directory>`. Inspect them with `offckb plugin list`, and run them as `offckb <plugin-command>`. Default sandbox mode requires macOS/Linux and Node 22.21+ (22.x) or 24.5+. Windows users can run plugins natively with Node 20+ by explicitly installing/linking with `--trust`; this mode runs with the user's OS permissions and needs no WSL or sandbox setup. Both modes filter inherited credentials, supply minimal devnet context/read-RPC interfaces and own foreground cleanup. A sandbox failure never silently enables trusted execution. See the [plugin guide](docs/plugins.md) for grants, mode differences and security limits. Reinstall to update a managed package; `offckb plugin remove <command>` removes its package while keeping data/cache. Install scripts are disabled unless explicitly authorized with `--trust --allow-scripts`. For npm/GitHub installation, the bundled npm CLI requires Node 20.17+ (20.x) or 22.9+; GitHub sources also require Git. Background plugins and automatic upgrades are deferred.
 
 Native binary tools install from the official catalog or a local directory, without npm packaging or installation scripts: `offckb plugin install ckb-cli --allow devnet-read`, or `offckb plugin install ./dir` for a directory holding an `offckb-tool.json` plus its executable. `offckb plugin list` shows the catalog with check marks. Binary tools always run natively with your user permissions. See [native tool integration](docs/binary-tools.md) for the catalog, local installs and the pending ckb-cli TUI release.
 
