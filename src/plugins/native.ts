@@ -246,13 +246,11 @@ export async function installNativeTool(
     }
   };
 
-  // Idempotent offline path: template sources with an exact tag, and any
-  // pinned immutable source whose version is already registered. Local or
-  // HTTPS descriptor files always reinstall: their content may change at a
-  // constant version, so the pinned SHA-256 must be re-verified every time.
+  // Idempotent offline path: a pinned immutable source whose version is
+  // already registered short-circuits without network. Local directory
+  // descriptors always reinstall: their content may change at a constant
+  // version, so the executable must be re-copied and re-validated.
   const existing = getNativeRecord(tool.command);
-  // Local/HTTPS descriptors always reinstall; the mutable HEAD fallback
-  // never gets an offline idempotency shortcut either.
   const immutableSource = options.sourceKind !== 'descriptor' && ref !== 'HEAD';
   const pinnedVersion = tool.platforms
     ? options.sourceKind === 'github'
@@ -296,22 +294,30 @@ export async function installNativeTool(
     // the latest-tag lookup and is fully offline; the recorded version is
     // read from the binary itself, and the next `@latest` install upgrades
     // it when a newer release exists.
+    // Captured once at adoption: the canonical legacy directory reused for
+    // both the copy and the post-commit cleanup, so a settings change or a
+    // raced symlink can never redirect either.
+    let adoptedLegacyDir: string | undefined;
     if (!existing && ref === 'latest' && tool.legacyInstallDir) {
       const toolsRoot = readSettings().tools.rootFolder;
-      const legacyBinary = path.join(toolsRoot, tool.legacyInstallDir, binName);
-      // The catalog validates the segment; re-verify containment here so a
-      // tampered registry or descriptor can never recurse-delete outside
-      // the tools root. The check runs only when a legacy install exists.
-      if (fs.existsSync(legacyBinary)) {
+      // The segment itself must be a plain single name: path.join resolves
+      // '..' lexically, so equality checks downstream cannot catch it.
+      if (tool.legacyInstallDir !== path.basename(tool.legacyInstallDir) || tool.legacyInstallDir.includes('..'))
+        throw new Error(`Legacy install directory escapes the tools root: ${tool.legacyInstallDir}`);
+      const segmentDir = path.join(toolsRoot, tool.legacyInstallDir);
+      const candidateBinary = path.join(segmentDir, binName);
+      // The catalog validates the segment; canonicalize before touching
+      // anything so a symlinked segment (inside or outside the root) is
+      // rejected instead of adopted or deleted.
+      if (fs.existsSync(candidateBinary)) {
         const resolvedRoot = fs.realpathSync(toolsRoot);
-        const legacyDir = path.resolve(resolvedRoot, tool.legacyInstallDir);
-        if (
-          legacyDir !== path.join(resolvedRoot, tool.legacyInstallDir) ||
-          !legacyDir.startsWith(resolvedRoot + path.sep)
-        )
+        const resolvedDir = fs.realpathSync(segmentDir);
+        if (resolvedDir !== path.join(resolvedRoot, tool.legacyInstallDir))
           throw new Error(`Legacy install directory escapes the tools root: ${tool.legacyInstallDir}`);
+        adoptedLegacyDir = resolvedDir;
       }
-      if (fs.existsSync(legacyBinary) && !fs.lstatSync(legacyBinary).isSymbolicLink()) {
+      const legacyBinary = adoptedLegacyDir ? path.join(adoptedLegacyDir, binName) : candidateBinary;
+      if (adoptedLegacyDir && fs.existsSync(legacyBinary) && !fs.lstatSync(legacyBinary).isSymbolicLink()) {
         const legacyVersion = getVersionFromBinary(legacyBinary);
         if (legacyVersion && (!tool.minVersion || isVersionAtLeast(legacyVersion, tool.minVersion))) {
           logger.info(`Adopting the existing ${tool.command} ${legacyVersion} installation...`);
@@ -422,11 +428,9 @@ export async function installNativeTool(
     ensureCommandShim(tool.command, record.path);
     if (adopted) {
       // The adopted binary copied out of the legacy location; drop the empty
-      // shell so nothing probes it as an unmanaged install anymore.
-      const toolsRoot = fs.realpathSync(readSettings().tools.rootFolder);
-      const legacyDir = path.resolve(toolsRoot, tool.legacyInstallDir!);
-      if (legacyDir !== path.join(toolsRoot, tool.legacyInstallDir!) || !legacyDir.startsWith(toolsRoot + path.sep))
-        throw new Error(`Legacy install directory escapes the tools root: ${tool.legacyInstallDir}`);
+      // shell so nothing probes it as an unmanaged install anymore. Uses the
+      // canonical path captured at adoption time, never a fresh lookup.
+      const legacyDir = adoptedLegacyDir!;
       try {
         if (fs.existsSync(legacyDir)) fs.rmSync(legacyDir, { recursive: true, force: true });
       } catch {

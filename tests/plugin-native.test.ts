@@ -249,6 +249,21 @@ describe('binary tool installation', () => {
     expect(getNativeBinaryPath('ckb-debugger')).toBeNull();
   });
 
+  it('refuses a symlinked legacy install segment', async () => {
+    if (process.platform === 'win32') return; // symlink creation may require elevation.
+    const outside = path.join(root, 'outside');
+    fs.mkdirSync(path.join(outside, 'ckb-debugger'), { recursive: true });
+    fs.writeFileSync(path.join(outside, 'ckb-debugger', BINARY_NAME), fakeBinaryPayload('1.1.1'));
+    mockDirs.toolsRoot = path.join(root, 'tools');
+    fs.mkdirSync(mockDirs.toolsRoot, { recursive: true });
+    fs.symlinkSync(path.join(outside, 'ckb-debugger'), path.join(mockDirs.toolsRoot, 'ckb-debugger'));
+    await expect(
+      installPlugin('ckb-debugger', new Set(), {}),
+    ).rejects.toThrow(/escapes the tools root/);
+    // The outside directory is untouched.
+    expect(fs.existsSync(path.join(outside, 'ckb-debugger', BINARY_NAME))).toBe(true);
+  });
+
   it('adopts a leftover pre-plugin install instead of re-downloading it', async () => {
     // The probed (not executed) version of every fixture binary in this test.
     probeVersion.current = '1.1.1';

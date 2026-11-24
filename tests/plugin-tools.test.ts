@@ -12,6 +12,8 @@ import { readPluginManifest } from '../src/plugins/manifest';
 import { acquirePlugin, getNativeBinaryPath, listPlugins, pluginStoragePaths, removePlugin } from '../src/plugins/store';
 import { preparePluginExecution } from '../src/plugins/sandbox';
 import ckbCli from '../tools/ckb-cli.json';
+import ckbDebugger from '../tools/ckb-debugger.json';
+import { catalogEntry } from '../src/plugins/catalog';
 
 let root: string;
 let previousHome: string | undefined;
@@ -59,6 +61,21 @@ afterEach(() => {
   if (previousHome === undefined) delete process.env.OFFCKB_PLUGIN_HOME;
   else process.env.OFFCKB_PLUGIN_HOME = previousHome;
   fs.rmSync(root, { recursive: true, force: true });
+});
+
+it('ships a valid ckb-debugger catalog entry: four platforms, Windows .exe member, adoption metadata', () => {
+  const entry = catalogEntry('ckb-debugger');
+  expect(entry).toBeDefined();
+  const tool = parseToolDescriptor(ckbDebugger, true);
+  expect(Object.keys(tool.platforms!)).toEqual(['darwin-arm64', 'linux-arm64', 'linux-x64', 'win32-x64']);
+  // Upstream publishes no Intel-macOS v1.1.2 asset: a missing platform must
+  // surface as a clear install error, not a download 404.
+  expect(tool.platforms!['darwin-x64']).toBeUndefined();
+  // The Windows archive member is the real .exe (verified against the
+  // upstream v1.1.2 archive).
+  expect(tool.platforms!['win32-x64'].executable).toBe('ckb-debugger.exe');
+  expect(entry!.install.minVersion).toBe('0.200.0');
+  expect(entry!.install.legacyInstallDir).toBe('ckb-debugger');
 });
 
 it('ships a valid ckb-cli descriptor with pinned official assets, not an implicit installation', () => {

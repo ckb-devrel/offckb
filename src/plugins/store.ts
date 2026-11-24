@@ -413,6 +413,12 @@ export function listPlugins(reserved: ReadonlySet<string>, checkMode?: (mode: Pl
       try {
         plugin = readPluginManifest(directory);
         if (plugin.command !== command) throw new Error('Plugin command changed; unlink and link the package again');
+        // The registry and the on-disk manifest must agree on the kind: a
+        // linked JS directory swapped for a binary descriptor (or a managed
+        // binary swapped for a JS package) is invalid here, not a sandbox
+        // error at run time.
+        if ((binary ? 'binary' : 'js') !== plugin.kind)
+          throw new Error('Plugin registration kind changed; remove and reinstall the tool');
         assertPermissions(plugin, permissions);
         assertTrustedIdentity(plugin, trusted);
       } catch (error) {
@@ -651,7 +657,10 @@ export function commitNativeRegistration(
     // the new command has no registration yet.
     if (
       Object.entries(registry.plugins).some(
-        ([name, entry]) => name !== command && entry.binary?.source.id === record.source.id,
+        ([name, entry]) =>
+          name !== command &&
+          entry.binary !== undefined &&
+          normalizeSourceId(entry.binary.source.id) === normalizeSourceId(record.source.id),
       )
     )
       throw new Error('This tool changed its command; remove its previous registration first');
