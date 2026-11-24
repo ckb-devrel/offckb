@@ -43,9 +43,14 @@ function loadCli() {
 // installPluginCommand. CI=1 pins the non-interactive branch everywhere; the
 // interactive branch is covered separately at the end of this file.
 const previousCI = process.env.CI;
+const previousArgv = process.argv;
 
 beforeEach(() => {
   process.env.CI = '1';
+  // The module-level logger sniffs --json from the real process argv when
+  // loadCli reloads modules; strip it so no assertion inherits ambient JSON
+  // mode from the way Jest was launched.
+  process.argv = process.argv.filter((arg) => arg !== '--json');
   mockInstallPlugin.mockReset().mockResolvedValue({
     plugin: {
       command: 'ckb-debugger',
@@ -62,6 +67,7 @@ beforeEach(() => {
 afterEach(() => {
   if (previousCI === undefined) delete process.env.CI;
   else process.env.CI = previousCI;
+  process.argv = previousArgv;
 });
 
 it('routes `offckb install <source>` through the same installer and default options as `plugin install`', async () => {
