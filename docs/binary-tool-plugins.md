@@ -118,6 +118,7 @@ issue [#555 评论](https://github.com/ckb-devrel/offckb/issues/555#issuecomment
 offckb plugin install ckb-debugger@v1.1.2     # catalog 名（精确 tag，重复安装零网络）
 offckb plugin install ckb-debugger@latest    # = 当前 catalog 固定版本（同版本重复安装零网络）；升级随 offckb 更新到达
 offckb plugin install ckb-debugger           # = offckb install ckb-debugger（完整别名，参数面一致）
+                                             # 首次安装且旧版满足 descriptor minVersion 时离线收编（仅裸名/@latest 触发，版本以实测为准）
 # offckb create 的宽松短路在 create 链路里：已装版本满足 minVersion 即离线通过，不强制升级
 offckb plugin install github:owner/repo#v1 --trust-source owner/repo   # 三方源：审批+安装一步
 offckb plugin trust add owner/repo           # 单独审批一个三方源
@@ -133,7 +134,7 @@ offckb ckb-debugger -- --version             # 人类透传：直接 spawn 托�
 实现要点：
 
 - registry 仍为 apiVersion 2：binary 注册项是新增的可选字段（`binary: {binName, version, path, source}`），与 JS 的 `installation` 互斥；JS 注册项语义零变化。
-- 版本语义：显式 tag 重复安装完全离线；`@latest` 总是探远端 redirect（代价一次请求），tag 不同才下载——这同时就是升级路径。
+- 版本语义（实现）：catalog 版本随 offckb 发布钉死（version-bump PR）。`@latest` 与裸名都解析为当前钉死版本：本地 registry 已是该版本时重复安装完全离线（零请求）；未安装时按 descriptor 下载钉死版本。非钉死的显式 tag fail-closed，报错并提示钉死版本。legacy 收编只发生在首次裸名/`@latest` 安装、且旧二进制满足 descriptor `minVersion` 时：离线搬入旧安装、版本以二进制实测为准、全程零下载；下一次 `@latest` 在钉死版本更高时升级。显式 tag/pin 不触发收编。
 - legacy 收编：catalog descriptor 可带 `legacyInstallDir`，首次安装把 `<tools.rootFolder>/<name>` 下的旧二进制**搬入** native 目录（一次性迁移，版本号以二进制实测为准，全离线），旧目录随后删除；消费方走 PATH shim / 稳定路径，不感知绝对路径变化。
 
 `plugin list`/JSON 对 binary kind 显示 `trusted` 与 resolved 版本；`shadowed`、损坏登记不阻断核心命令等现有语义原样沿用。

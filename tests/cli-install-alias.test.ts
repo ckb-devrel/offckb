@@ -38,7 +38,14 @@ function loadCli() {
   return (require('../src/cli') as typeof import('../src/cli')).runCli;
 }
 
+// The exact-options assertions below only hold in non-interactive mode:
+// a TTY-launched Jest would attach the confirmPermissions callback inside
+// installPluginCommand. CI=1 pins the non-interactive branch everywhere; the
+// interactive branch is covered separately at the end of this file.
+const previousCI = process.env.CI;
+
 beforeEach(() => {
+  process.env.CI = '1';
   mockInstallPlugin.mockReset().mockResolvedValue({
     plugin: {
       command: 'ckb-debugger',
@@ -50,6 +57,11 @@ beforeEach(() => {
     },
     source: { kind: 'catalog', id: 'ckb-debugger', requested: 'ckb-debugger', resolved: 'ckb-debugger@1.1.2' },
   });
+});
+
+afterEach(() => {
+  if (previousCI === undefined) delete process.env.CI;
+  else process.env.CI = previousCI;
 });
 
 it('routes `offckb install <source>` through the same installer and default options as `plugin install`', async () => {
@@ -103,4 +115,32 @@ it('emits the identical structured result from both entry points', async () => {
   expect(mockInstallPlugin).toHaveBeenCalledTimes(2);
   expect(results).toHaveLength(2);
   expect(results[1]).toEqual(results[0]);
+});
+
+describe('interactive permission consent', () => {
+  const streams = [process.stdin, process.stdout, process.stderr];
+  const ttyDescriptors = streams.map((stream) => Object.getOwnPropertyDescriptor(stream, 'isTTY'));
+
+  beforeEach(() => {
+    for (const stream of streams) Object.defineProperty(stream, 'isTTY', { configurable: true, value: true });
+    delete process.env.CI;
+  });
+
+  afterEach(() => {
+    streams.forEach((stream, index) => {
+      const descriptor = ttyDescriptors[index];
+      if (descriptor) Object.defineProperty(stream, 'isTTY', descriptor);
+      else delete stream.isTTY;
+    });
+  });
+
+  it('attaches the consent callback through both entry points', async () => {
+    const runCli = loadCli();
+    await runCli(['node', 'offckb', 'install', 'ckb-debugger']);
+    await runCli(['node', 'offckb', 'plugin', 'install', 'ckb-debugger']);
+    expect(mockInstallPlugin).toHaveBeenCalledTimes(2);
+    for (const call of mockInstallPlugin.mock.calls) {
+      expect(call[2].confirmPermissions).toEqual(expect.any(Function));
+    }
+  });
 });
