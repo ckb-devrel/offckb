@@ -4,25 +4,22 @@ import * as os from 'os';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { randomUUID } from 'crypto';
-import { Request } from '../util/request';
 import { readSettings } from '../cfg/setting';
 import { logger } from '../util/logger';
 import {
   NativeBinaryRecord,
-  addTrustedSource,
   assertNativeRootSafe,
   commitNativeRegistration,
   ensurePluginHome,
   getNativeRecord,
   getNativeRegistration,
-  isSourceTrusted,
   NativeSource,
   updateNativeGrants,
   pluginNativeDir,
   pluginNativeRoot,
 } from './store';
 import { PluginPermission, isBinaryName, nativeBinaryFileName, readNativeDescriptor } from './manifest';
-import { ToolAsset, ToolExecution, parseToolDescriptor } from './tool-descriptor';
+import { ToolAsset, ToolExecution } from './tool-descriptor';
 import { downloadToolFile, extractToolBinary, MAX_ARCHIVE } from './tool-install';
 import { ensureCommandShim } from './shims';
 
@@ -35,11 +32,9 @@ import { ensureCommandShim } from './shims';
  * feeds one download shape: per-platform URLs and SHA-256 digests pinned in
  * the descriptor and verified against the downloaded bytes.
  *
- * Source trust:
- *   - catalog tools ship with offckb (implicitly trusted, pinned per release);
- *   - explicit descriptors pin their own content (trust the content);
- *   - third-party GitHub sources require the local trusted-source allowlist
- *     (--trust-source approves alongside a successful install).
+ * Source trust: catalog tools ship with offckb (implicitly trusted, pinned
+ * per release); local directory descriptors pin their own content by copying
+ * the declared executable.
  */
 
 export interface NativeToolInstall {
@@ -48,8 +43,6 @@ export interface NativeToolInstall {
   description: string;
   /** Pinned descriptor version (explicit platforms sources). */
   version?: string;
-  /** Source repository for github sources (approval and identity). */
-  repository?: string;
   /** Declared host-provided capabilities; every one needs an explicit grant. */
   permissions?: PluginPermission[];
   minVersion?: string;
@@ -66,8 +59,6 @@ export interface NativeInstallOptions {
   /** What the user typed, recorded in the registry as `requested`. */
   requested: string;
   sourceKind: NativeSource['kind'];
-  /** Approve this source and install it in one step (--trust-source). */
-  trustSource?: string;
   /** Capability grants for descriptors that declare permissions. */
   allow?: string[];
   reserved: ReadonlySet<string>;
@@ -110,61 +101,6 @@ export function isVersionAtLeast(version: string, minVersion: string): boolean {
   }
   // Equal release segments: a pre-release is older than the plain release.
   return a.prerelease === b.prerelease || !a.prerelease;
-}
-
-/** Fetch the binary descriptor from a GitHub repository root, or null when absent. */
-/** Follow the /releases/latest redirect (no GitHub API) and read the tag. Removed with the github binary source in the JS-only github install. */
-async function resolveLatestTag(repo: string): Promise<string> {
-  const response = await Request.send(`https://github.com/${repo}/releases/latest`);
-  const match = /\/releases\/tag\/([^/?#]+)/.exec(response.url);
-  if (!match) {
-    throw new Error(`Could not resolve the latest release from https://github.com/${repo}/releases/latest.`);
-  }
-  return match[1];
-}
-
-export async function probeBinaryDescriptor(
-  repository: string,
-  ref?: string,
-): Promise<{ install: NativeToolInstall; tag: string } | null> {
-  let tag: string;
-  if (ref && /^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(ref) && !ref.includes('..')) {
-    tag = ref;
-  } else {
-    try {
-      tag = await resolveLatestTag(repository);
-    } catch {
-      // Repositories without releases (e.g. npm-shaped JS plugin sources)
-      // cannot resolve a latest tag; probe the default branch instead so
-      // those still fall through to the npm install path on a 404.
-      tag = 'HEAD';
-    }
-  }
-  const url = `https://raw.githubusercontent.com/${repository}/${tag}/offckb-tool.json`;
-  let response = await Request.fetch(url);
-  if (response.status >= 500) {
-    // Transient raw-endpoint failures must not hard-block JS GitHub sources:
-    // retry once, then treat the descriptor as absent so the npm path runs.
-    response = await Request.fetch(url);
-  }
-  if (response.status === 404 || response.status >= 500) return null;
-  if (!response.ok) throw new Error(`Could not read the binary tool descriptor at ${url}: HTTP ${response.status}`);
-  // Throws on malformed descriptors rather than silently falling back to the
-  // npm package flow: a repo that declares a broken binary descriptor means
-  // to be a binary tool plugin.
-  const tool = parseToolDescriptor(await response.json(), true);
-  return {
-    install: {
-      name: tool.name,
-      version: tool.version,
-      command: tool.command,
-      description: tool.description,
-      permissions: tool.permissions,
-      execution: tool.execution,
-      platforms: tool.platforms!,
-    },
-    tag,
-  };
 }
 
 export function getVersionFromBinary(binaryPath: string): string | null {
@@ -277,45 +213,10 @@ export async function installNativeTool(
   if (!isBinaryName(tool.command)) throw new Error(`Invalid binary tool command: ${tool.command}`);
   if (!tool.localDirectory && (!tool.platforms || !Object.keys(tool.platforms).length))
     throw new Error('A native tool install requires pinned platform assets or a local directory');
-  // Source approval: catalog tools ship with offckb and are implicitly
-  // trusted; explicit descriptors pin their own content; third-party GitHub
-  // sources require the local allowlist. `--trust-source` is a one-shot
-  // authorization persisted only after a successful install.
-  const repo = tool.repository;
-  let approveAfterCommit: string | null = null;
-  if (options.sourceKind === 'github') {
-    const sourceRepo = String(repo).toLowerCase();
-    if (!isSourceTrusted(sourceRepo)) {
-      if (options.trustSource?.trim().toLowerCase() === sourceRepo) {
-        approveAfterCommit = sourceRepo;
-        logger.warn(
-          `Installing from unapproved source ${sourceRepo} (--trust-source); the approval is recorded only if the install succeeds.`,
-        );
-      } else {
-        throw new Error(
-          `${repo} is not in the trusted-source allowlist. ` +
-            `Review the source, then approve it with: offckb plugin trust add ${repo} ` +
-            `(or reinstall with --trust-source ${repo}).`,
-        );
-      }
-    }
-  }
-  const sourceId =
-    options.sourceKind === 'catalog'
-      ? tool.name
-      : options.sourceKind === 'github'
-        ? String(repo).toLowerCase()
-        : options.sourceKind === 'bundled'
-          ? `tool:${tool.name}`
-          : tool.name;
-  const resolvedPrefix =
-    options.sourceKind === 'catalog'
-      ? `${tool.name}@`
-      : options.sourceKind === 'github'
-        ? `github:${repo}#`
-        : options.sourceKind === 'bundled'
-          ? `tool:${tool.name}@`
-          : `${tool.name}@`;
+  // Source trust: catalog tools ship with offckb and are implicitly trusted
+  // (pinned per release); local directory descriptors pin their own content.
+  const sourceId = tool.name;
+  const resolvedPrefix = `${tool.name}@`;
 
   // Fail before touching anything when the plugin home cannot hold
   // directories or the native root is tampered.
@@ -334,18 +235,6 @@ export async function installNativeTool(
   if (options.allow?.some((permission) => !declaredPermissions.includes(permission as PluginPermission))) {
     throw new Error('Only permissions declared by this tool may be granted');
   }
-
-  // Every success exit persists a one-shot --trust-source approval, including
-  // idempotent reinstalls: revoked sources must be re-approvable by simply
-  // re-running an install that succeeds.
-  const persistApproval = () => {
-    if (!approveAfterCommit) return;
-    addTrustedSource(approveAfterCommit);
-    logger.warn(
-      `Approved ${approveAfterCommit} as a trusted binary tool source; binaries from it run with your user permissions.`,
-    );
-    approveAfterCommit = null;
-  };
 
   // A same-version reinstall must not silently keep the previous grants.
   const applyGrantChanges = (command: string) => {
@@ -381,7 +270,6 @@ export async function installNativeTool(
   ) {
     ensureCommandShim(tool.command, existing.path);
     applyGrantChanges(tool.command);
-    persistApproval();
     logger.info(`${tool.command} ${pinnedVersion} is already installed at ${existing.path}.`);
     return {
       command: tool.command,
@@ -444,9 +332,6 @@ export async function installNativeTool(
         planned = planLocalInstall(tool);
       } else {
         planned = await planPlatformsInstall({ ...tool, version: tool.version ?? pinnedVersion ?? '' });
-        // GitHub provenance records the resolved release tag; the on-disk
-        // descriptor keeps the descriptor's own version field.
-        if (options.sourceKind === 'github') planned.version = ref;
       }
       plannedTempDir = planned.tempDir;
     }
@@ -532,7 +417,6 @@ export async function installNativeTool(
         logger.warn(`Adopted ${tool.command}, but legacy cleanup failed at ${legacyDir}; remove it manually.`);
       }
     }
-    persistApproval();
     logger.info(`✅ ${tool.command} installed successfully at ${record.path} (version ${version}).`);
     return {
       command: tool.command,

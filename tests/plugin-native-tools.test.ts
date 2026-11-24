@@ -21,7 +21,6 @@ jest.mock('child_process', () => ({
 }));
 
 import {
-  addTrustedSource,
   acquirePlugin,
   assertNativeRootSafe,
   commitNativeRegistration,
@@ -31,12 +30,9 @@ import {
   linkPlugin,
   listNativeTools,
   listPlugins,
-  listTrustedSources,
   nativeToolEnv,
-  normalizeTrustedSource,
   pluginNativeDir,
   removePlugin,
-  removeTrustedSource,
   unlinkPlugin,
 } from '../src/plugins/store';
 import { ensureCommandShim, removeCommandShims, shimMarkerPath } from '../src/plugins/shims';
@@ -53,52 +49,6 @@ beforeEach(() => {
 afterEach(() => {
   delete process.env.OFFCKB_PLUGIN_HOME;
   fs.rmSync(root, { recursive: true, force: true });
-});
-
-describe('trusted-source allowlist', () => {
-  it('normalizes and validates source identities', () => {
-    expect(normalizeTrustedSource('SomeOwner/SomeRepo')).toBe('someowner/somerepo');
-    expect(normalizeTrustedSource('@MyScope/pkg')).toBe('@myscope/pkg');
-    expect(() => normalizeTrustedSource('../evil')).toThrow('Invalid trusted source');
-    expect(() => normalizeTrustedSource('a repo')).toThrow('Invalid trusted source');
-    expect(() => normalizeTrustedSource('')).toThrow('Invalid trusted source');
-  });
-
-  it('supports the documented @scope/* approval shorthand and rejects bare wildcards', () => {
-    addTrustedSource('@MyOrg/*');
-    expect(listTrustedSources()).toEqual(['@myorg/*']);
-    expect(isSourceTrusted('@myorg/pkg')).toBe(true);
-    expect(isSourceTrusted('@myorg/other-tool')).toBe(true);
-    expect(isSourceTrusted('@other/pkg')).toBe(false);
-    expect(() => normalizeTrustedSource('*')).toThrow('Invalid trusted source');
-    expect(() => normalizeTrustedSource('owner/*')).toThrow('Invalid trusted source');
-  });
-
-  it('reports an actionable error when the plugin home is occupied by a file', () => {
-    const fileHome = path.join(root, 'file-home');
-    fs.writeFileSync(fileHome, 'not a directory');
-    const currentHome = process.env.OFFCKB_PLUGIN_HOME;
-    process.env.OFFCKB_PLUGIN_HOME = fileHome;
-    try {
-      expect(() => addTrustedSource('owner/repo')).toThrow(/Cannot create the plugin home/);
-    } finally {
-      if (currentHome === undefined) delete process.env.OFFCKB_PLUGIN_HOME;
-      else process.env.OFFCKB_PLUGIN_HOME = currentHome;
-    }
-  });
-
-  it('adds, lists and removes approvals idempotently', () => {
-    expect(listTrustedSources()).toEqual([]);
-    addTrustedSource('owner/repo');
-    addTrustedSource('owner/repo');
-    addTrustedSource('@scope/pkg');
-    expect(listTrustedSources()).toEqual(['owner/repo', '@scope/pkg']);
-    removeTrustedSource('owner/repo');
-    expect(listTrustedSources()).toEqual(['@scope/pkg']);
-    // Removing an unknown source is a no-op.
-    removeTrustedSource('unknown/tool');
-    expect(listTrustedSources()).toEqual(['@scope/pkg']);
-  });
 });
 
 describe('native tool registrations', () => {

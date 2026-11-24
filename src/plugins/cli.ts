@@ -3,16 +3,13 @@ import { confirm } from '@inquirer/prompts';
 import { logger } from '../util/logger';
 import { catalogEntries } from './catalog';
 import {
-  addTrustedSource,
   getNativeBinaryPath,
   linkPlugin,
   listNativeTools,
   listPlugins,
-  listTrustedSources,
   PluginLinkOptions,
   PluginSource,
   removePlugin,
-  removeTrustedSource,
   unlinkPlugin,
 } from './store';
 import { PluginManifest, PluginPermission } from './manifest';
@@ -134,8 +131,7 @@ export function registerPluginManagement(program: Command): {
       ),
   )
     .option('--allow-scripts', 'Allow npm install/build scripts outside the runtime sandbox (requires --trust)', false)
-    .option('--trust-source <source>', 'Approve a third-party binary tool source and install it in one step')
-    .action(async (source: string, options: PluginLinkOptions & { allowScripts: boolean; trustSource?: string }) => {
+    .action(async (source: string, options: PluginLinkOptions & { allowScripts: boolean }) => {
       const interactive =
         process.stdin.isTTY &&
         process.stdout.isTTY &&
@@ -237,36 +233,6 @@ export function registerPluginManagement(program: Command): {
       }
       logger.result({ command: 'plugin.env', tools });
     });
-  const trust = management
-    .command('trust')
-    .description('Manage the trusted-source allowlist for third-party binary tool plugins');
-  trust
-    .command('add <source>')
-    .description('Approve a GitHub owner/repo or npm package/scope to install binary tools from')
-    .action((source: string) => {
-      const sources = addTrustedSource(source);
-      logger.warn(
-        `Approved ${source}: binaries from it run with your user permissions and are placed on PATH. ` +
-          'Review the source before approving; versions stay pinned per install.',
-      );
-      logger.result({ command: 'plugin.trust.add', source, sources });
-    });
-  trust
-    .command('list')
-    .description('List approved third-party binary tool sources')
-    .action(() => {
-      const sources = listTrustedSources();
-      if (!logger.isJsonMode()) for (const source of sources) process.stdout.write(`${source}\n`);
-      logger.result({ command: 'plugin.trust.list', sources });
-    });
-  trust
-    .command('remove <source>')
-    .description('Remove a source; its existing installs stay frozen until re-approved')
-    .action((source: string) => {
-      const sources = removeTrustedSource(source);
-      logger.info(`Removed ${source}; existing installs keep their pinned version.`);
-      logger.result({ command: 'plugin.trust.remove', source, sources });
-    });
   management
     .command('remove <command>')
     .description('Uninstall a managed plugin or unlink a local package; keeps data/cache')
@@ -295,7 +261,6 @@ export function registerPluginManagement(program: Command): {
         command.setOptionValueWithSource('trust', false, 'default');
       }
       install.setOptionValueWithSource('allowScripts', false, 'default');
-      install.setOptionValueWithSource('trustSource', undefined, 'default');
       for (const command of dynamic) {
         const index = program.commands.indexOf(command);
         // Commander exposes a readonly view of its mutable registration array.

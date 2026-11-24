@@ -22,7 +22,7 @@ import {
 import { signalPluginChild } from './process';
 import { installBinaryTool, isToolSource } from './tool-install';
 import { catalogEntry } from './catalog';
-import { installNativeTool, probeBinaryDescriptor } from './native';
+import { installNativeTool } from './native';
 
 const PACKAGE_NAME = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
 const TAG = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
@@ -39,8 +39,6 @@ export interface PluginInstallSpec {
 
 export interface PluginInstallOptions extends PluginLinkOptions {
   allowScripts?: boolean;
-  /** Approve a third-party binary source alongside a successful install (--trust-source). */
-  trustSource?: string;
   /** CLI-only consent hook for capabilities not covered by a previous managed installation. */
   confirmPermissions?: (
     plugin: PluginManifest,
@@ -204,7 +202,12 @@ async function runNpm(spec: string, directory: string, allowScripts: boolean): P
         'Plugin installation cancelled',
       );
     if (timedOut) throw new Error('npm plugin installation timed out after five minutes');
-    if (code !== 0) throw new Error(`npm installation failed (exit ${code}); the previous plugin is unchanged`);
+    if (code !== 0)
+      throw new Error(
+        `npm installation failed (exit ${code}); the previous plugin is unchanged. ` +
+          'If this repository is a binary tool, it is not an offckb plugin: binary tools install from the ' +
+          'catalog or a local directory (see `offckb plugin list`).',
+      );
   } finally {
     clearTimeout(timer);
     for (const [signal, listener] of listeners) process.removeListener(signal, listener);
@@ -258,34 +261,9 @@ export async function installPlugin(
     };
   }
 
-  // A GitHub repository declaring an offckb-tool.json binary descriptor is
-  // a native tool plugin; otherwise it must be an npm-compatible JS plugin.
-  if (source.kind === 'github') {
-    const probed = await probeBinaryDescriptor(source.repository!, source.ref);
-    if (probed) {
-      // The allowlist approves the repository being installed; the
-      // descriptor's pinned assets are verified against their own SHA-256.
-      const result = await installNativeTool({ ...probed.install, repository: source.repository }, probed.tag, {
-        requested: source.requested,
-        sourceKind: 'github',
-        trustSource: options.trustSource,
-        allow: options.allow,
-        reserved,
-      });
-      return {
-        plugin: readPluginManifest(pluginNativeDir(result.command)),
-        source: {
-          kind: 'github',
-          id: source.repository!.toLowerCase(),
-          requested: source.requested,
-          resolved: `github:${source.repository}#${result.version}`,
-        },
-      };
-    }
-    if (options.trustSource) {
-      throw new Error('--trust-source only applies to binary tool sources (an offckb-tool.json descriptor)');
-    }
-  }
+  // A github: source is a JavaScript plugin repository: npm installs it and
+  // the manifest check below rejects repos that do not declare an offckb
+  // plugin. Binary tools come from the catalog or a local directory instead.
   const packages = pluginPackagesPath();
   const id = randomUUID();
   // This fresh directory is invisible to discovery until the atomic registry write. Keep its
