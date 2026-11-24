@@ -297,7 +297,20 @@ export async function installNativeTool(
     // read from the binary itself, and the next `@latest` install upgrades
     // it when a newer release exists.
     if (!existing && ref === 'latest' && tool.legacyInstallDir) {
-      const legacyBinary = path.join(readSettings().tools.rootFolder, tool.legacyInstallDir, binName);
+      const toolsRoot = readSettings().tools.rootFolder;
+      const legacyBinary = path.join(toolsRoot, tool.legacyInstallDir, binName);
+      // The catalog validates the segment; re-verify containment here so a
+      // tampered registry or descriptor can never recurse-delete outside
+      // the tools root. The check runs only when a legacy install exists.
+      if (fs.existsSync(legacyBinary)) {
+        const resolvedRoot = fs.realpathSync(toolsRoot);
+        const legacyDir = path.resolve(resolvedRoot, tool.legacyInstallDir);
+        if (
+          legacyDir !== path.join(resolvedRoot, tool.legacyInstallDir) ||
+          !legacyDir.startsWith(resolvedRoot + path.sep)
+        )
+          throw new Error(`Legacy install directory escapes the tools root: ${tool.legacyInstallDir}`);
+      }
       if (fs.existsSync(legacyBinary) && !fs.lstatSync(legacyBinary).isSymbolicLink()) {
         const legacyVersion = getVersionFromBinary(legacyBinary);
         if (legacyVersion && (!tool.minVersion || isVersionAtLeast(legacyVersion, tool.minVersion))) {
@@ -410,7 +423,10 @@ export async function installNativeTool(
     if (adopted) {
       // The adopted binary copied out of the legacy location; drop the empty
       // shell so nothing probes it as an unmanaged install anymore.
-      const legacyDir = path.join(readSettings().tools.rootFolder, tool.legacyInstallDir!);
+      const toolsRoot = fs.realpathSync(readSettings().tools.rootFolder);
+      const legacyDir = path.resolve(toolsRoot, tool.legacyInstallDir!);
+      if (legacyDir !== path.join(toolsRoot, tool.legacyInstallDir!) || !legacyDir.startsWith(toolsRoot + path.sep))
+        throw new Error(`Legacy install directory escapes the tools root: ${tool.legacyInstallDir}`);
       try {
         if (fs.existsSync(legacyDir)) fs.rmSync(legacyDir, { recursive: true, force: true });
       } catch {

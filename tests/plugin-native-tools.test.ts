@@ -26,7 +26,6 @@ import {
   commitNativeRegistration,
   commitPluginInstallation,
   getNativeBinaryPath,
-  isSourceTrusted,
   linkPlugin,
   listNativeTools,
   listPlugins,
@@ -53,6 +52,10 @@ afterEach(() => {
 
 describe('native tool registrations', () => {
   const command = 'my-tool';
+
+  function fakeBinary(version: string): string {
+    return `#!/bin/sh\necho my-tool ${version}\n`;
+  }
 
   function commitTool(
     version = 'v0.1.0',
@@ -213,9 +216,11 @@ describe('native tool registrations', () => {
       JSON.stringify({ name: 'js-tamper', version: '1.0.0', offckb: { apiVersion: 1, command: 'js-tamper', entry: 'entry.mjs' } }),
     );
     linkPlugin(jsRoot, new Set());
-    // A valid binary descriptor appearing in a linked directory is honored
-    // (the user owns the directory); it still runs sandboxed unless the link
-    // was explicitly trusted, so nothing silently escalates.
+    // A valid binary descriptor appearing in a linked directory changes the
+    // registration kind after the fact. Linked binaries are not a supported
+    // execution mode (binary tools are managed copies), so acquisition must
+    // fail fast with the repair path instead of drifting into a runtime
+    // sandbox error — the D5/D6 fail-closed rule at the registry boundary.
     const tamperBin = process.platform === 'win32' ? 'js-tamper.exe' : 'js-tamper';
     fs.writeFileSync(path.join(jsRoot, tamperBin), '#!/bin/sh\n');
     if (process.platform !== 'win32') fs.chmodSync(path.join(jsRoot, tamperBin), 0o755);
@@ -231,13 +236,7 @@ describe('native tool registrations', () => {
         permissions: [],
       }),
     );
-    const tampered = acquirePlugin('js-tamper');
-    try {
-      expect(tampered.plugin.kind).toBe('binary');
-      expect(tampered.mode).toBe('sandbox');
-    } finally {
-      tampered.release();
-    }
+    expect(() => acquirePlugin('js-tamper')).toThrow(/remove the link and install a managed copy/);
 
     // A MANAGED native registration whose directory is swapped to a JS
     // manifest must still fail closed.
@@ -249,6 +248,107 @@ describe('native tool registrations', () => {
       JSON.stringify({ name: 'my-tool', version: '0.1.0', offckb: { apiVersion: 1, command, entry: 'x.mjs' } }),
     );
     expect(() => acquirePlugin(command)).toThrow('registration kind changed');
+  });
+
+  it('routes binary tools to plugin remove instead of unlink', () => {
+    commitTool();
+    expect(() => unlinkPlugin(command)).toThrow('plugin remove');
+  });
+
+  it('rolls the directory swap back when the registry write fails', () => {
+    commitTool('v0.1.0');
+    const binName = process.platform === 'win32' ? 'my-tool.exe' : 'my-tool';
+    const dir = pluginNativeDir(command);
+    const before = fs.readFileSync(path.join(dir, binName), 'utf8');
+
+    // Fail precisely the atomic registry rename; the swap itself succeeds.
+    const realRename = fs.renameSync.bind(fs);
+    const renameSpy = jest.spyOn(fs, 'renameSync').mockImplementation(((...args: unknown[]) => {
+      if (String(args[1]).endsWith(`${path.sep}registry.json`)) {
+        throw new Error('injected registry write failure');
+      }
+      return (realRename as (...a: unknown[]) => unknown)(...args);
+    }) as typeof fs.renameSync);
+    try {
+      expect(() => commitTool('v0.2.0')).toThrow('injected registry write failure');
+    } finally {
+      renameSpy.mockRestore();
+    }
+    // The previous directory content is back, matching the untouched registration.
+    expect(fs.readFileSync(path.join(dir, binName), 'utf8')).toBe(before);
+    expect(getNativeBinaryPath(command)).toBe(path.join(dir, binName));
+    expect(listPlugins(new Set())[0]).toMatchObject({ state: 'available', version: 'v0.1.0' });
+    expect(fs.readdirSync(pluginNativeDir(command))).not.toEqual([]);
+  });
+
+  it('never treats a stale marker next to a replaced file as ownership', () => {
+    const binDir = path.join(root, 'bin-stale');
+    fs.mkdirSync(binDir);
+    fs.writeFileSync(path.join(binDir, 'offckb'), '');
+    mockSpawnSync.mockImplementation((cmd: string, args: unknown[], options: unknown) => {
+      if (cmd === 'which' || cmd === 'where') {
+        return { status: 0, stdout: `${path.join(binDir, 'offckb')}\n`, stderr: '' };
+      }
+      return jest.requireActual('child_process').spawnSync(cmd, args, options);
+    });
+    try {
+      const target = path.join(root, 'managed-stale', 'my-tool');
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, '#!/bin/sh\necho v1\n');
+      ensureCommandShim(command, target);
+      const shimPath = path.join(binDir, process.platform === 'win32' ? 'my-tool.cmd' : 'my-tool');
+      expect(fs.existsSync(shimPath)).toBe(true);
+
+      // The user replaces the shim with their own file; the sidecar is stale now.
+      fs.writeFileSync(shimPath, '#!/bin/sh\necho user-owned\n');
+      ensureCommandShim(command, target);
+      expect(fs.readFileSync(shimPath, 'utf8')).toBe('#!/bin/sh\necho user-owned\n');
+      removeCommandShims(command);
+      expect(fs.existsSync(shimPath)).toBe(true);
+      // The marker is only removed together with a file offckb actually owns.
+      expect(fs.existsSync(shimMarkerPath(shimPath))).toBe(true);
+    } finally {
+      mockSpawnSync.mockReset();
+    }
+  });
+
+  it('rejects one source claiming a second command', () => {
+    commitTool('v0.1.0');
+    // Same source id (my-tool) now declares a different command; the new
+    // command has no registration yet, which must not bypass the check.
+    expect(() => commitTool('v0.1.0', { command: 'my-tool-two' })).toThrow('changed its command');
+    expect(getNativeBinaryPath('my-tool-two')).toBeNull();
+  });
+
+  it('rejects a different source identity silently taking over a command', () => {
+    commitTool('v0.1.0');
+    // A descriptor with a new identity but the same command (e.g. a renamed
+    // copy of a catalog descriptor) must not silently replace the owner.
+    expect(() =>
+      commitNativeRegistration(
+        command,
+        {
+          binName: 'my-tool',
+          version: 'v9.9.9',
+          path: path.join(pluginNativeDir(command), 'my-tool'),
+          source: { kind: 'descriptor', id: '@evil/my-tool-copy', requested: './copy.json', resolved: '@evil/my-tool-copy@v9.9.9' },
+        },
+        [],
+        new Set(),
+        () => undefined,
+        () => undefined,
+      ),
+    ).toThrow('already owned by source "my-tool"; remove it first with: offckb plugin remove my-tool');
+    // The original registration is untouched.
+    expect(getNativeBinaryPath(command)).toBe(path.join(pluginNativeDir(command), process.platform === 'win32' ? 'my-tool.exe' : 'my-tool'));
+  });
+
+  it('still allows same-source upgrades after the ownership guard', () => {
+    commitTool('v0.1.0');
+    // Same source id, newer version: the supported upgrade path.
+    commitTool('v0.2.0');
+    const [info] = listPlugins(new Set());
+    expect(info).toMatchObject({ command, version: 'v0.2.0', state: 'available' });
   });
 
   it('rejects a registration whose directory escapes the native command root', () => {

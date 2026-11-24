@@ -31,7 +31,7 @@
       "url": "https://github.com/nervosnetwork/ckb-standalone-debugger/releases/download/v1.1.2/ckb-debugger_v1.1.2_x86_64-pc-windows-msvc.tar.gz",
       "sha256": "1b03e2b6b83be85c1fa2410140eb75aa699a08ab430ecfc6d4fad99443b5b690",
       "format": "tar.gz",
-      "executable": "ckb-debugger"
+      "executable": "ckb-debugger.exe"
     }
   }
 }

@@ -784,6 +784,14 @@ export function acquirePlugin(
     if (entry.binary && plugin.kind !== 'binary') {
       throw new Error('Plugin registration kind changed; remove and reinstall the tool');
     }
+    // A linked JavaScript directory whose manifest was swapped for a binary
+    // descriptor is not a sandbox-capable registration: binary tools are
+    // managed copies. Fail here with the repair path, not at run time.
+    if (!entry.binary && plugin.kind === 'binary') {
+      throw new Error(
+        `Linked plugin ${command} now declares a binary tool; remove the link and install a managed copy instead: offckb plugin remove ${command} && offckb plugin install <directory>`,
+      );
+    }
     if (entry.binary && fs.realpathSync(plugin.entry!) !== fs.realpathSync(entry.binary.path)) {
       throw new Error('Managed binary identity changed; remove and reinstall the tool');
     }

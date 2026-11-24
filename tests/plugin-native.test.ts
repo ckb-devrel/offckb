@@ -41,6 +41,7 @@ jest.mock('../src/cfg/setting', () => ({
 }));
 
 import { installPlugin, parsePluginInstallSpec } from '../src/plugins/install';
+import { installNativeTool } from '../src/plugins/native';
 import { Request } from '../src/util/request';
 import { catalogEntry } from '../src/plugins/catalog';
 import {
@@ -221,6 +222,33 @@ describe('binary tool installation', () => {
     await expect(installPlugin('ckb-debugger', new Set(), {})).rejects.toThrow(/has no binary for darwin\/x64/);
   });
 
+  it('refuses a legacyInstallDir escaping the tools root', async () => {
+    // A traversal legacyInstallDir must never recurse-delete outside the
+    // tools root: containment is re-verified before adoption/cleanup.
+    const victim = path.join(root, 'victim');
+    fs.mkdirSync(path.join(victim, 'ckb-debugger'), { recursive: true });
+    fs.writeFileSync(path.join(victim, 'ckb-debugger', BINARY_NAME), fakeBinaryPayload('1.1.1'));
+    mockHost('linux', 'x64');
+    mockDirs.toolsRoot = path.join(root, 'tools');
+    fs.mkdirSync(mockDirs.toolsRoot, { recursive: true });
+
+    await expect(installNativeTool(
+      {
+        name: 'ckb-debugger',
+        version: '1.1.2',
+        command: 'ckb-debugger',
+        description: 'CKB standalone debugger',
+        platforms: { 'linux-x64': { url: 'https://e.example/a', sha256: '0'.repeat(64), format: 'raw', executable: 'a' } },
+        legacyInstallDir: '../victim',
+      },
+      'latest',
+      { requested: 'ckb-debugger', sourceKind: 'catalog', reserved: new Set() },
+    )).rejects.toThrow(/escapes the tools root/);
+    // Nothing was adopted or deleted.
+    expect(fs.existsSync(path.join(victim, 'ckb-debugger', BINARY_NAME))).toBe(true);
+    expect(getNativeBinaryPath('ckb-debugger')).toBeNull();
+  });
+
   it('adopts a leftover pre-plugin install instead of re-downloading it', async () => {
     // The probed (not executed) version of every fixture binary in this test.
     probeVersion.current = '1.1.1';
@@ -266,4 +294,3 @@ describe('binary tool installation', () => {
     expect(getNativeBinaryPath('ckb-debugger')).toBeNull();
   });
 });
-
