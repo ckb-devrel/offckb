@@ -580,11 +580,19 @@ export function commitPluginInstallation(
 export function removePlugin(command: string): void {
   let root: string | undefined;
   let nativeDir: string | undefined;
-  let linked = false;
   withRegistryLock(() => {
     const registry = readRegistry();
-    if (!Object.prototype.hasOwnProperty.call(registry.plugins, command)) return;
-    linked = true;
+    if (!Object.prototype.hasOwnProperty.call(registry.plugins, command)) {
+      // No registration — but an orphaned PATH shim (its owning home deleted)
+      // or a shim left behind by a lost registration may still be reclaimable.
+      // Reclaim inside the registry lock so a concurrent install cannot
+      // register the command and publish a fresh shim between the lookup and
+      // the cleanup; removeCommandShims only deletes files this home provably
+      // owns.
+      const reclaimed = removeCommandShims(command);
+      if (reclaimed.length > 0) logger.info(`Reclaimed orphaned ${command} shim(s): ${reclaimed.join(', ')}`);
+      throw new Error(`Plugin ${command} is not linked`);
+    }
     assertNotRunning(command);
     root = installationRoot(registry.plugins[command]);
     if (registry.plugins[command].binary) {
@@ -599,14 +607,6 @@ export function removePlugin(command: string): void {
     delete registry.plugins[command];
     writeRegistry(registry);
   });
-  if (!linked) {
-    // No registration — but an orphaned PATH shim (its owning home deleted)
-    // or a shim left behind by a lost registration may still be reclaimable.
-    // removeCommandShims only ever deletes files this home provably owns.
-    const reclaimed = removeCommandShims(command);
-    if (reclaimed.length > 0) logger.info(`Reclaimed orphaned ${command} shim(s): ${reclaimed.join(', ')}`);
-    throw new Error(`Plugin ${command} is not linked`);
-  }
   cleanupInstallation(root);
   if (nativeDir) {
     try {

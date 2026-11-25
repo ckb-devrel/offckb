@@ -39,12 +39,23 @@ import { ensureCommandShim, removeCommandShims, shimMarkerPath } from '../src/pl
 import { logger } from '../src/util/logger';
 import { dataPath } from '../src/cfg/setting';
 
+// The default plugin home derives from dataPath; route it to a per-test temp
+// directory so tests that drop OFFCKB_PLUGIN_HOME (the default-home reclaim
+// paths) never read or mutate the developer's real plugin registry.
+const mockDataRoot = { current: '' };
+jest.mock('../src/cfg/setting', () => ({
+  get dataPath() {
+    return mockDataRoot.current;
+  },
+}));
+
 let home: string;
 let root: string;
 
 beforeEach(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'offckb-native-store-test-'));
   home = path.join(root, 'plugin-home');
+  mockDataRoot.current = path.join(root, 'data-root');
   process.env.OFFCKB_PLUGIN_HOME = home;
 });
 
@@ -530,6 +541,16 @@ describe('native tool registrations', () => {
     const result = realSpawn(shimPath, [], { encoding: 'utf8' });
     expect(result.status).toBe(127);
     expect(result.stderr).toContain('offckb-managed binary is missing');
+  });
+
+  it('uses the original install spec in the missing-binary repair hint', () => {
+    const target = path.join(root, 'managed-hint', 'my-tool');
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, '#!/bin/sh\necho v1\n');
+    // A local-descriptor install: the command name is not a valid install spec.
+    ensureCommandShim(command, target, './local/descriptor-dir');
+    const shimPath = path.join(home, 'bin', process.platform === 'win32' ? 'my-tool.cmd' : 'my-tool');
+    expect(fs.readFileSync(shimPath, 'utf8')).toContain('offckb plugin install ./local/descriptor-dir');
   });
 
   describe('orphan shim reclaim on the global PATH', () => {

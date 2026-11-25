@@ -214,9 +214,11 @@ function claimOwnership(targetPath: string, command: string): void {
 /**
  * Publish a shim for `command` pointing at the managed binary. Returns the
  * primary shim path, or null when skipped (foreign file in the way, or offckb
- * itself is not on PATH).
+ * itself is not on PATH). `installHint` is the original install spec used in
+ * the missing-binary repair message; it defaults to the command name, which
+ * is only a valid spec for catalog tools.
  */
-export function ensureCommandShim(command: string, binaryPath: string): string | null {
+export function ensureCommandShim(command: string, binaryPath: string, installHint?: string): string | null {
   const isolated = isIsolatedHome();
   const directory = publishDirectory();
   if (!directory) {
@@ -241,7 +243,7 @@ export function ensureCommandShim(command: string, binaryPath: string): string |
   // A managed binary that disappears (deleted home, manual cleanup) must
   // produce an actionable error, not a bare shell "no such file".
   const missing = `${command}: the offckb-managed binary is missing at ${binaryPath}.`;
-  const repair = `Reinstall it with: offckb plugin install ${command}, or delete this shim.`;
+  const repair = `Reinstall it with: offckb plugin install ${installHint ?? command}, or delete this shim.`;
   let primary: string | null = null;
 
   const targets: Array<{ path: string; write: (stagingPath: string) => void }> = isWindows
