@@ -165,7 +165,7 @@ it('installs a local directory, snapshots it, preserves storage on replacement, 
   // directory path depends on the caller's working directory and must not be
   // embedded in generated shell source.
   const shimContent = fs.readFileSync(
-    path.join(process.env.OFFCKB_PLUGIN_HOME!, 'bin', 'native-probe'),
+    path.join(process.env.OFFCKB_PLUGIN_HOME!, 'bin', process.platform === 'win32' ? 'native-probe.cmd' : 'native-probe'),
     'utf8',
   );
   expect(shimContent).toContain('Reinstall the tool from its original source');
