@@ -647,8 +647,9 @@ describe('native tool registrations', () => {
       fs.mkdirSync(path.dirname(target), { recursive: true });
       fs.writeFileSync(target, '#!/bin/sh\necho v2\n');
       ensureCommandShim(command, target);
-      expect(fs.existsSync(path.join(binDir, 'my-tool'))).toBe(true);
-      expect(fs.existsSync(path.join(dataPath, 'plugins', 'bin', 'my-tool'))).toBe(false);
+      const shimName = process.platform === 'win32' ? 'my-tool.cmd' : 'my-tool';
+      expect(fs.existsSync(path.join(binDir, shimName))).toBe(true);
+      expect(fs.existsSync(path.join(dataPath, 'plugins', 'bin', shimName))).toBe(false);
     } finally {
       mockSpawnSync.mockReset();
     }
