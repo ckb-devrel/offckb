@@ -3,6 +3,27 @@ import os from 'os';
 import path from 'path';
 import { createHash } from 'crypto';
 import { spawnSync } from 'child_process';
+
+// Double insurance (D1 gate): an isolated plugin home must never resolve the
+// real global bin directory (`which offckb`) for shims — a regression trips
+// this wire by throwing, failing the test that triggered it.
+jest.mock('child_process', () => {
+  const actual = jest.requireActual('child_process');
+  return {
+    ...actual,
+    spawnSync: (...args: unknown[]) => {
+      const [cmd, cmdArgs] = args;
+      if (
+        (cmd === 'which' || cmd === 'where') &&
+        Array.isArray(cmdArgs) &&
+        (cmdArgs as readonly string[]).includes('offckb')
+      ) {
+        throw new Error('isolated plugin homes must never resolve the global shim directory');
+      }
+      return actual.spawnSync(...args);
+    },
+  };
+});
 import AdmZip from 'adm-zip';
 import * as tar from 'tar';
 import { parseToolDescriptor } from '../src/plugins/tool-descriptor';
@@ -140,6 +161,15 @@ it('installs a local directory, snapshots it, preserves storage on replacement, 
   const first = await installPlugin(directory, new Set());
   expect(first.plugin.kind).toBe('binary');
   expect(first.source.kind).toBe('descriptor');
+  // Local-descriptor install: the shim's repair hint must stay generic — the
+  // directory path depends on the caller's working directory and must not be
+  // embedded in generated shell source.
+  const shimContent = fs.readFileSync(
+    path.join(process.env.OFFCKB_PLUGIN_HOME!, 'bin', process.platform === 'win32' ? 'native-probe.cmd' : 'native-probe'),
+    'utf8',
+  );
+  expect(shimContent).toContain('Reinstall the tool from its original source');
+  expect(shimContent).not.toContain(directory);
   expect(fs.readFileSync(first.plugin.entry!)).toEqual(bytes);
   // The user's directory is referenced, never moved.
   expect(fs.existsSync(path.join(directory, 'bin', probeEntryName()))).toBe(true);

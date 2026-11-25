@@ -193,11 +193,14 @@ describe('binary tool installation', () => {
     expect(listNativeTools()).toEqual([
       { command: 'ckb-debugger', envName: 'OFFCKB_TOOL_CKB_DEBUGGER', path: binaryPath },
     ]);
-    // PATH shim next to the offckb binary, with an ownership marker.
-    const shimPath = path.join(mockDirs.shimBin, BINARY_NAME);
+    // The shim lands under the isolated home's bin directory, with an
+    // ownership marker; the global bin is never consulted.
+    const shimPath = path.join(home, 'bin', BINARY_NAME);
     expect(fs.existsSync(shimPath)).toBe(true);
     expect(fs.existsSync(`${shimPath}.offckb`)).toBe(true);
     expect(fs.readFileSync(shimPath, 'utf8')).toContain(binaryPath);
+    // Catalog tool: the repair hint names the stable reinstall spec.
+    expect(fs.readFileSync(shimPath, 'utf8')).toContain('offckb plugin install ckb-debugger');
   });
 
   it('never touches the network when reinstalling, with or without an exact version', async () => {
@@ -313,7 +316,8 @@ describe('binary tool installation', () => {
   it('does not clobber a foreign file at the shim location', async () => {
     probeVersion.current = '1.1.2';
     seedLegacyInstall('1.1.2');
-    const shimPath = path.join(mockDirs.shimBin, BINARY_NAME);
+    const shimPath = path.join(home, 'bin', BINARY_NAME);
+    fs.mkdirSync(path.dirname(shimPath), { recursive: true });
     fs.writeFileSync(shimPath, '#!/bin/sh\necho foreign\n');
     const { logger } = jest.requireMock('../src/util/logger') as { logger: { warn: jest.Mock } };
 
@@ -328,7 +332,7 @@ describe('binary tool installation', () => {
     seedLegacyInstall('1.1.2');
     await installPlugin('ckb-debugger', new Set(), {});
     const binaryPath = getNativeBinaryPath('ckb-debugger')!;
-    const shimPath = path.join(mockDirs.shimBin, BINARY_NAME);
+    const shimPath = path.join(home, 'bin', BINARY_NAME);
 
     removePlugin('ckb-debugger');
 

@@ -15,6 +15,8 @@ jest.mock('fs', () => ({
 }));
 jest.mock('../src/plugins/store', () => ({
   getNativeBinaryPath: jest.fn(),
+  // Default: no readable registration, so the repair hint stays generic.
+  getNativeRecord: jest.fn(),
 }));
 jest.mock('../src/plugins/install', () => ({ installPlugin: jest.fn() }));
 jest.mock('../src/plugins/shims', () => ({ ensureCommandShim: jest.fn() }));

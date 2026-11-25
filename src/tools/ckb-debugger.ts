@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { readSettings } from '../cfg/setting';
 import { nativeBinaryFileName } from '../plugins/manifest';
-import { getNativeBinaryPath } from '../plugins/store';
+import { getNativeBinaryPath, getNativeRecord } from '../plugins/store';
 import { ensureCommandShim } from '../plugins/shims';
 import { installPlugin } from '../plugins/install';
 import { getVersionFromBinary, isVersionAtLeast } from '../plugins/native';
@@ -128,7 +128,11 @@ export class CKBDebugger {
       if (existing) {
         const version = getVersionFromBinary(existing);
         if (version && isVersionAtLeast(version, readSettings().tools.ckbDebugger.minVersion)) {
-          ensureCommandShim('ckb-debugger', existing);
+          // The command may be registered from a non-catalog source (e.g. a
+          // local descriptor): only a confirmed catalog install gets the
+          // catalog repair hint; anything else keeps the generic message.
+          const hint = getNativeRecord('ckb-debugger')?.source.kind === 'catalog' ? 'ckb-debugger' : undefined;
+          ensureCommandShim('ckb-debugger', existing, hint);
           logger.info(`ckb-debugger ${version} is already installed at ${existing}; nothing to do.`);
           return Promise.resolve({ binaryPath: existing, version, alreadyInstalled: true });
         }
