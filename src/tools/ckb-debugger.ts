@@ -9,13 +9,6 @@ import { installPlugin } from '../plugins/install';
 import { getVersionFromBinary, isVersionAtLeast } from '../plugins/native';
 import { logger } from '../util/logger';
 
-export interface DebugOption {
-  fullTxJsonFilePath: string;
-  cellIndex: number;
-  cellType: 'output' | 'input';
-  scriptGroupType: 'lock' | 'type';
-}
-
 /**
  * Env var offckb sets on every `ckb-debugger` child it spawns. A stale
  * v0.4.x fallback shim (which runs `exec offckb debugger "$@"`) re-enters
@@ -92,20 +85,6 @@ export class CKBDebugger {
         }
         return arg;
       }) ?? [];
-    this.execute(args);
-  }
-
-  static runTxCellScript({ fullTxJsonFilePath, cellIndex, cellType, scriptGroupType }: DebugOption): void {
-    const args = [
-      '--tx-file',
-      fullTxJsonFilePath,
-      '--cell-index',
-      cellIndex.toString(),
-      '--cell-type',
-      cellType,
-      '--script-group-type',
-      scriptGroupType,
-    ];
     this.execute(args);
   }
 
