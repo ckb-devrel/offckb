@@ -15,7 +15,7 @@
 - **载荷格式**：采用 #553 的 `offckb-tool.json` 描述符（`platforms` 每平台 pin 死 `url + sha256 + format + executable`，`execution` 支持 `${devnet.rpcUrl}`/`${plugin.dataPath}`/`${plugin.cachePath}`/`cwd` 绑定，`permissions` 声明宿主能力）。仓库根探测、`tool:`/本地/HTTPS descriptor 安装、bundled 工具全部使用此格式；旧 `offckb-plugin.json` 仍可读（兼容本 PR 合并前的安装）。
 - **注册与执行**：采用本 PR 的加固 native 注册（稳定路径 `<pluginHome>/native/<command>/`、锁内原子交换 + 回滚、source.id 语义、symlink fail-closed），所有来源（catalog / bundled / descriptor / github）统一到此模型。`offckb <tool>` 执行时二进制**一律原生运行**（不设沙箱默认值）——理由：现阶段所有真实二进制都是无适配的纯工具，主要价值在安装与管理；且二进制的主消费通道是直访（shim/spawn），任何宿主沙箱都盖不到，给代跑通道单独设沙箱只会造成"直跑可以、offckb 跑却 permission denied"的行为不一致（Windows 上更甚）。声明的 `permissions` 保留但语义为 advisory：只控制宿主提供的接口（如 `${devnet.rpcUrl}` 注入），不构成访问上限——与 trusted JS 插件一致。PATH shim / `plugin which` / `plugin env` 提供 Issue #555 要求的机器直访通道。
 - **来源与信任**：catalog（一方 release 模板）与 bundled（随包 descriptor）隐式信任；显式本地/HTTPS descriptor 自证内容（pin 死 sha256，**总是重装**以重验内容，不做幂等跳过）；三方 GitHub 源（仓库根 `offckb-tool.json`）必须过**来源白名单**。声明了 `permissions` 的二进制工具同样需要显式 `--allow` 授权。
-- **迁移**：既有 ckb-debugger 离线收编、`offckb install ckb-debugger` 别名、旧 shim（内嵌 marker）由默认 plugin home 认领——全部保留。
+- **迁移**：既有 ckb-debugger 离线收编、`offckb install ckb-debugger` 别名、旧 shim（内嵌 marker 的一代）由默认 plugin home 认领——全部保留。最早期 v0.4.x shim（形如 `#!/bin/sh\nexec offckb debugger "$@"`、无 `# offckb-managed` 内嵌 marker）不属于任何 home 的认领范围，不会被覆盖或删除，需用户手动删除。
 
 以下各节保留原始设计推理；与上文冲突处以上文为准。
 
@@ -76,7 +76,7 @@ issue [#555 评论](https://github.com/ckb-devrel/offckb/issues/555#issuecomment
 ## 5. 统一接入：三条通道
 
 1. **稳定路径**：`<pluginHome>/native/<command>/<binName>`（`<pluginHome>` 默认 `<data>/plugins`，`OFFCKB_PLUGIN_HOME` 可隔离）。升级时在**同一路径**原子替换文件，路径终生不变。POSIX 上运行中的旧 inode 不受影响；Windows 上被占用则 EBUSY，在 registry 提交**之前**失败，旧版本保持可用，明确报错稍后重试。
-2. **PATH shim**：写在 offckb binary 旁边（该目录已在 PATH 上，零配置）；所有权由 `.offckb` sidecar marker 绑定**文件内容哈希**（command + sha256），stale marker 旁被用户替换的文件不会被覆盖或删除，symlink 永不认领；脚本另保留内嵌 marker 行作兼容识别。Windows 同时放真 `.exe`（hardlink，跨盘 fallback copy）。remove 时按 isOwned 重验哈希再清理，外来文件只警告。
+2. **PATH shim**：写在 offckb binary 旁边（该目录已在 PATH 上，零配置）；所有权由 `.offckb` sidecar marker 绑定**文件内容哈希**（command + sha256），stale marker 旁被用户替换的文件不会被覆盖或删除，symlink 永不认领；脚本另保留内嵌 marker 行作兼容识别。Windows 同时放真 `.exe`（hardlink，跨盘 fallback copy）。remove 时按 isOwned 重验哈希再清理，外来文件只警告。**隔离 home 策略**：`OFFCKB_PLUGIN_HOME` 非默认时 shim 改写 `<home>/bin/`（不触碰全局 PATH，测试/smoke/临时环境不再污染用户真实 PATH）；marker 记录的 owning home 目录已不存在的 shim 视为孤儿，可被回收——默认 home 的 install/remove（含未注册时的 remove 尝试，仅删除该 home 可证明属于自己的 shim）可接管全局 PATH 上的孤儿，隔离 home 只在自己 bin 目录内操作。**shim 守卫**：脚本 exec 前检查 target 存在性，缺失时打印可操作提示（重装命令或删除 shim）并以 127 退出。
 3. **事务性**：staged 目录在 registry 锁内交换（EBUSY 在提交前失败，旧版本完整可用）；registry 写失败时回滚目录交换，注册与磁盘始终一致；legacy 收编先拷贝后删除，任何失败不丢用户原有二进制。
 3. **env var + 查询**：
    ```sh

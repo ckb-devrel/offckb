@@ -15,6 +15,17 @@ import { logger } from '../util/logger';
  *  - Every host-written file carries an `.offckb` sidecar marker and (for
  *    scripts) an embedded marker comment. A file without either is foreign —
  *    e.g. a user's own cargo-installed binary — and is never clobbered.
+ *  - Only the default plugin home writes shims next to the offckb binary.
+ *    An isolated home (OFFCKB_PLUGIN_HOME set, e.g. tests or throwaway
+ *    environments) publishes under `<home>/bin` instead, so a temporary home
+ *    can never plant shims on the user's real PATH that dangle once the
+ *    home is cleaned up.
+ *  - A shim whose owning home no longer exists is an orphan: no process can
+ *    ever reclaim it through its owner, so any live home may adopt it for
+ *    update or removal.
+ *  - The shim script checks its target before exec: a managed binary that
+ *    disappeared yields an actionable error and exit 127, not a bare shell
+ *    "no such file".
  *  - On Windows a bare `.cmd` is invisible to spawnSync without a shell
  *    (Node >= 20.12.2, CVE-2024-27980), so a real `<command>.exe` is also
  *    placed: a hard link to the managed binary, or a copy when linking fails
@@ -34,21 +45,53 @@ interface ShimMarker {
   /** SHA-256 of the shim file content at the time offckb wrote it. */
   sha256: string;
   /**
-   * Canonical plugin home that owns this shim. Global PATH shims are shared
-   * across OFFCKB_PLUGIN_HOME values; only the owning home may update or
-   * remove its shim, so isolated homes never clobber each other.
+   * Canonical plugin home that owns this shim. Only the default home
+   * publishes to the global PATH; isolated homes publish under their own
+   * `<home>/bin`, so a foreign marker on the global PATH normally means a
+   * pre-gate install. A marker whose home directory no longer exists marks
+   * an orphan that any live home may reclaim.
    */
   home: string;
 }
 
-/** The plugin home that would own shims written by this process. */
-function ownerHome(): string {
-  const configured = process.env.OFFCKB_PLUGIN_HOME || path.join(dataPath, 'plugins');
+/** True when OFFCKB_PLUGIN_HOME points this process at a non-default home. */
+function isIsolatedHome(): boolean {
+  const configured = process.env.OFFCKB_PLUGIN_HOME;
+  if (!configured) return false;
+  // Explicitly pointing OFFCKB_PLUGIN_HOME at the default home is not isolation.
+  return canonicalHome(configured) !== canonicalHome(path.join(dataPath, 'plugins'));
+}
+
+/**
+ * True only when the path provably does not exist. Permission or I/O errors
+ * (EACCES, EIO, ...) fail closed: a home that cannot be stat'ed is treated
+ * as alive so its shims are never reclaimed by mistake.
+ */
+function homeIsGone(home: string): boolean {
+  try {
+    fs.statSync(home);
+    return false;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    return code === 'ENOENT' || code === 'ENOTDIR';
+  }
+}
+
+/**
+ * Canonicalize a home path the same way for every comparison: realpath when
+ * it exists, resolved absolute path otherwise.
+ */
+function canonicalHome(configured: string): string {
   try {
     return fs.realpathSync(configured);
   } catch {
     return path.resolve(configured);
   }
+}
+
+/** The plugin home that would own shims written by this process. */
+function ownerHome(): string {
+  return canonicalHome(process.env.OFFCKB_PLUGIN_HOME || path.join(dataPath, 'plugins'));
 }
 
 function sha256OfFile(targetPath: string): string | null {
@@ -96,13 +139,21 @@ function isOwned(targetPath: string, command: string): boolean {
   if (!digest) return false;
   const marker = readMarker(targetPath);
   if (marker) {
-    return marker.command === command && marker.sha256 === digest && marker.home === ownerHome();
+    if (marker.command !== command || marker.sha256 !== digest) return false;
+    if (marker.home === ownerHome()) return true;
+    // Orphaned shim: the owning plugin home provably no longer exists (a
+    // cleaned-up OFFCKB_PLUGIN_HOME or a deleted data directory), so no
+    // process can ever reclaim the shim through its owner. Any live home may
+    // adopt it for update or removal; a shim whose home still exists — or
+    // cannot be stat'ed — stays foreign.
+    return homeIsGone(marker.home);
   }
   // Legacy shims written by the pre-sidecar installer only carry an embedded
   // marker comment, and they exist on real user machines. Only the default
-  // plugin home (production installs, no OFFCKB_PLUGIN_HOME) claims them;
-  // isolated homes require a sidecar marker, closing cross-home ownership.
-  if (process.env.OFFCKB_PLUGIN_HOME) return false;
+  // plugin home (production installs, no isolated OFFCKB_PLUGIN_HOME) claims
+  // them; isolated homes require a sidecar marker, closing cross-home
+  // ownership.
+  if (isIsolatedHome()) return false;
   try {
     return fs.readFileSync(targetPath, 'utf8').includes(embeddedMarker(command));
   } catch {
@@ -119,6 +170,17 @@ export function shimDirectory(): string | null {
   const stdout = result?.stdout ?? '';
   const offckbPath = stdout.trim().split('\n')[0];
   return offckbPath ? path.dirname(offckbPath) : null;
+}
+
+/**
+ * Directory this process may publish shims into (and remove them from).
+ * Only the default home writes next to the offckb binary on the real PATH;
+ * an isolated home publishes under `<home>/bin` and never consults — let
+ * alone mutates — the global bin directory.
+ */
+function publishDirectory(): string | null {
+  if (isIsolatedHome()) return path.join(ownerHome(), 'bin');
+  return shimDirectory();
 }
 
 function publishFile(write: (stagingPath: string) => void, targetPath: string): void {
@@ -155,7 +217,8 @@ function claimOwnership(targetPath: string, command: string): void {
  * itself is not on PATH).
  */
 export function ensureCommandShim(command: string, binaryPath: string): string | null {
-  const directory = shimDirectory();
+  const isolated = isIsolatedHome();
+  const directory = publishDirectory();
   if (!directory) {
     logger.warn(
       'Could not find the offckb binary in PATH, so no shim was created. ' +
@@ -163,8 +226,22 @@ export function ensureCommandShim(command: string, binaryPath: string): string |
     );
     return null;
   }
+  if (isolated) {
+    // The isolated home's bin directory is created on demand; it is not on
+    // PATH, so the shim only serves callers that know the home.
+    try {
+      fs.mkdirSync(directory, { recursive: true });
+    } catch (error) {
+      logger.warn(`Could not create the shim directory ${directory}: ${(error as Error).message}.`);
+      return null;
+    }
+  }
   const isWindows = process.platform === 'win32';
   const marker = embeddedMarker(command);
+  // A managed binary that disappears (deleted home, manual cleanup) must
+  // produce an actionable error, not a bare shell "no such file".
+  const missing = `${command}: the offckb-managed binary is missing at ${binaryPath}.`;
+  const repair = `Reinstall it with: offckb plugin install ${command}, or delete this shim.`;
   let primary: string | null = null;
 
   const targets: Array<{ path: string; write: (stagingPath: string) => void }> = isWindows
@@ -172,7 +249,19 @@ export function ensureCommandShim(command: string, binaryPath: string): string |
         {
           path: path.join(directory, `${command}.cmd`),
           write: (staging) => {
-            fs.writeFileSync(staging, `${marker}\r\n@echo off\r\n"${binaryPath}" %*\r\n`);
+            // goto form, not a parenthesized block: a `)` inside the binary
+            // path (e.g. "Program Files (x86)") would terminate a block
+            // early even inside quotes.
+            fs.writeFileSync(
+              staging,
+              `${marker}\r\n@echo off\r\n` +
+                `if exist "${binaryPath}" goto run\r\n` +
+                `echo ${missing} 1>&2\r\n` +
+                `echo ${repair} 1>&2\r\n` +
+                `exit /b 127\r\n` +
+                `:run\r\n` +
+                `"${binaryPath}" %*\r\n`,
+            );
           },
         },
         {
@@ -192,7 +281,16 @@ export function ensureCommandShim(command: string, binaryPath: string): string |
         {
           path: path.join(directory, command),
           write: (staging) => {
-            fs.writeFileSync(staging, `#!/bin/sh\n${marker}\nexec "${binaryPath}" "$@"\n`);
+            fs.writeFileSync(
+              staging,
+              `#!/bin/sh\n${marker}\n` +
+                `if [ ! -x "${binaryPath}" ]; then\n` +
+                `  echo "${missing}" >&2\n` +
+                `  echo "${repair}" >&2\n` +
+                `  exit 127\n` +
+                `fi\n` +
+                `exec "${binaryPath}" "$@"\n`,
+            );
             fs.chmodSync(staging, 0o755);
           },
         },
@@ -201,10 +299,22 @@ export function ensureCommandShim(command: string, binaryPath: string): string |
   for (const target of targets) {
     try {
       if (fs.existsSync(target.path) && !isOwned(target.path, command)) {
-        logger.warn(
-          `A file already exists at ${target.path} that was not created by offckb; leaving it untouched. ` +
-            `Tools that call \`${command}\` directly will need it added to PATH manually.`,
-        );
+        const foreignMarker = readMarker(target.path);
+        if (foreignMarker && foreignMarker.command === command && foreignMarker.sha256 === sha256OfFile(target.path)) {
+          // A shim owned by another home that still exists (orphans are
+          // reclaimed by isOwned before this point): name the owner so the
+          // user knows where the shim came from. Isolated homes only manage
+          // their own bin directory, so the reliable cleanup is manual.
+          logger.warn(
+            `The ${command} shim at ${target.path} was created by offckb for a different plugin home (${foreignMarker.home}); ` +
+              `leaving it untouched. Delete the shim and its .offckb marker manually to reclaim the name.`,
+          );
+        } else {
+          logger.warn(
+            `A file already exists at ${target.path} that was not created by offckb; leaving it untouched. ` +
+              `Tools that call \`${command}\` directly will need it added to PATH manually.`,
+          );
+        }
         continue;
       }
       publishFile(target.write, target.path);
@@ -222,10 +332,16 @@ export function ensureCommandShim(command: string, binaryPath: string): string |
   return primary;
 }
 
-/** Remove offckb-owned shims only; foreign files (and stale markers beside them) are left in place. */
-export function removeCommandShims(command: string): void {
-  const directory = shimDirectory();
-  if (!directory) return;
+/**
+ * Remove offckb-owned shims only; foreign files (and stale markers beside
+ * them) are left in place. Returns the paths that were removed.
+ */
+export function removeCommandShims(command: string): string[] {
+  const removed: string[] = [];
+  // Isolated homes only ever published into their own bin directory; the
+  // global PATH was never touched, so nothing there may be removed here.
+  const directory = publishDirectory();
+  if (!directory) return removed;
   const isWindows = process.platform === 'win32';
   const candidates = isWindows
     ? [path.join(directory, `${command}.cmd`), path.join(directory, `${command}.exe`)]
@@ -239,8 +355,10 @@ export function removeCommandShims(command: string): void {
       if (!isOwned(target, command)) continue;
       fs.rmSync(target, { force: true });
       fs.rmSync(shimMarkerPath(target), { force: true });
+      removed.push(target);
     } catch (error) {
       logger.warn(`Could not remove the ${command} shim at ${target}: ${(error as Error).message}.`);
     }
   }
+  return removed;
 }

@@ -3,6 +3,27 @@ import os from 'os';
 import path from 'path';
 import { createHash } from 'crypto';
 import { spawnSync } from 'child_process';
+
+// Double insurance (D1 gate): an isolated plugin home must never resolve the
+// real global bin directory (`which offckb`) for shims — a regression trips
+// this wire by throwing, failing the test that triggered it.
+jest.mock('child_process', () => {
+  const actual = jest.requireActual('child_process');
+  return {
+    ...actual,
+    spawnSync: (...args: unknown[]) => {
+      const [cmd, cmdArgs] = args;
+      if (
+        (cmd === 'which' || cmd === 'where') &&
+        Array.isArray(cmdArgs) &&
+        (cmdArgs as readonly string[]).includes('offckb')
+      ) {
+        throw new Error('isolated plugin homes must never resolve the global shim directory');
+      }
+      return actual.spawnSync(...args);
+    },
+  };
+});
 import AdmZip from 'adm-zip';
 import * as tar from 'tar';
 import { parseToolDescriptor } from '../src/plugins/tool-descriptor';
