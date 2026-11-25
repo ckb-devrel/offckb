@@ -128,7 +128,9 @@ export class CKBDebugger {
       if (existing) {
         const version = getVersionFromBinary(existing);
         if (version && isVersionAtLeast(version, readSettings().tools.ckbDebugger.minVersion)) {
-          ensureCommandShim('ckb-debugger', existing);
+          // ckb-debugger is a catalog tool: the command name is a stable
+          // reinstall spec for the missing-binary repair hint.
+          ensureCommandShim('ckb-debugger', existing, 'ckb-debugger');
           logger.info(`ckb-debugger ${version} is already installed at ${existing}; nothing to do.`);
           return Promise.resolve({ binaryPath: existing, version, alreadyInstalled: true });
         }

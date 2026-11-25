@@ -161,6 +161,15 @@ it('installs a local directory, snapshots it, preserves storage on replacement, 
   const first = await installPlugin(directory, new Set());
   expect(first.plugin.kind).toBe('binary');
   expect(first.source.kind).toBe('descriptor');
+  // Local-descriptor install: the shim's repair hint must stay generic — the
+  // directory path depends on the caller's working directory and must not be
+  // embedded in generated shell source.
+  const shimContent = fs.readFileSync(
+    path.join(process.env.OFFCKB_PLUGIN_HOME!, 'bin', 'native-probe'),
+    'utf8',
+  );
+  expect(shimContent).toContain('Reinstall the tool from its original source');
+  expect(shimContent).not.toContain(directory);
   expect(fs.readFileSync(first.plugin.entry!)).toEqual(bytes);
   // The user's directory is referenced, never moved.
   expect(fs.existsSync(path.join(directory, 'bin', probeEntryName()))).toBe(true);

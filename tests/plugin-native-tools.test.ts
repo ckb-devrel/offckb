@@ -524,7 +524,9 @@ describe('native tool registrations', () => {
     const result = realSpawn(shimPath, [], { encoding: 'utf8' });
     expect(result.status).toBe(127);
     expect(result.stderr).toContain('offckb-managed binary is missing');
-    expect(result.stderr).toContain('offckb plugin install my-tool');
+    // No install hint was provided: the repair message stays generic instead
+    // of guessing a spec from the command name.
+    expect(result.stderr).toContain('Reinstall the tool from its original source');
   });
 
   it('shim survives spaces and parentheses in the managed binary path', () => {
@@ -543,14 +545,21 @@ describe('native tool registrations', () => {
     expect(result.stderr).toContain('offckb-managed binary is missing');
   });
 
-  it('uses the original install spec in the missing-binary repair hint', () => {
+  it('uses a provided install hint and stays generic without one', () => {
     const target = path.join(root, 'managed-hint', 'my-tool');
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, '#!/bin/sh\necho v1\n');
-    // A local-descriptor install: the command name is not a valid install spec.
-    ensureCommandShim(command, target, './local/descriptor-dir');
     const shimPath = path.join(home, 'bin', process.platform === 'win32' ? 'my-tool.cmd' : 'my-tool');
-    expect(fs.readFileSync(shimPath, 'utf8')).toContain('offckb plugin install ./local/descriptor-dir');
+    // A catalog tool: the command name is a stable reinstall spec.
+    ensureCommandShim(command, target, 'my-tool');
+    expect(fs.readFileSync(shimPath, 'utf8')).toContain('offckb plugin install my-tool');
+    // A non-catalog tool (e.g. a local descriptor directory): no spec is
+    // embedded — relative paths depend on the repair-time working directory
+    // and user-supplied strings do not belong in generated shell source.
+    ensureCommandShim(command, target);
+    const content = fs.readFileSync(shimPath, 'utf8');
+    expect(content).toContain('Reinstall the tool from its original source');
+    expect(content).not.toContain('offckb plugin install');
   });
 
   describe('orphan shim reclaim on the global PATH', () => {

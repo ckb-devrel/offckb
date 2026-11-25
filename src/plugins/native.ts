@@ -278,7 +278,9 @@ export async function installNativeTool(
     existing.version === pinnedVersion &&
     existing.source.id === sourceId
   ) {
-    ensureCommandShim(tool.command, existing.path, existing.source.requested);
+    // Only catalog commands are stable reinstall specs; other sources get
+    // the generic repair message (see ensureCommandShim).
+    ensureCommandShim(tool.command, existing.path, existing.source.kind === 'catalog' ? tool.command : undefined);
     applyGrantChanges(tool.command);
     logger.info(`${tool.command} ${pinnedVersion} is already installed at ${existing.path}.`);
     return {
@@ -439,7 +441,7 @@ export async function installNativeTool(
       logger.warn(`Replaced ${tool.command}, but old package cleanup failed at ${backup}; remove it manually.`);
     }
 
-    ensureCommandShim(tool.command, record.path, record.source.requested);
+    ensureCommandShim(tool.command, record.path, record.source.kind === 'catalog' ? tool.command : undefined);
     if (adopted) {
       // The adopted binary copied out of the legacy location; drop the empty
       // shell so nothing probes it as an unmanaged install anymore. Uses the

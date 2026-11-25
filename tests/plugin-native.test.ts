@@ -199,6 +199,8 @@ describe('binary tool installation', () => {
     expect(fs.existsSync(shimPath)).toBe(true);
     expect(fs.existsSync(`${shimPath}.offckb`)).toBe(true);
     expect(fs.readFileSync(shimPath, 'utf8')).toContain(binaryPath);
+    // Catalog tool: the repair hint names the stable reinstall spec.
+    expect(fs.readFileSync(shimPath, 'utf8')).toContain('offckb plugin install ckb-debugger');
   });
 
   it('never touches the network when reinstalling, with or without an exact version', async () => {
