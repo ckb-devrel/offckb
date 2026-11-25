@@ -5,18 +5,23 @@ import fetch, { RequestInit } from 'node-fetch';
 export class Request {
   static proxy = readSettings().proxy;
 
-  static async send(url: string, options: RequestInit = {}) {
+  /** Fetch without an ok-check so callers can handle 404s themselves. */
+  static async fetch(url: string, options: RequestInit = {}) {
     const agent = this.proxy ? new HttpsProxyAgent(this.proxyConfigToUrl(this.proxy)) : undefined;
     const opt: RequestInit = { ...{ agent }, ...options };
     try {
-      const response = await fetch(url, opt);
-      if (!response.ok) {
-        throw new Error(`HTTP error! Status: ${response.status}, URL: ${response.url}`);
-      }
-      return await response;
+      return await fetch(url, opt);
     } catch (error: unknown) {
       throw new Error(`fetch error! ${(error as Error).message}`);
     }
+  }
+
+  static async send(url: string, options: RequestInit = {}) {
+    const response = await this.fetch(url, options);
+    if (!response.ok) {
+      throw new Error(`HTTP error! Status: ${response.status}, URL: ${response.url}`);
+    }
+    return await response;
   }
 
   static parseProxyUrl(url: string): ProxyConfig {

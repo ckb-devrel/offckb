@@ -1,0 +1,344 @@
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import crypto from 'crypto';
+import * as tar from 'tar';
+import { spawnSync } from 'child_process';
+
+const mockSpawnSync = jest.fn();
+jest.mock('child_process', () => ({
+  ...jest.requireActual('child_process'),
+  spawnSync: (...args: unknown[]) => mockSpawnSync(...args),
+}));
+jest.mock('../src/util/request', () => ({
+  Request: { send: jest.fn(), fetch: jest.fn() },
+}));
+jest.mock('../src/util/logger', () => ({
+  logger: {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    success: jest.fn(),
+    result: jest.fn(),
+  },
+}));
+
+const mockDirs = { dataRoot: '', toolsRoot: '', shimBin: '' };
+const mockMinVersion = { current: '0.200.0' };
+const probeVersion = { current: '1.1.2' };
+
+jest.mock('../src/cfg/setting', () => ({
+  get dataPath() {
+    return mockDirs.dataRoot;
+  },
+  readSettings: () => ({
+    proxy: undefined,
+    tools: {
+      rootFolder: mockDirs.toolsRoot,
+      ckbDebugger: { minVersion: mockMinVersion.current },
+    },
+  }),
+}));
+
+import { installPlugin, parsePluginInstallSpec } from '../src/plugins/install';
+import { installNativeTool, isSafeLegacySegment } from '../src/plugins/native';
+import { Request } from '../src/util/request';
+import { catalogEntry } from '../src/plugins/catalog';
+import {
+  getNativeBinaryPath,
+  listNativeTools,
+  pluginNativeDir,
+  removePlugin,
+} from '../src/plugins/store';
+
+const requestSend = Request.send as jest.Mock;
+
+// Install-flow tests pin the host to linux/x64 so the download/install
+// assertions are host-independent: upstream publishes no Intel-macOS asset,
+// and a POSIX-shell fixture cannot run on Windows.
+const TARGET = 'x86_64-unknown-linux-gnu';
+const BINARY_NAME = 'ckb-debugger';
+const originalPlatform = process.platform;
+const originalArch = process.arch;
+
+function mockHost(platform: NodeJS.Platform, arch: string): void {
+  Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+  Object.defineProperty(process, 'arch', { value: arch, configurable: true });
+}
+
+let home: string;
+let root: string;
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockHost('linux', 'x64');
+  root = fs.mkdtempSync(path.join(os.tmpdir(), 'offckb-native-test-'));
+  home = path.join(root, 'plugin-home');
+  mockDirs.dataRoot = root;
+  mockDirs.toolsRoot = path.join(root, 'tools');
+  mockDirs.shimBin = path.join(root, 'bin');
+  fs.mkdirSync(mockDirs.shimBin);
+  fs.writeFileSync(path.join(mockDirs.shimBin, 'offckb'), '');
+  probeVersion.current = '1.1.2';
+  mockMinVersion.current = '0.200.0';
+  mockSpawnSync.mockImplementation((cmd: string) => {
+    if (cmd === 'which' || cmd === 'where') {
+      return { status: 0, stdout: `${path.join(mockDirs.shimBin, 'offckb')}\n`, stderr: '' };
+    }
+    // Every ckb-debugger binary (staged, installed, legacy) reports the
+    // configurable probe version, so no fixture has to be executable here.
+    return { status: 0, stdout: `ckb-debugger ${probeVersion.current}\n`, stderr: '' };
+  });
+  process.env.OFFCKB_PLUGIN_HOME = home;
+});
+
+afterEach(() => {
+  delete process.env.OFFCKB_PLUGIN_HOME;
+  fs.rmSync(root, { recursive: true, force: true });
+  mockHost(originalPlatform, originalArch);
+});
+
+function buildTarGz(binary: string, version: string): Promise<Buffer> {
+  // Use the cross-platform `tar` npm package (not the system tar binary):
+  // on Windows, GNU tar misreads the "C:\" drive prefix in temp paths as a
+  // remote host and fails, which breaks test-fixture creation there.
+  return (async () => {
+    const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'offckb-native-stage-'));
+    try {
+      fs.writeFileSync(path.join(stage, binary), fakeBinaryPayload(version));
+      const archivePath = path.join(stage, 'archive.tar.gz');
+      await tar.c({ gzip: true, file: archivePath, cwd: stage }, [binary]);
+      return fs.readFileSync(archivePath);
+    } finally {
+      fs.rmSync(stage, { recursive: true, force: true });
+    }
+  })();
+}
+
+function mockDebuggerRelease(version: string, buffer: Buffer) {
+  const tag = `v${version}`;
+  requestSend.mockImplementation(async (url: string) => {
+    if (url.includes('/releases/latest')) {
+      return {
+        url: `https://github.com/nervosnetwork/ckb-standalone-debugger/releases/tag/${tag}`,
+      };
+    }
+    if (url.endsWith('-sha256.txt')) {
+      const digest = crypto.createHash('sha256').update(buffer).digest('hex');
+      return { text: async () => `${digest}  ckb-debugger_${tag}_${TARGET}.tar.gz` };
+    }
+    return { arrayBuffer: async () => buffer };
+  });
+}
+
+function fakeBinaryPayload(version: string): string {
+  return `#!/bin/sh\necho "ckb-debugger ${version}"\n`;
+}
+
+describe('parsePluginInstallSpec', () => {
+  it('resolves catalog names before npm package names', () => {
+    const spec = parsePluginInstallSpec('ckb-debugger');
+    expect(spec.kind).toBe('catalog');
+    expect(spec.ref).toBe('latest');
+    const pinned = parsePluginInstallSpec('ckb-debugger@v1.1.2');
+    expect(pinned.kind).toBe('catalog');
+    expect(pinned.ref).toBe('v1.1.2');
+    // An npm package that literally shares the catalog name stays reachable.
+    expect(parsePluginInstallSpec('npm:ckb-debugger').kind).toBe('npm');
+  });
+});
+
+describe('binary tool installation', () => {
+  // The catalog is the real tools/ directory: ckb-debugger pins v1.1.2 with
+  // upstream SHA-256 digests, so download-level coverage lives in the
+  // descriptor installer tests (fixture digests) and the binary smoke
+  // (real archive). These tests exercise dispatch, version pinning and the
+  // fully offline paths (legacy adoption and idempotent reinstall).
+  function seedLegacyInstall(version: string): string {
+    const legacyDir = path.join(mockDirs.toolsRoot, 'ckb-debugger');
+    fs.mkdirSync(legacyDir, { recursive: true });
+    fs.writeFileSync(path.join(legacyDir, BINARY_NAME), fakeBinaryPayload(version));
+    return legacyDir;
+  }
+
+  it('rejects a version the catalog does not pin', async () => {
+    await expect(installPlugin('ckb-debugger@v9.9.9', new Set(), {})).rejects.toThrow(
+      /catalog pins ckb-debugger at v1\.1\.2/,
+    );
+    expect(requestSend).not.toHaveBeenCalled();
+  });
+
+  it('installs the catalog ckb-debugger at a stable path with a registry entry and PATH shim', async () => {
+    probeVersion.current = '1.1.2';
+    seedLegacyInstall('1.1.2');
+
+    const { plugin, source } = await installPlugin('ckb-debugger', new Set(), {});
+
+    expect(plugin.kind).toBe('binary');
+    expect(source).toEqual({ kind: 'catalog', id: 'ckb-debugger', requested: 'ckb-debugger', resolved: 'ckb-debugger@1.1.2' });
+    const binaryPath = path.join(pluginNativeDir('ckb-debugger'), BINARY_NAME);
+    expect(plugin.directory).toBe(fs.realpathSync(pluginNativeDir('ckb-debugger')));
+    expect(fs.existsSync(binaryPath)).toBe(true);
+    // The canonical descriptor written next to the binary re-declares the tool statically.
+    const descriptor = JSON.parse(fs.readFileSync(path.join(plugin.directory, 'offckb-tool.json'), 'utf8'));
+    expect(descriptor).toMatchObject({
+      apiVersion: 1,
+      command: 'ckb-debugger',
+      version: '1.1.2',
+      entry: BINARY_NAME,
+      permissions: [],
+    });
+    // Registry record exposes the stable path for tools and env export.
+    expect(getNativeBinaryPath('ckb-debugger')).toBe(binaryPath);
+    expect(listNativeTools()).toEqual([
+      { command: 'ckb-debugger', envName: 'OFFCKB_TOOL_CKB_DEBUGGER', path: binaryPath },
+    ]);
+    // The shim lands under the isolated home's bin directory, with an
+    // ownership marker; the global bin is never consulted.
+    const shimPath = path.join(home, 'bin', BINARY_NAME);
+    expect(fs.existsSync(shimPath)).toBe(true);
+    expect(fs.existsSync(`${shimPath}.offckb`)).toBe(true);
+    expect(fs.readFileSync(shimPath, 'utf8')).toContain(binaryPath);
+    // Catalog tool: the repair hint names the stable reinstall spec.
+    expect(fs.readFileSync(shimPath, 'utf8')).toContain('offckb plugin install ckb-debugger');
+  });
+
+  it('never touches the network when reinstalling, with or without an exact version', async () => {
+    probeVersion.current = '1.1.2';
+    seedLegacyInstall('1.1.2');
+    await installPlugin('ckb-debugger', new Set(), {});
+    requestSend.mockClear();
+    const fetchSpy = jest.spyOn(global, 'fetch');
+
+    const again = await installPlugin('ckb-debugger', new Set(), {});
+    const pinned = await installPlugin('ckb-debugger@v1.1.2', new Set(), {});
+
+    expect(again.source.resolved).toBe('ckb-debugger@1.1.2');
+    expect(pinned.source.resolved).toBe('ckb-debugger@1.1.2');
+    expect(requestSend).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it('rejects platforms the pinned descriptor does not ship', async () => {
+    mockHost('darwin', 'x64'); // upstream publishes no Intel-macOS asset for v1.1.2
+    await expect(installPlugin('ckb-debugger', new Set(), {})).rejects.toThrow(/has no binary for darwin\/x64/);
+  });
+
+  it('refuses a legacyInstallDir escaping the tools root', async () => {
+    // A traversal legacyInstallDir must never recurse-delete outside the
+    // tools root: containment is re-verified before adoption/cleanup.
+    const victim = path.join(root, 'victim');
+    fs.mkdirSync(path.join(victim, 'ckb-debugger'), { recursive: true });
+    fs.writeFileSync(path.join(victim, 'ckb-debugger', BINARY_NAME), fakeBinaryPayload('1.1.1'));
+    mockHost('linux', 'x64');
+    mockDirs.toolsRoot = path.join(root, 'tools');
+    fs.mkdirSync(mockDirs.toolsRoot, { recursive: true });
+
+    await expect(installNativeTool(
+      {
+        name: 'ckb-debugger',
+        version: '1.1.2',
+        command: 'ckb-debugger',
+        description: 'CKB standalone debugger',
+        platforms: { 'linux-x64': { url: 'https://e.example/a', sha256: '0'.repeat(64), format: 'raw', executable: 'a' } },
+        legacyInstallDir: '../victim',
+      },
+      'latest',
+      { requested: 'ckb-debugger', sourceKind: 'catalog', reserved: new Set() },
+    )).rejects.toThrow(/escapes the tools root/);
+    // Nothing was adopted or deleted.
+    expect(fs.existsSync(path.join(victim, 'ckb-debugger', BINARY_NAME))).toBe(true);
+    expect(getNativeBinaryPath('ckb-debugger')).toBeNull();
+  });
+
+  it.each(['.', '..', '../victim', 'a/b', 'a\\\\b', '/abs', '..\\x'])(
+    'rejects an unsafe legacy segment %j before touching the filesystem',
+    async (segment) => {
+      await expect(
+        installNativeTool(
+          {
+            name: 'ckb-debugger',
+            version: '1.1.2',
+            command: 'ckb-debugger',
+            description: 'CKB standalone debugger',
+            platforms: {
+              'linux-x64': { url: 'https://e.example/a', sha256: '0'.repeat(64), format: 'raw', executable: 'a' },
+            },
+            legacyInstallDir: segment,
+          },
+          'latest',
+          { requested: 'ckb-debugger', sourceKind: 'catalog', reserved: new Set() },
+        ),
+      ).rejects.toThrow(/escapes the tools root/);
+    },
+  );
+
+  it('accepts a plain legacy segment', () => {
+    // The validator is shared with the catalog loader; exercise it directly
+    // so both POSIX and Windows-shaped names are pinned.
+    expect(isSafeLegacySegment('ckb-debugger')).toBe(true);
+    expect(isSafeLegacySegment('tool.v2_name-1')).toBe(true);
+  });
+
+  it('refuses a symlinked legacy install segment', async () => {
+    if (process.platform === 'win32') return; // symlink creation may require elevation.
+    const outside = path.join(root, 'outside');
+    fs.mkdirSync(path.join(outside, 'ckb-debugger'), { recursive: true });
+    fs.writeFileSync(path.join(outside, 'ckb-debugger', BINARY_NAME), fakeBinaryPayload('1.1.1'));
+    mockDirs.toolsRoot = path.join(root, 'tools');
+    fs.mkdirSync(mockDirs.toolsRoot, { recursive: true });
+    fs.symlinkSync(path.join(outside, 'ckb-debugger'), path.join(mockDirs.toolsRoot, 'ckb-debugger'));
+    await expect(
+      installPlugin('ckb-debugger', new Set(), {}),
+    ).rejects.toThrow(/escapes the tools root/);
+    // The outside directory is untouched.
+    expect(fs.existsSync(path.join(outside, 'ckb-debugger', BINARY_NAME))).toBe(true);
+  });
+
+  it('adopts a leftover pre-plugin install instead of re-downloading it', async () => {
+    // The probed (not executed) version of every fixture binary in this test.
+    probeVersion.current = '1.1.1';
+    const legacyDir = seedLegacyInstall('1.1.1');
+
+    const { source } = await installPlugin('ckb-debugger', new Set(), {});
+
+    // The adoption is offline and records the version read from the binary itself.
+    expect(source.resolved).toBe('ckb-debugger@1.1.1');
+    expect(requestSend).not.toHaveBeenCalled();
+    // The leftover directory is gone; the binary moved to the stable path.
+    expect(fs.existsSync(legacyDir)).toBe(false);
+    const binaryPath = getNativeBinaryPath('ckb-debugger')!;
+    expect(fs.existsSync(binaryPath)).toBe(true);
+    expect(fs.readFileSync(binaryPath, 'utf-8')).toContain('echo "ckb-debugger 1.1.1"');
+  });
+
+  it('does not clobber a foreign file at the shim location', async () => {
+    probeVersion.current = '1.1.2';
+    seedLegacyInstall('1.1.2');
+    const shimPath = path.join(home, 'bin', BINARY_NAME);
+    fs.mkdirSync(path.dirname(shimPath), { recursive: true });
+    fs.writeFileSync(shimPath, '#!/bin/sh\necho foreign\n');
+    const { logger } = jest.requireMock('../src/util/logger') as { logger: { warn: jest.Mock } };
+
+    await installPlugin('ckb-debugger', new Set(), {});
+
+    expect(fs.readFileSync(shimPath, 'utf8')).toBe('#!/bin/sh\necho foreign\n');
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('leaving it untouched'));
+  });
+
+  it('remove deletes the managed binary and the offckb-owned shim', async () => {
+    probeVersion.current = '1.1.2';
+    seedLegacyInstall('1.1.2');
+    await installPlugin('ckb-debugger', new Set(), {});
+    const binaryPath = getNativeBinaryPath('ckb-debugger')!;
+    const shimPath = path.join(home, 'bin', BINARY_NAME);
+
+    removePlugin('ckb-debugger');
+
+    expect(fs.existsSync(binaryPath)).toBe(false);
+    expect(fs.existsSync(pluginNativeDir('ckb-debugger'))).toBe(false);
+    expect(fs.existsSync(shimPath)).toBe(false);
+    expect(getNativeBinaryPath('ckb-debugger')).toBeNull();
+  });
+});

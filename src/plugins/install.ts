@@ -11,23 +11,30 @@ import { logger } from '../util/logger';
 import { PluginManifest, PluginPermission, readJsonFile, readPluginManifest } from './manifest';
 import {
   commitPluginInstallation,
+  NativeSource,
   PluginLinkOptions,
   PluginRegistrationOptions,
   PluginSource,
+  pluginNativeDir,
   pluginPackagesPath,
   reviewPluginPermissions,
 } from './store';
 import { signalPluginChild } from './process';
 import { installBinaryTool, isToolSource } from './tool-install';
+import { catalogEntry } from './catalog';
+import { installNativeTool } from './native';
 
 const PACKAGE_NAME = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
+const TAG = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 
 export interface PluginInstallSpec {
-  kind: PluginSource['kind'];
+  kind: PluginSource['kind'] | 'catalog';
   requested: string;
   spec: string;
   name?: string;
   repository?: string;
+  /** catalog: 'latest' or the pinned version. */
+  ref?: string;
 }
 
 export interface PluginInstallOptions extends PluginLinkOptions {
@@ -51,9 +58,24 @@ function npmPackageLocation(resolved: string | undefined): string | undefined {
   }
 }
 
-/** Deliberately accept registry packages and HTTPS GitHub repositories, not arbitrary npm spec protocols. */
+/**
+ * Deliberately accept registry packages, HTTPS GitHub repositories and
+ * first-party catalog names — not arbitrary npm spec protocols. Catalog
+ * names are checked before npm packages; an npm package that literally
+ * shares a catalog name can still be requested with the explicit `npm:`
+ * prefix. Local binary directories are detected before spec parsing.
+ */
 export function parsePluginInstallSpec(input: string): PluginInstallSpec {
   if (!input || input.length > 1024 || /[\x00-\x1f\x7f]/.test(input)) throw new Error('Invalid plugin source');
+  // Reserve catalog names before interpreting the suffix: a catalog name
+  // with an unsupported suffix is a release-tag error, never a silent fall
+  // through to the npm package path (npm: stays available explicitly).
+  const catalogName = /^([a-z][a-z0-9-]{0,47})(?:@(.*))?$/.exec(input);
+  if (catalogName && catalogEntry(catalogName[1])) {
+    const ref = catalogName[2] ?? 'latest';
+    if (ref !== 'latest' && (!TAG.test(ref) || ref.includes('..'))) throw new Error(`Invalid release tag: ${ref}`);
+    return { kind: 'catalog', requested: input, spec: catalogName[1], name: catalogName[1], ref };
+  }
   const github =
     /^(?:github:|https:\/\/github\.com\/)?([A-Za-z0-9][A-Za-z0-9-]*)\/([A-Za-z0-9][A-Za-z0-9._-]*?)(?:\.git)?(?:#([A-Za-z0-9][A-Za-z0-9._/-]*))?$/.exec(
       input,
@@ -65,6 +87,7 @@ export function parsePluginInstallSpec(input: string): PluginInstallSpec {
       requested: input,
       repository,
       spec: `git+https://github.com/${repository}.git${github[3] ? `#${github[3]}` : ''}`,
+      ref: github[3],
     };
   }
   const spec = input.startsWith('npm:') ? input.slice(4) : input;
@@ -77,7 +100,10 @@ export function parsePluginInstallSpec(input: string): PluginInstallSpec {
     !version ||
     (!semver.validRange(version) && !/^[A-Za-z][A-Za-z0-9._-]*$/.test(version))
   )
-    throw new Error('Use an npm package[@version] or github:owner/repo[#tag-or-commit]');
+    throw new Error(
+      'Unknown plugin source. Use an npm package name, github:owner/repo[#ref], a catalog tool name ' +
+        '(see `offckb plugin list`), or a local binary directory: offckb plugin install ./dir',
+    );
   return { kind: 'npm', requested: input, spec: `${name}@${version}`, name };
 }
 
@@ -176,7 +202,12 @@ async function runNpm(spec: string, directory: string, allowScripts: boolean): P
         'Plugin installation cancelled',
       );
     if (timedOut) throw new Error('npm plugin installation timed out after five minutes');
-    if (code !== 0) throw new Error(`npm installation failed (exit ${code}); the previous plugin is unchanged`);
+    if (code !== 0)
+      throw new Error(
+        `npm installation failed (exit ${code}); the previous plugin is unchanged. ` +
+          'If this repository is a binary tool, it is not an offckb plugin: binary tools install from the ' +
+          'catalog or a local directory (see `offckb plugin list`).',
+      );
   } finally {
     clearTimeout(timer);
     for (const [signal, listener] of listeners) process.removeListener(signal, listener);
@@ -189,7 +220,8 @@ export async function installPlugin(
   input: string,
   reserved: ReadonlySet<string>,
   options: PluginInstallOptions = {},
-): Promise<{ plugin: ReturnType<typeof readPluginManifest>; source: PluginSource }> {
+): Promise<{ plugin: ReturnType<typeof readPluginManifest>; source: PluginSource | NativeSource }> {
+  // Local binary tool directories take the native installer path.
   if (isToolSource(input)) return installBinaryTool(input, reserved, options);
   const source = parsePluginInstallSpec(input);
   if (options.allowScripts && !options.trust)
@@ -198,6 +230,40 @@ export async function installPlugin(
     );
   if (options.allowScripts)
     logger.warn('Install/build scripts are enabled and run with your user permissions, outside the runtime sandbox.');
+
+  // First-party catalog tools are native binaries managed by offckb. Each
+  // tools/ descriptor pins an exact version; `@latest` installs that pin and
+  // newer upstream releases arrive with offckb updates (a version bump PR).
+  if (source.kind === 'catalog') {
+    const entry = catalogEntry(source.name!);
+    if (!entry) throw new Error(`Unknown catalog tool: ${source.name}`);
+    const pinned = entry.install.version!;
+    const wanted = source.ref === 'latest' ? pinned : source.ref!.replace(/^v/, '');
+    if (wanted !== pinned)
+      throw new Error(
+        `The offckb catalog pins ${entry.command} at v${pinned}; ` +
+          'newer versions arrive with offckb updates. `offckb plugin list` shows every available tool.',
+      );
+    const result = await installNativeTool(entry.install, 'latest', {
+      requested: source.requested,
+      sourceKind: 'catalog',
+      allow: options.allow,
+      reserved,
+    });
+    return {
+      plugin: readPluginManifest(pluginNativeDir(result.command)),
+      source: {
+        kind: 'catalog',
+        id: entry.install.name,
+        requested: source.requested,
+        resolved: `${entry.install.name}@${result.version}`,
+      },
+    };
+  }
+
+  // A github: source is a JavaScript plugin repository: npm installs it and
+  // the manifest check below rejects repos that do not declare an offckb
+  // plugin. Binary tools come from the catalog or a local directory instead.
   const packages = pluginPackagesPath();
   const id = randomUUID();
   // This fresh directory is invisible to discovery until the atomic registry write. Keep its

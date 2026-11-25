@@ -1,7 +1,17 @@
 import { Command, CommanderError, InvalidArgumentError } from 'commander';
 import { confirm } from '@inquirer/prompts';
 import { logger } from '../util/logger';
-import { linkPlugin, listPlugins, unlinkPlugin, removePlugin, PluginLinkOptions, PluginSource } from './store';
+import { catalogEntries } from './catalog';
+import {
+  getNativeBinaryPath,
+  linkPlugin,
+  listNativeTools,
+  listPlugins,
+  PluginLinkOptions,
+  PluginSource,
+  removePlugin,
+  unlinkPlugin,
+} from './store';
 import { PluginManifest, PluginPermission } from './manifest';
 import { runPlugin } from './run';
 import { installPlugin } from './install';
@@ -64,6 +74,65 @@ function registrationOptions(command: Command): Command {
     );
 }
 
+/**
+ * Shared install path for `offckb plugin install` and the top-level
+ * `offckb install <tool>` alias: one installer, one lifecycle, one output
+ * shape. Aliased entry points pass default flag values; the interactive
+ * consent hook only activates for terminal invocations without explicit
+ * grants.
+ */
+export async function installPluginCommand(
+  program: Command,
+  reserved: ReadonlySet<string>,
+  source: string,
+  options: PluginLinkOptions & { allowScripts: boolean },
+): Promise<void> {
+  const interactive =
+    process.stdin.isTTY &&
+    process.stdout.isTTY &&
+    process.stderr.isTTY &&
+    !process.env.CI &&
+    !program.opts().json &&
+    !logger.isJsonMode() &&
+    !options.allow?.length;
+  const installed = await installPlugin(source, reserved, {
+    ...options,
+    ...(interactive
+      ? {
+          confirmPermissions: (
+            plugin: PluginManifest,
+            provenance: PluginSource,
+            previousPermissions: readonly PluginPermission[] = [],
+          ) =>
+            confirmInstallPermissions(
+              plugin,
+              provenance,
+              options.trust === true || plugin.kind === 'binary',
+              previousPermissions,
+            ),
+        }
+      : {}),
+  });
+  const plugin = installed.plugin;
+  logger.info(`Installed ${plugin.command} (${installed.source.resolved}); run offckb ${plugin.command}`);
+  if (plugin.kind === 'binary') {
+    logger.warn('Binary tool: runs with your user permissions and is placed on PATH.');
+    const stablePath = getNativeBinaryPath(plugin.command);
+    if (stablePath) logger.info(`Stable path: ${stablePath} (export with: offckb plugin env)`);
+  } else if (options.trust) {
+    logger.warn('Trusted mode: this plugin runs with your user permissions, without OS isolation.');
+  }
+  logger.result({
+    command: 'plugin.install',
+    plugin: plugin.command,
+    directory: plugin.directory,
+    kind: plugin.kind,
+    permissions: plugin.permissions,
+    mode: plugin.kind === 'binary' ? 'trusted' : options.trust ? 'trusted' : 'sandbox',
+    source: installed.source,
+  });
+}
+
 export function coreCommandIndex(program: Command, argv: string[]): number {
   for (let index = 2; index < argv.length; index++) {
     const token = argv[index];
@@ -76,6 +145,8 @@ export function coreCommandIndex(program: Command, argv: string[]): number {
 
 export function registerPluginManagement(program: Command): {
   prepare: (argv: string[]) => { argv: string[]; delegated: () => boolean };
+  /** Core command names a plugin command may not claim; for non-`plugin` install entry points. */
+  reserved: () => Set<string>;
 } {
   program.option(
     '--plugin-port <port>',
@@ -115,54 +186,81 @@ export function registerPluginManagement(program: Command): {
     management
       .command('install <source>')
       .description(
-        'Install from npm/GitHub (terminal permission prompt), tool:<name>, or a local/HTTPS tool descriptor (.json)',
+        'Install an npm package, github:owner/repo (JavaScript plugins), a catalog tool name, or a local binary tool directory',
       ),
   )
     .option('--allow-scripts', 'Allow npm install/build scripts outside the runtime sandbox (requires --trust)', false)
     .action(async (source: string, options: PluginLinkOptions & { allowScripts: boolean }) => {
-      const interactive =
-        process.stdin.isTTY &&
-        process.stdout.isTTY &&
-        process.stderr.isTTY &&
-        !process.env.CI &&
-        !program.opts().json &&
-        !logger.isJsonMode() &&
-        !options.allow?.length;
-      const installed = await installPlugin(source, reserved(), {
-        ...options,
-        ...(interactive
-          ? {
-              confirmPermissions: (
-                plugin: PluginManifest,
-                provenance: PluginSource,
-                previousPermissions: readonly PluginPermission[] = [],
-              ) => confirmInstallPermissions(plugin, provenance, options.trust === true, previousPermissions),
-            }
-          : {}),
-      });
-      const plugin = installed.plugin;
-      logger.info(`Installed ${plugin.command} (${installed.source.resolved}); run offckb ${plugin.command}`);
-      if (options.trust)
-        logger.warn('Trusted mode: this plugin runs with your user permissions, without OS isolation.');
-      logger.result({
-        command: 'plugin.install',
-        plugin: plugin.command,
-        directory: plugin.directory,
-        permissions: plugin.permissions,
-        mode: options.trust ? 'trusted' : 'sandbox',
-        source: installed.source,
-      });
+      await installPluginCommand(program, reserved(), source, options);
+    });
+  // Top-level `offckb install <source>` is a pure alias of `plugin install`:
+  // same argument surface, same defaults, same lifecycle. The lenient
+  // minVersion short-circuit belongs to `offckb create` only, so project
+  // creation never force-upgrades a tool.
+  const installAlias = registrationOptions(
+    program
+      .command('install <source>')
+      .description('Alias for `offckb plugin install <source>`: install a plugin package or binary tool'),
+  )
+    .option('--allow-scripts', 'Allow npm install/build scripts outside the runtime sandbox (requires --trust)', false)
+    .action(async (source: string, options: PluginLinkOptions & { allowScripts: boolean }) => {
+      await installPluginCommand(program, reserved(), source, options);
     });
   management
     .command('list')
-    .description('List linked plugins and compatibility diagnostics without executing them')
+    .description('List installed plugins and available catalog tools')
     .action(() => {
       const plugins = listPlugins(reserved(), checkMode);
       for (const plugin of plugins)
         logger.info(
-          `${plugin.command}: ${plugin.state} [${plugin.mode}]${plugin.source ? ` (${plugin.source.resolved})` : ''}${plugin.error ? ` — ${plugin.error}` : ''}`,
+          `${plugin.command}: ${plugin.state} [${plugin.mode}]${plugin.kind === 'binary' ? ' [binary]' : ''}${
+            plugin.source ? ` (${plugin.source.resolved})` : ''
+          }${plugin.error ? ` — ${plugin.error}` : ''}`,
         );
-      logger.result({ command: 'plugin.list', plugins });
+      // Catalog visibility: the same list answers "what can I install?".
+      // Installed state is derived from the registry, so a tool installed
+      // from any source shows its check mark here.
+      const installed = new Set(plugins.filter((plugin) => plugin.kind === 'binary').map((plugin) => plugin.command));
+      const catalog = Object.values(catalogEntries()).map((entry) => ({
+        command: entry.command,
+        name: entry.install.name,
+        version: entry.install.version,
+        description: entry.install.description,
+        installed: installed.has(entry.command),
+      }));
+      if (catalog.length > 0)
+        logger.info('Binary tools: install with `offckb plugin install <name>` (✓ installed, ✗ available)');
+      for (const entry of catalog)
+        logger.info(
+          `  ${entry.installed ? '✓' : '✗'} ${entry.command}  ${entry.description}${
+            entry.installed ? ' (installed)' : ''
+          }`,
+        );
+      logger.result({ command: 'plugin.list', plugins, catalog });
+    });
+  management
+    .command('which <command>')
+    .description('Print the stable binary path of an installed binary tool plugin')
+    .action((command: string) => {
+      const binaryPath = getNativeBinaryPath(command);
+      if (!binaryPath) throw new Error(`No installed binary tool named ${command}`);
+      // The path is the command's primary output: it must reach stdout even
+      // when LOG_LEVEL silences info logs, and must not corrupt the single
+      // JSON result line in --json mode.
+      if (!logger.isJsonMode()) process.stdout.write(`${binaryPath}\n`);
+      logger.result({ command: 'plugin.which', plugin: command, path: binaryPath });
+    });
+  management
+    .command('env')
+    .description('Print OFFCKB_TOOL_<COMMAND>=path lines for installed binary tools (eval or source)')
+    .action(() => {
+      const tools = listNativeTools();
+      // Single-quote shell escaping keeps eval safe for any path character.
+      const quote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
+      if (!logger.isJsonMode()) {
+        for (const tool of tools) process.stdout.write(`${tool.envName}=${quote(tool.path)}\n`);
+      }
+      logger.result({ command: 'plugin.env', tools });
     });
   management
     .command('remove <command>')
@@ -182,15 +280,18 @@ export function registerPluginManagement(program: Command): {
     });
 
   return {
+    reserved,
     prepare(argv) {
       program.setOptionValueWithSource('pluginPort', 7070, 'default');
       // runCli is reusable: an earlier invocation cannot authorize a later link.
-      for (const command of [link, install]) {
+      for (const command of [link, install, installAlias]) {
         command.setOptionValueWithSource('allow', [], 'default');
         command.setOptionValueWithSource('read', [], 'default');
         command.setOptionValueWithSource('trust', false, 'default');
       }
-      install.setOptionValueWithSource('allowScripts', false, 'default');
+      for (const command of [install, installAlias]) {
+        command.setOptionValueWithSource('allowScripts', false, 'default');
+      }
       for (const command of dynamic) {
         const index = program.commands.indexOf(command);
         // Commander exposes a readonly view of its mutable registration array.

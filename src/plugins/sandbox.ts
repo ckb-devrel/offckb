@@ -5,6 +5,7 @@ import semver from 'semver';
 import { createRequire } from 'module';
 import { PluginManifest, PluginMode } from './manifest';
 import { PluginContext } from './context';
+import { nativeToolEnv } from './store';
 import { createHttpBridge, createReadRpcBroker } from './broker';
 
 export function assertSandboxSupported(): void {
@@ -47,7 +48,18 @@ export async function preparePluginExecution(
   port = 7070,
   mode: PluginMode = 'sandbox',
 ): Promise<{ command: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv; dispose: () => void }> {
+  // Binary tools always run natively with the user's permissions (their
+  // primary channel is direct PATH spawn, which no host sandbox can cover);
+  // only JavaScript plugins have a sandbox mode. Managed binary
+  // registrations always resolve to trusted mode; this fails closed if a
+  // binary ever reaches the sandbox path. This invariant is independent of
+  // the sandbox runtime or Node version, so it precedes both checks.
+  if (plugin.kind === 'binary' && mode === 'sandbox')
+    throw new Error(`Binary tool ${plugin.command} cannot run in the sandbox; it always runs natively`);
   if (mode === 'sandbox') assertSandboxSupported();
+  if (plugin.kind === 'js' && !plugin.entry) {
+    throw new Error(`${plugin.command} has no JavaScript entry`);
+  }
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ocp-')));
   const cleanup: Array<() => void> = [];
   const dispose = () => {
@@ -142,13 +154,20 @@ export async function preparePluginExecution(
     const toolEnv = Object.fromEntries(
       Object.entries(plugin.execution?.env || {}).map(([key, value]) => [key, bind(value)]),
     );
-    const command = plugin.runtime === 'binary' ? plugin.entry : process.execPath;
+    const command = plugin.kind === 'binary' ? plugin.entry! : process.execPath;
     const commandArgs =
-      plugin.runtime === 'binary'
+      plugin.kind === 'binary'
         ? [...(helpOnly ? [] : (plugin.execution?.args || []).map(bind)), ...args]
-        : [plugin.entry, ...args];
+        : [plugin.entry!, ...args];
     if (mode === 'trusted') {
-      return { command, args: commandArgs, cwd: plugin.directory, env: { ...env, ...toolEnv }, dispose };
+      // Managed binaries stay addressable by sibling tools through OFFCKB_TOOL_* too.
+      return {
+        command,
+        args: commandArgs,
+        cwd: plugin.directory,
+        env: { ...env, ...nativeToolEnv(), ...toolEnv },
+        dispose,
+      };
     }
     const externalRequire = createRequire(__filename);
     let runtimeDirectory: string;

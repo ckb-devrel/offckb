@@ -1,20 +1,26 @@
 import fs from 'fs';
 import path from 'path';
-import { createHash, randomUUID } from 'crypto';
 import AdmZip from 'adm-zip';
 import * as tar from 'tar';
 import { gunzipSync, inflateRawSync } from 'zlib';
-import { bundledTools } from './bundled-tools';
 import { parseToolDescriptor, ToolAsset, toolUrl } from './tool-descriptor';
 import { readJsonFile, readPluginManifest } from './manifest';
-import { commitPluginInstallation, PluginLinkOptions, pluginPackagesPath, PluginSource } from './store';
+import { NativeSource, PluginLinkOptions, pluginNativeDir, PluginSource } from './store';
+import { installNativeTool } from './native';
 
-const MAX_ARCHIVE = 128 * 1024 * 1024;
+export const MAX_ARCHIVE = 128 * 1024 * 1024;
 const MAX_BINARY = 256 * 1024 * 1024;
 const MAX_EXPANDED = 512 * 1024 * 1024;
 
 export function isToolSource(input: string): boolean {
-  return input.startsWith('tool:') || input.endsWith('.json');
+  // Only local directories are binary install sources: a directory holding
+  // an offckb-tool.json and its executable installs as a managed copy.
+  // Remote descriptors and the retired tool:/.json spellings are gone.
+  try {
+    return fs.statSync(path.resolve(input)).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 /** Explicit redirects keep HTTPS validation on every hop. One deadline includes body reads. */
@@ -137,62 +143,43 @@ export async function installBinaryTool(
   input: string,
   reserved: ReadonlySet<string>,
   options: PluginLinkOptions & { allowScripts?: boolean },
-): Promise<{ plugin: ReturnType<typeof readPluginManifest>; source: PluginSource }> {
+): Promise<{ plugin: ReturnType<typeof readPluginManifest>; source: PluginSource | NativeSource }> {
   if (options.allowScripts) throw new Error('Binary tools do not support installation scripts');
-  let value: unknown;
-  if (input.startsWith('tool:')) {
-    const name = input.slice(5);
-    if (!Object.prototype.hasOwnProperty.call(bundledTools, name))
-      throw new Error(`Unknown bundled tool descriptor: ${input}`);
-    value = bundledTools[name];
-  } else if (input.startsWith('https:')) {
-    value = JSON.parse((await downloadToolFile(input, 1024 * 1024)).toString('utf8'));
-  } else {
-    value = readJsonFile(path.resolve(input));
-  }
-  const tool = parseToolDescriptor(value, true);
-  const platform = `${process.platform}-${process.arch}`;
-  const asset = tool.platforms![platform];
-  if (!asset) throw new Error(`${tool.command} has no binary for ${platform}`);
+  const directory = fs.realpathSync(path.resolve(input));
+  if (!fs.statSync(directory).isDirectory()) throw new Error(`Not a binary tool directory: ${input}`);
+  const tool = parseToolDescriptor(readJsonFile(path.join(directory, 'offckb-tool.json')), false);
   if (tool.permissions.some((permission) => !options.allow?.includes(permission)))
     throw new Error(`Tool requires explicit grants: ${tool.permissions.map((p) => `--allow ${p}`).join(' ')}`);
   if (options.allow?.some((permission) => !tool.permissions.includes(permission as (typeof tool.permissions)[number])))
     throw new Error('Only permissions declared by this tool may be granted');
   if (reserved.has(tool.command)) throw new Error(`Tool command ${tool.command} conflicts with a core command`);
-  const archive = await downloadToolFile(asset.url, MAX_ARCHIVE);
-  if (createHash('sha256').update(archive).digest('hex') !== asset.sha256)
-    throw new Error('Binary tool SHA-256 mismatch');
-  const binary = await extractToolBinary(archive, asset);
-  const id = randomUUID();
-  const staging = path.join(pluginPackagesPath(), id);
-  const directory = path.join(staging, 'tool');
-  let committed = false;
-  try {
-    // Keep the executable under one host-chosen name, independent of archive paths.
-    const entry = `bin/${tool.command}${process.platform === 'win32' ? '.exe' : ''}`;
-    fs.mkdirSync(path.join(directory, 'bin'), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(path.join(directory, entry), binary, { mode: 0o755, flag: 'wx' });
-    fs.writeFileSync(path.join(directory, 'offckb-tool.json'), JSON.stringify({ ...tool, entry }, null, 2) + '\n', {
-      mode: 0o600,
-      flag: 'wx',
-    });
-    const descriptorHash = createHash('sha256').update(JSON.stringify(tool)).digest('hex');
-    const source: PluginSource = {
-      kind: 'binary',
-      requested: input.startsWith('tool:') || input.startsWith('https:') ? input : path.resolve(input),
-      resolved: `${tool.name}@${tool.version}#sha256:${descriptorHash}`,
-    };
-    const plugin = commitPluginInstallation(
-      directory,
-      { id, name: tool.name, source, allowScripts: false },
+  const result = await installNativeTool(
+    {
+      name: tool.name,
+      version: tool.version,
+      command: tool.command,
+      description: tool.description,
+      permissions: tool.permissions,
+      execution: tool.execution,
+      platforms: {},
+      entry: tool.entry,
+      localDirectory: directory,
+    },
+    tool.version,
+    {
+      requested: input,
+      sourceKind: 'descriptor',
+      allow: tool.permissions,
       reserved,
-      options,
-      () => {
-        committed = true;
-      },
-    );
-    return { plugin, source };
-  } finally {
-    if (!committed) fs.rmSync(staging, { recursive: true, force: true });
-  }
+    },
+  );
+  return {
+    plugin: readPluginManifest(pluginNativeDir(result.command)),
+    source: {
+      kind: 'descriptor',
+      id: tool.name,
+      requested: input,
+      resolved: result.version.includes('#') ? result.version : `${tool.name}@${result.version}`,
+    },
+  };
 }
