@@ -119,6 +119,11 @@ the gateway. Installing the complete executable does not grant write/admin RPCs,
 signing integration or public-network routing. The integrated `ckb-cli tui` awaits a pinned
 ckb-cli release that contains it; core `offckb status` remains operational until then.
 
+The [status migration follow-up](status-tui-migration.md) records the refreshed PR
+and release evidence, per-platform archive audit, fixed-source prebuild procedure,
+RPC source review and remaining real TUI acceptance checks. The migration remains
+blocked; installing the current descriptor does not provide TUI.
+
 ## Validation
 
 ```sh
