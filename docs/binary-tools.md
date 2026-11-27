@@ -16,10 +16,11 @@ with your user permissions**.
 The `Binary tools` section of `offckb plugin list` shows registered tools and catalog entries.
 A catalog tool is marked `blocked` when a JavaScript plugin already uses its command name.
 Use `offckb --json plugin list` for full source details.
-`@latest` installs the catalog's pinned version; other versions fail closed with the pinned
-version in the message — newer upstream releases arrive with offckb updates (a version-bump PR,
-like every other pin in this repository). Request additional tools by issue or PR; there is no
-author-side adaptation requirement and no third-party distribution channel.
+The catalog accepts the bare tool name, `@latest` or its exact pinned version. A different
+version returns an error showing the pin. Newer upstream releases arrive with OffCKB updates.
+For the debugger's first-install adoption behavior, see [Upgrading ckb-debugger](#upgrading-ckb-debugger).
+Request additional tools by issue or PR; there is no author-side adaptation requirement and no
+third-party distribution channel.
 
 A local binary directory contains an `offckb-tool.json` and the executable it declares:
 
@@ -58,11 +59,14 @@ previous version fully usable.
 ### Upgrading ckb-debugger
 
 `offckb install ckb-debugger` remains available as an alias of `offckb plugin install ckb-debugger`.
-The catalog pins v1.1.2 for v0.5.0, including when you request `ckb-debugger@latest`.
-On the first install by name, OffCKB can adopt a runnable legacy binary under
-`tools.rootFolder/ckb-debugger/` that reports a version at or above the catalog's adoption
-minimum (0.200.0). Adoption works offline and can remove the legacy directory after
-registration succeeds. Update scripts that used the old absolute path to discover the
+The v0.5.0 catalog pins v1.1.2. On first registration, all three accepted spellings
+(`ckb-debugger`, `ckb-debugger@latest` and `ckb-debugger@1.1.2`) can adopt a runnable legacy
+binary under `tools.rootFolder/ckb-debugger/` that reports a version at or above the
+catalog's adoption minimum (0.200.0). Adoption works offline and can remove the legacy
+directory after registration succeeds. If adoption kept a different version and you need
+the catalog pin, rerun `offckb plugin install ckb-debugger` and run the executable reported
+by `offckb plugin which ckb-debugger` with `--version` to verify it.
+Update scripts that used the old absolute path to discover the
 registered executable with `offckb plugin which ckb-debugger` or `offckb --json plugin which ckb-debugger`.
 `tools.ckbDebugger.minVersion` still controls whether `offckb create` can reuse an already
 registered debugger. The explicit install command uses the catalog's version and adoption minimum.

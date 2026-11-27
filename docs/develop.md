@@ -205,8 +205,10 @@ For the v0.5.0 release, review the [upgrade notes](../CHANGELOG.md#upgrade-notes
 The initial Fiber changeset already moved `package.json` to `0.5.0`, before later
 changesets landed. Running `pnpm changeset version` with those pending minor changesets
 would produce `0.6.0`. To release this batch as `0.5.0`, fold the remaining changeset
-entries into the existing `0.5.0` changelog section and remove the consumed changesets
-in the version PR while keeping `package.json` at `0.5.0`. Before tagging, run
+entries into the existing `0.5.0` changelog section. In the version-only PR, keep
+`package.json` at `0.5.0` and remove all consumed changesets, including empty ones.
+Apply the existing `skip-changeset` label to that PR so Changeset Check skips the
+check for a new changeset. Before tagging, run
 `pnpm changeset version` on the clean release commit and confirm it leaves the
 tracked files and package version unchanged. The publish workflow performs that check
 on the tag.
