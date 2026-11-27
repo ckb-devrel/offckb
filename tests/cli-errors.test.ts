@@ -167,6 +167,90 @@ describe('CLI error output', () => {
     expect(mockFailure).not.toHaveBeenCalled();
   });
 
+  it('shows plugin statuses and a single row for a broken catalog tool while retaining its JSON source', async () => {
+    const plugins = [
+      { command: 'explorer', kind: 'js', state: 'available', mode: 'sandbox', version: '1.0.0' },
+      { command: 'local-tool', kind: 'binary', state: 'available', mode: 'trusted', version: '1.0.0' },
+      {
+        command: 'sandbox-tool',
+        kind: 'js',
+        state: 'incompatible',
+        mode: 'sandbox',
+        version: '1.0.0',
+        error: 'Unsupported Node version',
+      },
+      {
+        command: 'balance',
+        kind: 'js',
+        state: 'shadowed',
+        mode: 'trusted',
+        error: 'A core command has priority',
+      },
+      {
+        command: 'ckb-debugger',
+        kind: 'binary',
+        state: 'invalid',
+        mode: 'trusted',
+        error: 'Executable is missing',
+        source: { resolved: 'ckb-debugger@1.1.2#sha256:example' },
+      },
+    ];
+    mockListPlugins.mockReturnValue(plugins);
+    const { runCli } = loadCli();
+    const { logger } = require('../src/util/logger');
+
+    await runCli(['node', 'offckb', 'plugin', 'list']);
+
+    const output = logger.info.mock.calls.flat(2).join('\n');
+    expect(output).toMatch(/JavaScript plugins\n  explorer\s+1\.0\.0\s+✓ installed \(sandbox\)/);
+    expect(output).toMatch(/^  local-tool +1\.0\.0 +✓ installed$/m);
+    expect(output).toMatch(/^  sandbox-tool +1\.0\.0 +incompatible \(sandbox\) — Unsupported Node version$/m);
+    expect(output).toMatch(/^  balance +- +shadowed \(trusted\) — A core command has priority$/m);
+    expect(output).toMatch(/ckb-cli\s+\S+\s+✗ available/);
+    expect(output).toMatch(/ckb-debugger\s+-\s+invalid — Executable is missing/);
+    expect(output.match(/ckb-debugger/g)).toHaveLength(1);
+    expect(output).not.toContain('sha256:');
+
+    logger.info.mockClear();
+    logger.result.mockClear();
+    await runCli(['node', 'offckb', '--json', 'plugin', 'list']);
+
+    expect(logger.info).not.toHaveBeenCalled();
+    expect(logger.result).toHaveBeenCalledWith({
+      command: 'plugin.list',
+      plugins,
+      catalog: expect.arrayContaining([expect.objectContaining({ command: 'ckb-debugger', installed: true })]),
+    });
+  });
+
+  it('shows catalog tools as blocked when JavaScript plugins occupy their commands', async () => {
+    const commands = ['ckb-cli', 'ckb-debugger'];
+    mockListPlugins.mockReturnValue(
+      commands.map((command) => ({ command, kind: 'js', state: 'available', mode: 'sandbox', version: '1.0.0' })),
+    );
+    const { runCli } = loadCli();
+    const { logger } = require('../src/util/logger');
+
+    await runCli(['node', 'offckb', 'plugin', 'list']);
+
+    const output = logger.info.mock.calls.flat(2).join('\n');
+    const [jsSection, binarySection] = output.split('\n\n');
+    for (const command of commands) {
+      expect(jsSection).toMatch(new RegExp(`^  ${command} +\\S+ +✓ installed \\(sandbox\\)$`, 'm'));
+      expect(binarySection).toMatch(
+        new RegExp(`^  ${command} +\\S+ +blocked — command used by a JavaScript plugin$`, 'm'),
+      );
+    }
+    expect(output).not.toContain('Install a catalog tool');
+    expect(logger.result).toHaveBeenCalledWith(
+      expect.objectContaining({
+        catalog: expect.arrayContaining(
+          commands.map((command) => expect.objectContaining({ command, installed: false })),
+        ),
+      }),
+    );
+  });
+
   it('does not promote --json from the plugin argument suffix', async () => {
     mockListPlugins.mockReturnValue([{ command: 'probe', state: 'available', directory: '/unused' }]);
     const { runCli } = loadCli();

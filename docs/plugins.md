@@ -12,7 +12,7 @@ dependencies between offckb plugins are deferred.
 | A GitHub repository (npm-shaped JS plugin) | `offckb plugin install github:owner/repo[#ref]` | JS | sandbox by default, `--trust` on Windows |
 | A local binary directory (`offckb-tool.json` + executable) | `offckb plugin install ./dir` | binary (managed copy) | always native |
 | A local JS plugin directory, in development | `offckb plugin link ./dir` | JS (referenced in place) | sandbox by default, `--trust` on Windows |
-| Anything | `offckb plugin list` | — | shows installed plugins (✓) and available catalog tools (✗) |
+| Anything | `offckb plugin list` | — | lists registered JavaScript plugins and binary tools, including tools available from the catalog |
 
 Binary tools come from two places only: the **official catalog** (pinned descriptors in `tools/`,
 reviewed per offckb release — installing them is trusting offckb itself) and **local directories**
@@ -28,6 +28,8 @@ JavaScript plugins use npm-shaped packages. The host supplies a versioned contex
 tool in a separate process. Execution uses an OS sandbox by default; users may explicitly trust an
 individual package for native execution. The host provides npm/GitHub installation, managed
 replacement/removal, local linking, foreground execution and capability grants.
+`offckb plugin list` reads JavaScript entries from the local registry after `plugin install` or
+`plugin link`. The built-in catalog contains binary tools only.
 
 ## Platform boundary
 
@@ -101,7 +103,7 @@ Supplying any `--allow` selects explicit grants, even in a terminal: missing or 
 
 The npm/GitHub installer uses the pinned npm 11.21.1 CLI shipped as an optional dependency, invoked through the current Node executable on every platform; it never executes `npm.cmd` through a shell. Installation requires Node **20.17+ (20.x) or 22.9+**, this optional dependency, and Git for GitHub sources. Core commands/local links retain their own Node requirements. A missing installer dependency produces an actionable error and does not fall back to an older system npm: npm 10 was observed running Git `prepare` despite `--ignore-scripts`.
 
-Packages live under `<plugin home>/packages/<installation-id>`, with an npm lockfile and the resolved npm version or GitHub commit shown by `plugin list`/JSON output. Installation happens in a fresh, undiscovered directory. Declaration, entry, engines, grants and conflicts are checked before the atomic registry switch; a failed download/build/validation or pre-commit replacement leaves the previous registration and package intact. Once the atomic registry switch succeeds, the registry owns the new package: later lock/temporary/old-package cleanup failures produce diagnostics and never delete the registered package. A leftover registry lock still requires manual recovery after confirming the writer stopped. Running plugins cannot be replaced or removed. Successful replacement removes the previous managed package and keeps data/cache. Private npm registries and HTTPS Git credentials use normal npm/Git configuration; credentials must not be embedded in the source argument. Arbitrary file/tarball/SSH source specifications are not supported.
+Packages live under `<plugin home>/packages/<installation-id>`, with an npm lockfile and the resolved npm version or GitHub commit shown by `offckb --json plugin list`. Installation happens in a fresh, undiscovered directory. Declaration, entry, engines, grants and conflicts are checked before the atomic registry switch; a failed download/build/validation or pre-commit replacement leaves the previous registration and package intact. Once the atomic registry switch succeeds, the registry owns the new package: later lock/temporary/old-package cleanup failures produce diagnostics and never delete the registered package. A leftover registry lock still requires manual recovery after confirming the writer stopped. Running plugins cannot be replaced or removed. Successful replacement removes the previous managed package and keeps data/cache. Private npm registries and HTTPS Git credentials use normal npm/Git configuration; credentials must not be embedded in the source argument. Arbitrary file/tarball/SSH source specifications are not supported.
 
 Scripts are **disabled by default**, independently of `--trust`. Packages must ship a prebuilt JS entry. A GitHub repository must itself be an npm-compatible offckb plugin at its root, rather than an arbitrary tool that offckb can adapt automatically. Source packages can use npm's standard `prepare` hook to build their entry and install build dependencies. Explicitly authorize that installation-time code with:
 
