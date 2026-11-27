@@ -55,6 +55,27 @@ location are never touched) and keeps data/cache. Upgrades are atomic replacemen
 stable path; on Windows a running binary blocks the swap before the registry changes, leaving the
 previous version fully usable.
 
+### Upgrading ckb-debugger
+
+`offckb install ckb-debugger` remains available as an alias of `offckb plugin install ckb-debugger`.
+The catalog pins v1.1.2 for v0.5.0, including when you request `ckb-debugger@latest`.
+On the first install by name, OffCKB can adopt a runnable legacy binary under
+`tools.rootFolder/ckb-debugger/` that reports a version at or above the catalog's adoption
+minimum (0.200.0). Adoption works offline and can remove the legacy directory after
+registration succeeds. Update scripts that used the old absolute path to discover the
+registered executable with `offckb plugin which ckb-debugger` or `offckb --json plugin which ckb-debugger`.
+`tools.ckbDebugger.minVersion` still controls whether `offckb create` can reuse an already
+registered debugger. The explicit install command uses the catalog's version and adoption minimum.
+
+The core `offckb debug` and `offckb debugger` commands can still use an existing debugger on
+PATH or fall back to the managed and legacy locations. For projects that directly invoke
+`ckb-debugger`, the default plugin home creates its shim next to the `offckb` command on PATH
+when possible. On Windows it also places a real `ckb-debugger.exe` there for shell-free callers.
+An isolated `OFFCKB_PLUGIN_HOME` puts shims under `<home>/bin`, which you can add to PATH.
+If a user-owned executable or an unmarked old shim occupies the destination, OffCKB leaves
+it in place. Check which executable your shell resolves, then adjust PATH or move a stale
+shim you recognize before reinstalling.
+
 ## Descriptor v1 (maintainer format)
 
 Catalog entries and local directories share one data format. This section documents the format

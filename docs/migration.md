@@ -1,6 +1,44 @@
+# Migration from v0.4.x to v0.5.0
+
+This guide compares the latest v0.4 release, v0.4.13, with v0.5.0. If you are upgrading from an earlier v0.4 patch, also check the intervening entries in the [changelog](../CHANGELOG.md). The core CLI still requires Node.js 20 or later.
+
+## Keep your current devnet
+
+Stop the old process (Ctrl+C in the foreground or `offckb node stop` for a daemon), upgrade the CLI with your package manager, and restart with the same CKB version, binary path and other options you used before. A plain `offckb node` reuses your existing chain spec and data. Existing forks can still be started with their original options. Skip `offckb clean` for this upgrade path.
+
+## Rebuild only if you want Fiber on an existing v0.4 devnet
+
+New plain devnets use a genesis that includes `auth`, `funding_lock` and `commitment_lock`. An existing v0.4 devnet keeps its old genesis, so Fiber refuses to start if these contracts are absent. Fiber supports plain local devnets only.
+
+1. Stop CKB and any FNN processes. Back up the devnet config and data directories shown by `offckb config list` if you need the old chain.
+2. To replace that devnet, run `offckb clean`. This deletes the devnet directory, including the local chain and its configuration. `offckb clean --data` keeps the old `specs/dev.toml`, so it cannot install the new genesis.
+3. Run `offckb node --fiber` (add `--daemon` if desired). The rebuilt chain has a different genesis hash. Redeploy local contracts, refresh any project copies of the deployment records, and rerun `offckb system-scripts -o <path>` for projects using cached system script references.
+
+Fresh v0.5.0 installations can start with `offckb node --fiber` directly. See the [Fiber devnet guide](fiber-devnet.md) for configuration and data lifecycle.
+
+## Update scripts that call OffCKB
+
+| If you use | Change for v0.5.0 |
+| --- | --- |
+| `offckb accounts` in scripts, logs or JSON consumers | Add `--hide-private-keys` to preserve the v0.4 default. Both output formats now include `privkey` for built-in test accounts by default. Mainnet forks still hide it unless you pass `--show-private-keys`. |
+| A hard-coded path to the OffCKB-managed `ckb-debugger` | Run `offckb install ckb-debugger` and discover the registered binary via `offckb plugin which ckb-debugger` (add `--json` for structured output). A qualifying legacy binary can be adopted offline and its old directory removed after registration. |
+| `offckb install ckb-debugger` to fetch the newest upstream release | The command is now an alias of `offckb plugin install ckb-debugger`. Catalog installs use the version pinned by OffCKB (`1.1.2` in v0.5.0), including `@latest`. The first unversioned install can retain a qualifying legacy version through adoption. |
+| `offckb config set` or `offckb config rm proxy` | Handle a nonzero exit when `settings.json` is unreadable, malformed, or cannot be saved. Repair the file or its permissions using the path in the error, then retry. |
+| `offckb clean --data` for a chain reset | With Fiber configured, this also deletes the OffCKB-managed Fiber stores, including channels and payments. Configs, accounts and keys are preserved. Stop CKB and Fiber first. For an ordinary runtime config change, stop and restart with the original options. |
+| `offckb node stop` with Fiber running | When Fiber has a separate manager, stop it first (`offckb fiber stop` for a daemon or Ctrl+C in the foreground). If you started CKB and Fiber together with `offckb node --fiber --daemon`, `offckb node stop` stops both. |
+
+`offckb debug` and `offckb debugger` still support an existing native debugger on PATH or in the legacy install directory. If a generated project calls the bare `ckb-debugger` executable, check PATH after installing or adopting it. See [debugger migration and shim behavior](binary-tools.md#upgrading-ckb-debugger).
+
+## If you used a v0.5 canary
+
+- FNN v0.9.0 replaces the release candidate as the only version OffCKB downloads. For a fresh environment, remove any saved RC version override from the startup command and set `offckb config set fnn-version 0.9.0` if you previously changed the default. Existing environments in the current format reuse their saved FNN path.
+- Early Fiber canaries used `nodes[].config`. v0.5.0 requires a full per-node config referenced by `config_file` and has no automatic import of the old layout. Back up the old Fiber directory and initialize a new environment before reapplying custom configuration. See the [Fiber guide](fiber-devnet.md).
+- For binary tools, use `offckb plugin install <catalog-name>` or `offckb plugin install ./dir` with an `offckb-tool.json` and its executable. Use these install forms in place of early canary `tool:` sources, descriptor-file installs, or binary links. See the [current source matrix](plugins.md#what-to-type-in-one-table).
+- If automation parsed the human-readable `offckb plugin list` output, switch to `offckb --json plugin list`. The text output now groups JavaScript plugins and binary tools, while JSON retains the structured plugin and catalog records.
+
 # Migration from v0.3.x to v0.4.x
 
-> **⚠️ Important:** All migrations require a local chain clean. You should run `offckb clean` before upgrading to new breaking-change version.
+> **Important for the v0.3.x to v0.4.x upgrade:** Back up the local devnet if needed, then run `offckb clean` before upgrading across this version boundary.
 
 ## BREAKING CHANGES
 

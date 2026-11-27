@@ -2,9 +2,19 @@
 
 ## 0.5.0
 
+### Upgrade notes
+
+- Existing v0.4 devnets can restart with their original options and data. Fresh devnets include Fiber contracts in genesis. To use Fiber on an older chain without those contracts, back up and rebuild the devnet, then regenerate cached system script references and redeploy local contracts.
+- `offckb accounts` includes built-in test private keys by default, including in JSON. Add `--hide-private-keys` to preserve the previous default. Mainnet forks still hide keys unless explicitly requested.
+- The native debugger is now managed as a binary tool plugin. `offckb install ckb-debugger` remains available, and new downloads follow the catalog pin. Qualifying legacy installs can be adopted offline. Replace hard-coded legacy paths with `offckb plugin which ckb-debugger`.
+- Settings mutations now fail when the settings file is invalid, unreadable or unwritable. `offckb clean --data` also removes managed Fiber stores when present, and `offckb node stop` can refuse while separately managed Fiber nodes are running.
+
+See the [v0.4.x to v0.5.0 migration guide](docs/migration.md#migration-from-v04x-to-v050) for commands and early canary migration.
+
 ### Minor Changes
 
-- 2054548: Add Fiber (FNN) support to the local devnet. The devnet genesis now carries the Fiber contracts `auth`, `funding_lock` and `commitment_lock` (pinned to the FNN v0.9.0-rc7 source), and a new `offckb fiber` command family manages a local Fiber environment: `offckb node --fiber` starts CKB, miner, RPC proxy and FNN nodes in one go, while `offckb fiber start` adds FNN nodes to an already-running devnet (with `--daemon`/`offckb fiber stop` for background operation). Each node gets its own built-in CKB account (node N → account N+2), network identity, RPC port 21713+N, P2P port 8343+N and a `fnn.log`; `offckb fiber status [--json]` reports live node health, `offckb fiber logs --node <id>` reads node logs, and `offckb fiber clean [--data]` removes stores or the whole fiber environment. Startup verifies the devnet spec, CKB and every FNN agree on the same chain and checks node identity keys, funding accounts and balances. Plain local devnet only — mainnet/testnet and forked devnets are rejected. `offckb clean` now also removes fiber stores with `--data` and refuses to delete data while a CKB/fiber daemon or a live FNN store lock can be confirmed. New devnets only: devnets initialized by earlier offckb versions lack the Fiber contracts and must be rebuilt (`offckb clean`) to use Fiber, which changes the genesis hash.
+- 2054548: Add Fiber (FNN) support to plain local devnets with the bundled FNN v0.9.0 integration. `offckb node --fiber` starts CKB, miner, RPC proxy and FNN nodes together. Use `offckb fiber start` to add Fiber to a running devnet, or `offckb fiber init` to prepare and customize per-node configuration before starting. Restarts reuse the saved FNN path, configs, keys and stores. See the [Fiber devnet guide](docs/fiber-devnet.md) for status, logs and cleanup.
+- Add experimental [local tool plugins](docs/plugins.md) with npm/GitHub package installs, local JavaScript links and explicit capability grants. Native binary tools share the same install, list and removal commands. The [binary tool catalog](docs/binary-tools.md) ships pinned descriptors for `ckb-debugger` and `ckb-cli`.
 
 ## 0.4.13
 
