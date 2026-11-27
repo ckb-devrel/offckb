@@ -178,9 +178,12 @@ function isPortable(): boolean {
 
   try {
     const CPUFeatures = require('cpu-features');
-    const features = CPUFeatures();
+    const features: {
+      arch: string;
+      flags: { avx2?: true; sse4_2?: true; bmi2?: true; pclmulqdq?: true };
+    } = CPUFeatures();
     if (features.arch === 'x86') {
-      const flags = features.flags as any; // CPUFeatures.X86CpuFlags
+      const { flags } = features;
       // if lacks any of the following instruction, use portable binary
       cachedIsPortable = !(flags.avx2 && flags.sse4_2 && flags.bmi2 && flags.pclmulqdq);
     } else {
