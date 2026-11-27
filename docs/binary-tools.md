@@ -63,9 +63,14 @@ The v0.5.0 catalog pins v1.1.2. On first registration, all three accepted spelli
 (`ckb-debugger`, `ckb-debugger@latest` and `ckb-debugger@1.1.2`) can adopt a runnable legacy
 binary under `tools.rootFolder/ckb-debugger/` that reports a version at or above the
 catalog's adoption minimum (0.200.0). Adoption works offline and can remove the legacy
-directory after registration succeeds. If adoption kept a different version and you need
-the catalog pin, rerun `offckb plugin install ckb-debugger` and run the executable reported
-by `offckb plugin which ckb-debugger` with `--version` to verify it.
+directory after registration succeeds.
+
+If adoption kept a different version and your platform has a catalog asset, rerun
+`offckb plugin install ckb-debugger` to install the pin. Run the executable reported by
+`offckb plugin which ckb-debugger` with `--version` to verify it. Intel macOS
+(`darwin-x64`) has no v1.1.2 asset in the v0.5.0 catalog. Keep the adopted executable
+or put a compatible local build on PATH ahead of the managed shim if you need v1.1.2.
+
 Update scripts that used the old absolute path to discover the
 registered executable with `offckb plugin which ckb-debugger` or `offckb --json plugin which ckb-debugger`.
 `tools.ckbDebugger.minVersion` still controls whether `offckb create` can reuse an already
