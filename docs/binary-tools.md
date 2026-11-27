@@ -67,12 +67,16 @@ directory after registration succeeds.
 
 If adoption kept a different version and your platform has a catalog asset, rerun
 `offckb plugin install ckb-debugger` to install the pin. Run the executable reported by
-`offckb plugin which ckb-debugger` with `--version` to verify it. Intel macOS
-(`darwin-x64`) has no v1.1.2 asset in the v0.5.0 catalog. Keep the adopted executable
-or put a compatible local build on PATH ahead of the managed shim if you need v1.1.2.
+`offckb plugin which ckb-debugger` with `--version` to verify it.
 
-Update scripts that used the old absolute path to discover the
-registered executable with `offckb plugin which ckb-debugger` or `offckb --json plugin which ckb-debugger`.
+On Intel macOS (`darwin-x64`), the v0.5.0 catalog has no v1.1.2 asset. Keep the adopted
+executable or put a compatible local build on PATH ahead of the managed shim and verify
+it with `ckb-debugger --version`. Scripts that need an absolute path to the local build
+should use that build's path directly. `offckb plugin which ckb-debugger` still returns
+the registered (adopted) executable after a PATH change.
+
+For scripts that use the OffCKB-managed executable, discover its path with
+`offckb plugin which ckb-debugger` or `offckb --json plugin which ckb-debugger`.
 `tools.ckbDebugger.minVersion` still controls whether `offckb create` can reuse an already
 registered debugger. The explicit install command uses the catalog's version and adoption minimum.
 
