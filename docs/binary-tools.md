@@ -13,7 +13,9 @@ with your user permissions**.
 | Official catalog (pinned per offckb release) | `offckb plugin install ckb-debugger` / `ckb-cli` | Implicit: the descriptor (URLs, versions, SHA-256s) is reviewed and shipped with offckb. Installing is trusting offckb's release process. |
 | Local directory you point at | `offckb plugin install ./dir` | Your own decision, like running any local executable. |
 
-`offckb plugin list` shows every catalog tool with check marks for what is installed.
+The `Binary tools` section of `offckb plugin list` shows registered tools and catalog entries.
+A catalog tool is marked `blocked` when a JavaScript plugin already uses its command name.
+Use `offckb --json plugin list` for full source details.
 `@latest` installs the catalog's pinned version; other versions fail closed with the pinned
 version in the message — newer upstream releases arrive with offckb updates (a version-bump PR,
 like every other pin in this repository). Request additional tools by issue or PR; there is no

@@ -7,6 +7,7 @@ import {
   linkPlugin,
   listNativeTools,
   listPlugins,
+  PluginInfo,
   PluginLinkOptions,
   PluginSource,
   removePlugin,
@@ -19,6 +20,28 @@ import { assertSandboxSupported } from './sandbox';
 
 function checkMode(mode: 'sandbox' | 'trusted'): void {
   if (mode === 'sandbox') assertSandboxSupported();
+}
+
+function formatPluginRows(
+  rows: { command: string; version?: string; status: string; error?: string; detail?: string }[],
+): string[] {
+  const commandWidth = rows.reduce((width, { command }) => Math.max(width, command.length), 0);
+  const versionWidth = rows.reduce((width, { version }) => Math.max(width, version?.length ?? 0), 1);
+  return rows.flatMap(({ command, version, status, error, detail }) => {
+    const row = `  ${command.padEnd(commandWidth)}  ${(version || '-').padEnd(versionWidth)}  ${status}${error ? ` — ${error}` : ''}`;
+    return detail ? [row, `    ${detail}`] : [row];
+  });
+}
+
+function pluginListRow({ command, version, kind, mode, state, error, source }: PluginInfo) {
+  const status = state === 'available' ? '✓ installed' : state;
+  return {
+    command,
+    version,
+    status: kind === 'js' ? `${status} (${mode})` : status,
+    error,
+    detail: !version && source ? `Source: ${source.resolved}` : undefined,
+  };
 }
 
 const permissionDescriptions: Record<PluginPermission, string> = {
@@ -211,31 +234,42 @@ export function registerPluginManagement(program: Command): {
     .description('List installed plugins and available catalog tools')
     .action(() => {
       const plugins = listPlugins(reserved(), checkMode);
-      for (const plugin of plugins)
-        logger.info(
-          `${plugin.command}: ${plugin.state} [${plugin.mode}]${plugin.kind === 'binary' ? ' [binary]' : ''}${
-            plugin.source ? ` (${plugin.source.resolved})` : ''
-          }${plugin.error ? ` — ${plugin.error}` : ''}`,
-        );
-      // Catalog visibility: the same list answers "what can I install?".
-      // Installed state is derived from the registry, so a tool installed
-      // from any source shows its check mark here.
-      const installed = new Set(plugins.filter((plugin) => plugin.kind === 'binary').map((plugin) => plugin.command));
+      const binaries = plugins.filter((plugin) => plugin.kind === 'binary');
+      const installedBinaries = new Set(binaries.map((plugin) => plugin.command));
       const catalog = Object.values(catalogEntries()).map((entry) => ({
         command: entry.command,
         name: entry.install.name,
         version: entry.install.version,
         description: entry.install.description,
-        installed: installed.has(entry.command),
+        installed: installedBinaries.has(entry.command),
       }));
-      if (catalog.length > 0)
-        logger.info('Binary tools: install with `offckb plugin install <name>` (✓ installed, ✗ available)');
-      for (const entry of catalog)
-        logger.info(
-          `  ${entry.installed ? '✓' : '✗'} ${entry.command}  ${entry.description}${
-            entry.installed ? ' (installed)' : ''
-          }`,
-        );
+      if (!logger.isJsonMode()) {
+        const js = plugins.filter((plugin) => plugin.kind === 'js').map(pluginListRow);
+        const jsCommands = new Set(js.map(({ command }) => command));
+        const catalogRows = catalog
+          .filter(({ installed }) => !installed)
+          .map(({ command, version, description }) => {
+            const blocked = jsCommands.has(command);
+            return {
+              command,
+              version,
+              blocked,
+              status: blocked ? 'blocked — command used by a JavaScript plugin' : '✗ available',
+              detail: description,
+            };
+          });
+        const binaryRows = formatPluginRows([...binaries.map(pluginListRow), ...catalogRows]);
+        logger.info([
+          'JavaScript plugins',
+          ...(js.length ? formatPluginRows(js) : ['  None installed']),
+          '',
+          'Binary tools',
+          ...(binaryRows.length ? binaryRows : ['  None available']),
+          ...(catalogRows.some(({ blocked }) => !blocked)
+            ? ['', 'Install a catalog tool with `offckb plugin install <name>`.']
+            : []),
+        ]);
+      }
       logger.result({ command: 'plugin.list', plugins, catalog });
     });
   management
