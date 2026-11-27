@@ -14,9 +14,7 @@ CKB local development network for your first try.
 - Create boilerplate to build CKB Smart Contract in Typescript
 - Proxy RPC that automatically dumps failed transactions for easier debugging
 
-**Migrate from v0.3.x to v0.4.x:**
-
-There are BREAKING CHANGES between v0.3.x and v0.4.x, make sure to read the [migration guide](/docs/migration.md) before upgrading.
+**Upgrading from v0.4.x to v0.5.0?** Restart with your existing devnet data. Rebuild only if you want Fiber on a chain whose genesis lacks the Fiber contracts. If you capture `offckb accounts` output, add `--hide-private-keys` to keep the previous default. See the [upgrade guide](docs/migration.md#migration-from-v04x-to-v050) for debugger, settings and reset changes, or the [v0.3.x to v0.4.x instructions](docs/migration.md#migration-from-v03x-to-v04x) if you are upgrading from v0.3.x.
 
 ---
 
@@ -31,6 +29,7 @@ There are BREAKING CHANGES between v0.3.x and v0.4.x, make sure to read the [mig
   - [5. Explore Built-in Scripts {#explore-scripts}](#5-explore-built-in-scripts-explore-scripts)
   - [6. Tweak Devnet Config {#tweak-devnet-config}](#6-tweak-devnet-config-tweak-devnet-config)
   - [7. Fork Mainnet/Testnet Into Your Devnet {#fork-devnet}](#7-fork-mainnettestnet-into-your-devnet-fork-devnet)
+  - [8. Run a Fiber Devnet {#fiber-devnet}](#8-run-a-fiber-devnet-fiber-devnet)
 - [Config Setting](#config-setting)
   - [List All Settings](#list-all-settings)
   - [Set CKB version](#set-ckb-version)
@@ -235,7 +234,7 @@ offckb install ckb-debugger
 
 (`offckb install <source>` is an alias of `offckb plugin install <source>`; both share one install lifecycle.)
 
-This downloads the prebuilt `ckb-debugger` binary for your platform from the official [ckb-standalone-debugger releases](https://github.com/nervosnetwork/ckb-standalone-debugger/releases) and puts a `ckb-debugger` shim next to the offckb binary so it is available on PATH.
+This installs the catalog-pinned native debugger or adopts a qualifying v0.4 installation. With the default plugin home, installation puts a `ckb-debugger` shim next to `offckb` when possible. Check [debugger migration and PATH setup](docs/binary-tools.md#upgrading-ckb-debugger) if your project still resolves an older debugger.
 
 Then disable the WASM debugger in your mock test file:
 
@@ -334,7 +333,7 @@ All debug utilities are powered by [ckb-debugger](https://github.com/nervosnetwo
 offckb install ckb-debugger
 ```
 
-This is the alias of `offckb plugin install ckb-debugger`. It downloads the prebuilt binary for your platform from the official [ckb-standalone-debugger releases](https://github.com/nervosnetwork/ckb-standalone-debugger/releases) (no Rust toolchain or compilation needed), verifies its checksum, and exposes it on PATH.
+This is an alias of `offckb plugin install ckb-debugger`. It adopts an eligible legacy install or downloads and verifies the prebuilt version pinned in the OffCKB catalog. To locate the managed executable, run `offckb plugin which ckb-debugger`. See [upgrading ckb-debugger](docs/binary-tools.md#upgrading-ckb-debugger) for path and version details.
 
 To uninstall, run `offckb plugin remove ckb-debugger`; it removes the managed binary and the offckb-owned shim while keeping data and cache.
 
@@ -485,7 +484,7 @@ offckb fiber clean                # delete the whole fiber environment
 
 - Only the plain local devnet is supported: no mainnet/testnet, and no forked devnet (a `fork.json` present in the devnet directory rejects Fiber startup).
 - OffCKB manages FNN processes, configuration, accounts and management RPC. It does not depend on LSP or `lsp-cli`; extension features are optional and must be supported by the selected FNN executable.
-- A devnet created by an offckb version without Fiber support does not have the Fiber contracts in its genesis. `fiber start` / `node --fiber` on such a devnet refuse with migration guidance: rebuild with `offckb clean` (which deletes the local chain data) and start again; a plain `offckb node` keeps working on the old devnet unchanged.
+- A plain `offckb node` continues to use the existing v0.4 chain. To enable Fiber on a chain whose genesis lacks the contracts, follow the [Fiber migration steps](docs/migration.md#rebuild-only-if-you-want-fiber-on-an-existing-v04-devnet). Rebuilding deletes local chain state and changes the genesis hash.
 - New node `N` defaults to built-in CKB account `N+2`, RPC port `21713+N` and P2P port `8343+N`. The account binding is saved, not recalculated on restart. Up to 16 nodes: first start with `offckb fiber start --nodes 4`, or prepare them without starting with `offckb fiber init --nodes 4`. Append a node with `offckb fiber init --add`; optionally choose `--account-index 12` or `--random-account` (unfunded).
 - First initialization downloads a tested FNN release (currently `0.9.0`), unless a version or `--binary-path <fnn>` is supplied (`--fnn-binary-path` with `node --fiber`). Downloads are verified against pinned SHA-256 digests. The absolute program and template paths are saved in `fiber/nodes.yml`; subsequent starts reuse that program without downloading or upgrading. Startup selection flags must agree with an existing environment. Use `fiber init --add` or `fiber init --nodes N` to prepare additional nodes.
 - Every FNN writes stdout/stderr to `devnet/fiber/nodes/<id>/fnn.log`. Each node has a persistent full `config.yml`, generated once by initialization and never overwritten by startup. `nodes.yml` records its `config_file`, funding `account`, and `rpc_token_file`; relative paths resolve from `nodes.yml`. Keep the local chain/scripts, fixed ports, node store location and required `fiber`/`rpc`/`ckb` services and `info`/`peer` RPC modules. Other services and modules may be added. The old `nodes[].config` format is unsupported; there is no legacy environment migration.
@@ -514,6 +513,10 @@ The complete lifecycle and configuration contract is in [Fiber devnet design](do
   - UDT channels are not auto-accepted (CKB channels are). After `open_channel` the peer stays in `NegotiatingFunding` until you call `accept_channel` on the peer node, and its `funding_amount` must be `0x0` — a nonzero amount fails with "invalid funding tx".
 
 ## Config Setting
+
+Starting with v0.5.0, `config set` and `config rm proxy` return an error if the settings file
+cannot be read, parsed, or saved. Use the path in the error to repair the file or permissions,
+then retry the command.
 
 ### List All Settings
 
@@ -583,7 +586,7 @@ offckb accounts                      # prints address, private key, pubkey and l
 offckb accounts --hide-private-keys  # omit private keys, e.g. when output goes to logs
 ```
 
-The built-in accounts are public test keys, so `accounts` prints their private keys by default (also in `--json` output).
+Starting with v0.5.0, `accounts` prints the built-in public test private keys by default, including in `--json` output. Use `offckb --json accounts --hide-private-keys` to preserve the v0.4 output for automation.
 
 On a Mainnet fork, `accounts` re-encodes the same dev lock scripts with the `ckb` address prefix, so private keys are hidden by default there; pass `--show-private-keys` (trusted local terminals only) to print them. Once the Indexer is caught up it also reports each account's spendable pure-CKB balance; until then the field is omitted with a warning.
 

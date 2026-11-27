@@ -2,7 +2,7 @@
 
 目标是让默认节点和改过配置的节点都能由 OffCKB 统一管理：首次直接启动就能用，需要提前配置时才单独初始化，日常重启保留配置和数据。
 
-本次功能面向尚未正式发布的 Fiber devnet，不兼容旧 `nodes[].config` 格式，不自动导入旧目录或迁移旧环境。只管理一套普通 OffCKB 本地链；不支持 fork、主网、测试网或并行的多套环境。
+Fiber devnet 随 OffCKB v0.5.0 引入，支持一套普通 OffCKB 本地链。已有 v0.4 链可以继续运行；如果旧创世缺少 Fiber 合约，需要先按[升级指南](migration.md#rebuild-only-if-you-want-fiber-on-an-existing-v04-devnet)备份并重建。早期 v0.5 canary 的 `nodes[].config` 格式和旧目录需按 [canary 升级说明](migration.md#if-you-used-a-v05-canary)处理。
 
 OffCKB 管理的是 FNN 节点进程、配置、账户和管理 RPC，不依赖 LSP 或 `lsp-cli`，也不调用这些工具。LSP 只是完整配置可保留的一种使用场景；是否启用、支持哪些配置，由用户选择的 FNN 决定。普通节点无需安装或配置 LSP。
 
