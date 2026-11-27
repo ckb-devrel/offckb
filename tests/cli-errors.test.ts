@@ -170,7 +170,15 @@ describe('CLI error output', () => {
   it('shows plugin statuses and a single row for a broken catalog tool while retaining its JSON source', async () => {
     const plugins = [
       { command: 'explorer', kind: 'js', state: 'available', mode: 'sandbox', version: '1.0.0' },
-      { command: 'local-tool', kind: 'binary', state: 'available', mode: 'trusted', version: '1.0.0' },
+      {
+        command: 'local-tool',
+        kind: 'binary',
+        state: 'available',
+        mode: 'trusted',
+        version: '1.0.0',
+        source: { resolved: 'local-tool@1.0.0#sha256:healthy' },
+      },
+      { command: 'legacy-tool', kind: 'binary', state: 'available', mode: 'trusted', version: '' },
       {
         command: 'sandbox-tool',
         kind: 'js',
@@ -192,7 +200,7 @@ describe('CLI error output', () => {
         state: 'invalid',
         mode: 'trusted',
         error: 'Executable is missing',
-        source: { resolved: 'ckb-debugger@1.1.2#sha256:example' },
+        source: { resolved: 'ckb-debugger@0.200.0#sha256:example' },
       },
     ];
     mockListPlugins.mockReturnValue(plugins);
@@ -204,12 +212,15 @@ describe('CLI error output', () => {
     const output = logger.info.mock.calls.flat(2).join('\n');
     expect(output).toMatch(/JavaScript plugins\n  explorer\s+1\.0\.0\s+✓ installed \(sandbox\)/);
     expect(output).toMatch(/^  local-tool +1\.0\.0 +✓ installed$/m);
+    expect(output).toMatch(/^  legacy-tool +- +✓ installed$/m);
     expect(output).toMatch(/^  sandbox-tool +1\.0\.0 +incompatible \(sandbox\) — Unsupported Node version$/m);
     expect(output).toMatch(/^  balance +- +shadowed \(trusted\) — A core command has priority$/m);
-    expect(output).toMatch(/ckb-cli\s+\S+\s+✗ available/);
-    expect(output).toMatch(/ckb-debugger\s+-\s+invalid — Executable is missing/);
-    expect(output.match(/ckb-debugger/g)).toHaveLength(1);
-    expect(output).not.toContain('sha256:');
+    expect(output).toMatch(/^  ckb-cli +\S+ +✗ available\n    [^\n]+does not include tui/m);
+    expect(output).toMatch(
+      /^  ckb-debugger +- +invalid — Executable is missing\n    Source: ckb-debugger@0\.200\.0#sha256:example$/m,
+    );
+    expect(output.match(/^  ckb-debugger /gm)).toHaveLength(1);
+    expect(output).not.toContain('sha256:healthy');
 
     logger.info.mockClear();
     logger.result.mockClear();

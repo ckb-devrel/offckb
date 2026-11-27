@@ -22,18 +22,26 @@ function checkMode(mode: 'sandbox' | 'trusted'): void {
   if (mode === 'sandbox') assertSandboxSupported();
 }
 
-function formatPluginRows(rows: { command: string; version?: string; status: string; error?: string }[]): string[] {
+function formatPluginRows(
+  rows: { command: string; version?: string; status: string; error?: string; detail?: string }[],
+): string[] {
   const commandWidth = rows.reduce((width, { command }) => Math.max(width, command.length), 0);
   const versionWidth = rows.reduce((width, { version }) => Math.max(width, version?.length ?? 0), 1);
-  return rows.map(
-    ({ command, version, status, error }) =>
-      `  ${command.padEnd(commandWidth)}  ${(version ?? '-').padEnd(versionWidth)}  ${status}${error ? ` — ${error}` : ''}`,
-  );
+  return rows.flatMap(({ command, version, status, error, detail }) => {
+    const row = `  ${command.padEnd(commandWidth)}  ${(version || '-').padEnd(versionWidth)}  ${status}${error ? ` — ${error}` : ''}`;
+    return detail ? [row, `    ${detail}`] : [row];
+  });
 }
 
-function pluginListRow({ command, version, kind, mode, state, error }: PluginInfo) {
+function pluginListRow({ command, version, kind, mode, state, error, source }: PluginInfo) {
   const status = state === 'available' ? '✓ installed' : state;
-  return { command, version, status: kind === 'js' ? `${status} (${mode})` : status, error };
+  return {
+    command,
+    version,
+    status: kind === 'js' ? `${status} (${mode})` : status,
+    error,
+    detail: !version && source ? `Source: ${source.resolved}` : undefined,
+  };
 }
 
 const permissionDescriptions: Record<PluginPermission, string> = {
@@ -240,13 +248,14 @@ export function registerPluginManagement(program: Command): {
         const jsCommands = new Set(js.map(({ command }) => command));
         const catalogRows = catalog
           .filter(({ installed }) => !installed)
-          .map(({ command, version }) => {
+          .map(({ command, version, description }) => {
             const blocked = jsCommands.has(command);
             return {
               command,
               version,
               blocked,
               status: blocked ? 'blocked — command used by a JavaScript plugin' : '✗ available',
+              detail: description,
             };
           });
         const binaryRows = formatPluginRows([...binaries.map(pluginListRow), ...catalogRows]);
